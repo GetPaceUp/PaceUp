@@ -19,17 +19,26 @@ export const CATEGORIES = {
   other: { emoji: "📍", label: "Other", noun: "activity" }
 };
 const cat = (a) => CATEGORIES[a.category] || CATEGORIES.other;
-const when = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+// Always 12-hour with AM/PM: "5:30" alone is ambiguous for a dawn ride.
+const timeOnly = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+const PACE_UNIT = { cycling: "km/h", running: "min/km", hiking: "km/h", swimming: "min/100 m", triathlon: "", other: "" };
+/** "25-30" -> "25–30 km/h" for a ride; a pace that already has a unit is shown as typed. */
+export const paceText = (pace, category) => {
+  if (!pace) return null;
+  const p = String(pace).trim().replace(/\s*-\s*/g, "–");
+  return /^[\d.:–\s]+$/.test(p) && PACE_UNIT[category] ? `${p} ${PACE_UNIT[category]}` : p;
+};
+const when = (iso) => `${new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${timeOnly(iso)}`;
 const dayNum = (iso) => new Date(iso).toLocaleDateString(undefined, { day: "2-digit" });
 const monthShort = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short" }).toUpperCase();
-const timeOnly = (iso) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
 const rideUrl = (code) => `${window.location.origin}/r/${code}`;
 const pad = (n) => String(n).padStart(2, "0");
 const localDate = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const localTime = (iso) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
 export function shareText(ride) {
-  const details = [ride.distance_km ? `${ride.distance_km} km` : null, ride.pace, ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
+  const details = [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
   const lines = [`${cat(ride).emoji} *${ride.title}*`, when(ride.starts_at), `📍 ${ride.meeting_point}`];
   if (details) lines.push(details);
   lines.push("", "Tap to say you're in:", rideUrl(ride.code));
@@ -272,10 +281,8 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
             <span className="avatar">{n.name.slice(0, 1).toUpperCase()}</span><span>{n.name}</span>
           </button></li>
         ))}
-        {!searching && names.length === 0 && typed.includes(" ") && <li className="name-empty">Not on the club list yet.</li>}
-        {!exact && typed.length >= 2 && (typed.includes(" ")
-          ? <li><button type="button" className="guest-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>I'm new: add <b>{typed}</b> to the club list</button></li>
-          : !searching && <li className="name-empty">New here? Type your full name to add yourself.</li>)}
+        {!searching && names.length === 0 && <li className="name-empty">Not on the club list yet. Tap below to join and be added.</li>}
+        {!exact && typed.length >= 2 && <li><button type="button" className="primary-button new-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>I'm in as {typed} <small>(new)</small></button></li>}
       </ul>}
       {typed.length < 2 && <p className="panel-copy">Type at least 2 letters, then tap your name.</p>}
       <button type="button" className="text-button" onClick={onClose}>Back</button>
@@ -383,7 +390,7 @@ export function RidePage({ code }) {
       <dl className="ride-meta">
         <div><dt>When</dt><dd>{when(ride.starts_at)}</dd></div>
         <div><dt>Meet</dt><dd>{ride.meeting_point}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>
-        {(ride.distance_km || ride.pace) && <div><dt>Distance</dt><dd>{[ride.distance_km && `${ride.distance_km} km`, ride.pace].filter(Boolean).join(" · ")}</dd></div>}
+        {(ride.distance_km || ride.pace) && <div><dt>Distance</dt><dd>{[ride.distance_km && `${ride.distance_km} km`, paceText(ride.pace, ride.category)].filter(Boolean).join(" · ")}</dd></div>}
         {ride.organiser && <div><dt>Organiser</dt><dd>{ride.organiser.name}</dd></div>}
         {ride.notes && <div><dt>Notes</dt><dd className="ride-notes">{ride.notes}</dd></div>}
       </dl>

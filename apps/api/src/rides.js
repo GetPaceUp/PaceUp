@@ -250,7 +250,6 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       const listed = db.prepare("SELECT id, name FROM club_roster WHERE club_id = ? AND name_key = ?").get(ride.club_id, nameKey(displayName));
       if (listed) { who.roster_id = listed.id; displayName = listed.name; }
       else {
-        if (displayName.split(" ").length < 2) throw new DomainError(400, "Add your surname too, so the club can tell people apart.");
         who.roster_id = randomUUID();
         db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, source, self_added, created_at, updated_at) VALUES (?, ?, ?, ?, 'manual', 1, ?, ?)")
           .run(who.roster_id, ride.club_id, displayName, nameKey(displayName), now, now);

@@ -151,7 +151,6 @@ test("guests RSVP by name without an account, and only their own phone can chang
 test("someone new adds themselves to the club list; next time they just pick their name", async () => {
   const { code } = await publish({ capacity: null });
   const newbie = phone();
-  assert.equal((await newbie.rsvp(code, { status: "going", name: "Zoya" })).statusCode, 400, "a surname is needed to join the list");
   const joined = await newbie.rsvp(code, { status: "going", name: "zoya khan" });
   assert.equal(joined.statusCode, 200, joined.body);
   assert.deepEqual(joined.json().ride.my_rsvp, { id: joined.json().ride.my_rsvp.id, name: "Zoya Khan", listed: true });
