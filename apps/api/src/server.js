@@ -35,7 +35,7 @@ app.post("/api/clubs", async (request, reply) => {
   const slug = name
     .normalize("NFKD")
     .toLowerCase()
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60);
