@@ -5,6 +5,8 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import bcrypt from "bcryptjs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
@@ -178,7 +180,7 @@ export async function buildApp(options = {}) {
 
 const port = Number(process.env.PORT || 3001);
 const host = process.env.HOST || "127.0.0.1";
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const app = await buildApp();
   try { await app.listen({ port, host }); }
   catch (error) { app.log.error(error); process.exit(1); }
