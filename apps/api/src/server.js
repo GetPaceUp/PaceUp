@@ -10,7 +10,8 @@ import { pathToFileURL } from "node:url";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
-  createClubInvitation, findInvitation, acceptClubInvitation, registerUser
+  createClubInvitation, findInvitation, acceptClubInvitation, registerUser,
+  getPlatformRole, getPlatformOverview, setPlatformRole
 } from "./db.js";
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -55,6 +56,23 @@ export async function buildApp(options = {}) {
   }
 
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
+
+  async function requirePlatformAdmin(request, reply) {
+    if (getPlatformRole(request.user.sub) !== "super_admin") return reply.code(403).send({ error: "Platform owner access required." });
+  }
+  app.get("/api/platform/overview", { preHandler: [app.authenticate, requirePlatformAdmin] }, async () => ({
+    ...getPlatformOverview(),
+    services: { api: "online", whatsapp: "not_configured", ssl: "managed_by_deployment" }
+  }));
+  app.patch("/api/platform/users/:userId/role", { preHandler: [app.authenticate, requirePlatformAdmin] }, async (request, reply) => {
+    const role = request.body?.role;
+    if (!["user", "super_admin"].includes(role)) return reply.code(400).send({ error: "Invalid platform role." });
+    if (request.params.userId === request.user.sub && role !== "super_admin") return reply.code(400).send({ error: "You cannot remove your own platform-owner access." });
+    const user = setPlatformRole(request.params.userId, role);
+    if (!user) return reply.code(404).send({ error: "User not found." });
+    return { user };
+  });
+
 
   app.post("/api/auth/register", async (request, reply) => {
     const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";

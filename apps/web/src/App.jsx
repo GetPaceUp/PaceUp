@@ -1,8 +1,10 @@
+import SuperAdmin from "./SuperAdmin.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "", clubName: "" };
 
 export default function App() {
+  if (window.location.pathname === "/superadmin") return <SuperAdmin />;
   const [user, setUser] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [mode, setMode] = useState("register");

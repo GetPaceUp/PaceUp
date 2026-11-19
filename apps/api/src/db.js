@@ -101,3 +101,20 @@ const acceptInviteTransaction = db.transaction(({ invitation, userId }) => {
   db.prepare("UPDATE club_invitations SET accepted_at = datetime('now') WHERE id = ?").run(invitation.id);
 });
 export function acceptClubInvitation(invitation, userId) { acceptInviteTransaction({ invitation, userId }); }
+
+const userColumns = db.prepare("PRAGMA table_info(users)").all().map((column) => column.name);
+if (!userColumns.includes("platform_role")) db.exec("ALTER TABLE users ADD COLUMN platform_role TEXT NOT NULL DEFAULT 'user' CHECK (platform_role IN ('user', 'super_admin'))");
+const ownerEmail = process.env.PACEUP_SUPERADMIN_EMAIL?.trim().toLowerCase();
+if (ownerEmail) db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE email = ? COLLATE NOCASE").run(ownerEmail);
+export function getPlatformRole(userId) { return db.prepare("SELECT platform_role FROM users WHERE id = ?").get(userId)?.platform_role || "user"; }
+export function getPlatformOverview() {
+  return {
+    counts: { clubs: db.prepare("SELECT COUNT(*) AS count FROM clubs").get().count, users: db.prepare("SELECT COUNT(*) AS count FROM users").get().count, memberships: db.prepare("SELECT COUNT(*) AS count FROM club_memberships").get().count },
+    clubs: db.prepare("SELECT c.id,c.name,c.slug,c.created_at,COUNT(cm.user_id) AS member_count FROM clubs c LEFT JOIN club_memberships cm ON cm.club_id=c.id GROUP BY c.id ORDER BY c.created_at DESC").all(),
+    users: db.prepare("SELECT u.id,u.name,u.email,u.platform_role,u.created_at,COUNT(cm.club_id) AS club_count FROM users u LEFT JOIN club_memberships cm ON cm.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC").all()
+  };
+}
+export function setPlatformRole(userId, role) {
+  db.prepare("UPDATE users SET platform_role = ? WHERE id = ?").run(role, userId);
+  return db.prepare("SELECT id,name,email,platform_role FROM users WHERE id = ?").get(userId);
+}
