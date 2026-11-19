@@ -105,3 +105,13 @@ test("templates: saved on the web, reused by name on WhatsApp", async () => {
   assert.equal(del.statusCode, 200);
   assert.deepEqual((await call("GET", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie })).json().templates, []);
 });
+
+test("an AM/PM answer is never taken as the place, and 'meet' alone isn't a request", () => {
+  assert.equal(say("Can we meet Sunday at 6?"), null);
+  const r = say("Create a run tomorrow at 6");
+  assert.match(r, /morning or evening/);
+  const r2 = say("AM");
+  assert.doesNotMatch(r2, /📍 AM/);
+  assert.match(r2, /Where are we meeting/);
+  say("cancel");
+});

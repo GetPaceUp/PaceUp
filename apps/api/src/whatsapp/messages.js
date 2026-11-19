@@ -38,7 +38,9 @@ function details(ride) {
 export function ridePublishedText(ride) {
   const lines = [`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
   if (details(ride)) lines.push(details(ride));
-  if (ride.organiser_name) lines.push(`Organiser: ${shortName(ride.organiser_name)}`);
+  // The club organises; the admin who created it leads.
+  if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
+  if (ride.organiser_name) lines.push(`Lead: ${shortName(ride.organiser_name)}`);
   if (ride.notes) lines.push("", ride.notes);
   lines.push("", "Tap to say you're in 👇", rideLink(ride));
   return lines.join("\n");
@@ -55,7 +57,7 @@ export function riderListText(ride, riders, previous) {
   const full = ride.capacity && riders.length >= ride.capacity;
   const lines = [`${emoji(ride)} *${ride.title}* · ${whenText(ride.starts_at, { short: true })}`, `*${count} going*${full ? " · FULL" : ""}`, ""];
   riders.forEach((r, i) => {
-    const tags = [r.user_id && r.user_id === ride.organiser_id ? "(organiser)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
+    const tags = [r.user_id && r.user_id === ride.organiser_id ? "(lead)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
     lines.push(`${i + 1}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`);
   });
   if (!riders.length) lines.push("No one yet.");

@@ -195,7 +195,7 @@ export function defaultTitle(draft) {
 }
 
 const COMMAND = /^\s*(?:please\s+)?(?:create|new|add|post|schedule|plan|organi[sz]e|set up|setup|make|start|let'?s)\b/i;
-export const ACTIVITY_NOUN = new RegExp(CATEGORY_WORDS.map(([, re]) => re.source).join("|") + "|\\b(activity|event|session|meet)\\b", "i");
+export const ACTIVITY_NOUN = new RegExp(CATEGORY_WORDS.map(([, re]) => re.source).join("|") + "|\\b(activity)\\b", "i");
 const segments = (text) => String(text || "").split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
 const titleCase = (s) => s.replace(/\s+/g, " ").trim().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 

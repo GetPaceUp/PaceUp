@@ -80,3 +80,21 @@ test("invites go by mobile number: added at once and WhatsApped from the club nu
   const bossId = db.prepare("SELECT id FROM users WHERE email = 'boss@example.com'").get().id;
   assert.equal((await call("DELETE", `/api/clubs/${clubId}/members/${bossId}`, { cookie })).statusCode, 409, "owner stays");
 });
+
+test("an invited number later added to an existing email account joins that account, not a duplicate", async () => {
+  const { attachPhone } = await import("../src/otp.js");
+  const clubId = db.prepare("SELECT id FROM clubs WHERE name = 'Boss Club'").get().id;
+  const boss = sessionCookie(await call("POST", "/api/auth/login", { payload: { email: "boss@example.com", password: "strong-password-123" } }));
+  const invited = await call("POST", `/api/clubs/${clubId}/people`, { cookie: boss, payload: { phone: "98765 33333", name: "Some One", role: "admin" } });
+  const placeholder = invited.json().person.id;
+  const someone = db.prepare("SELECT id FROM users WHERE email = 'some@example.com'").get().id;
+  // The person proves the number from their email account.
+  const code = "123456";
+  const { createHash, randomUUID } = await import("node:crypto");
+  db.prepare("INSERT INTO login_codes (id, phone, code_hash, purpose, user_id, expires_at, created_at) VALUES (?, '919876533333', ?, 'attach', ?, ?, ?)")
+    .run(randomUUID(), createHash("sha256").update(`${process.env.APP_SECRET}:otp:919876533333:${code}`).digest("hex"), someone, new Date(Date.now() + 60000).toISOString(), new Date().toISOString());
+  const user = attachPhone(someone, "919876533333", code);
+  assert.equal(user.phone, "919876533333");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE id = ?").get(placeholder).n, 0, "the phone-only duplicate is gone");
+  assert.equal(db.prepare("SELECT role FROM club_memberships WHERE club_id = ? AND user_id = ?").get(clubId, someone).role, "admin", "its club role moved over");
+});

@@ -230,7 +230,8 @@ export function handleIncoming(clubId, msg) {
   if (title && !found.title && (!draft || !draft.title)) found.title = title;
   // A bare reply to "Where are we meeting?" is the place.
   const merged = { ...(draft || {}), ...found };
-  if (!merged.location && merged.date && (merged.time || merged.time_ambiguous)) {
+  const amPmReply = Boolean(draft?.time_ambiguous && !draft.time && resolveAmPm(text, draft.time_ambiguous));
+  if (!merged.location && merged.date && (merged.time || merged.time_ambiguous) && !amPmReply) {
     const place = bareAnswer(text, { tz });
     if (place && !(title && place === title)) found.location = place;
   }

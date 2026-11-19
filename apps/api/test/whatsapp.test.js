@@ -60,6 +60,7 @@ test("a published ride is posted to the club's group, through the club's own ses
   assert.equal(msg.clubId, a.clubId);
   assert.equal(msg.jid, (await wa(a)).json().whatsapp.group.jid);
   assert.match(msg.text, /New ride: Nandi Hills long ride/);
+  assert.match(msg.text, /\nOrganiser: [^\n]+\nLead: Priya S\./, "the club organises, the admin leads");
   assert.match(msg.text, new RegExp(`https://paceup.example/r/${rideCode}`));
 });
 
@@ -79,7 +80,7 @@ test("RSVPs never wait on WhatsApp, and a burst becomes one rider-list post", as
   const lastSent = db.prepare("SELECT MAX(sent_at) AS t FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent'").get(rideId).t;
   assert.ok(new Date(next.not_before) - new Date(lastSent) >= 30 * 1000, "at most one list post per ride every 30 seconds");
   makeDue(); await worker.tick();
-  assert.match(sent.at(-1).text, /Priya S\. \(organiser\) 🆕/);
+  assert.match(sent.at(-1).text, /Priya S\. \(lead\) 🆕/);
   assert.match(sent.at(-1).text, /Dropped out: Meera I\./);
 });
 
