@@ -171,14 +171,7 @@ export async function buildApp(options = {}) {
     return { success: true, clubs: listClubsForUser(user.id) };
   });
 
-  app.get("/api/auth/me", { preHandler: [app.authenticate] }, async (request, reply) => {
-    const user = getUserById(request.user.sub);
-    if (!user) {
-      reply.clearCookie("paceup_session", { path: "/" });
-      return reply.code(401).send({ error: "Please sign in again." });
-    }
-    return { user, clubs: listClubsForUser(user.id) };
-  });
+
 
   return app;
 }
