@@ -83,7 +83,7 @@ export function AddPhone({ onAdded }) {
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
-  if (!open) return <p className="panel-copy add-phone">Sign in faster with your mobile number. <button type="button" className="text-button" onClick={() => setOpen(true)}>Add mobile number</button></p>;
+  if (!open) return <div className="phone-banner" role="note"><p><b>📱 Add your mobile number.</b> Sign in with a WhatsApp code, and create activities by messaging the club number.</p><button type="button" onClick={() => setOpen(true)}>Add mobile number</button></div>;
   return (
     <form className="inline-form add-phone" onSubmit={go}>
       <div className="field-grow">

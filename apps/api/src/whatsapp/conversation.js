@@ -10,6 +10,7 @@ import { db, getClubMembership } from "../db.js";
 import { createRide } from "../rides.js";
 import { parseActivity, resolveAmPm, defaultTitle, zonedToUtc, titleFrom, bareAnswer, CATEGORY_LABEL, ACTIVITY_NOUN } from "./compose.js";
 import { phoneFromJid } from "./contacts.js";
+import { templateInText, listTemplates } from "../templates.js";
 import { rideLink } from "./messages.js";
 import { getConnection } from "./outbox.js";
 
@@ -109,7 +110,9 @@ function summary(draft) {
   if (draft.date) lines.push(`📅 ${dateText(draft.date)}`);
   if (draft.time) lines.push(`⏰ ${timeText(draft.time)}`);
   if (draft.location) lines.push(`📍 ${draft.location}`);
+  if (draft.map_url) lines.push(`🗺️ ${draft.map_url}`);
   if (draft.distance_km) lines.push(`📏 ${draft.distance_km} km`);
+  if (draft.pace) lines.push(`⏱️ ${draft.pace}`);
   if (draft.capacity) lines.push(`👥 ${draft.capacity} spots`);
   if (draft.notes) lines.push(`📝 ${draft.notes}`);
   return lines.join("\n");
@@ -133,17 +136,22 @@ function draftReply(draft, lead) {
   const question = nextQuestion(draft);
   if (isEmpty(draft)) return `Great! Let's get your ${noun(draft)} published. ${question}\n\nReply *CANCEL* to stop.`;
   if (question) return `${lead}\n\n${summary(draft)}\n\n${question}\n\nReply *CANCEL* to discard.`;
-  return `I have the following activity ready:\n\n${summary(draft)}\n\nShould I publish it? Reply *YES* to publish, or send a change (e.g. "time 6:30 AM", "change location to Hebbal flyover"). Reply *CANCEL* to discard.`;
+  return `${lead.startsWith("Using") ? `${lead.replace(/:$/, ".")} ` : ""}I have the following activity ready:\n\n${summary(draft)}\n\nShould I publish it? Reply *YES* to publish, or send a change (e.g. "time 6:30 AM", "change location to Hebbal flyover"). Reply *CANCEL* to discard.`;
 }
 
-const helpText = (clubName) =>
-  `Hi! I can create ${clubName} activities for you. Send the details in one message, for example:\n\n"${EXAMPLE}"\n\nI'll ask for anything missing and check with you before publishing.`;
+let currentClub = null; // set per message, so help can list this club's templates
+const helpText = (clubName) => {
+  const names = currentClub ? listTemplates(currentClub).map((t) => t.name).slice(0, 8) : [];
+  const tpl = names.length ? `\n\nOr start from a saved template: *${names.join("*, *")}*. For example "${names[0]} Sunday 6 AM".` : "";
+  return `Hi! I can create ${clubName} activities for you. Send the details in one message, for example:\n\n"${EXAMPLE}"${tpl}\n\nI'll ask for anything missing and check with you before publishing.`;
+};
 
 function publishDraft(clubId, userId, draft) {
   const ride = createRide(clubId, userId, {
     title: draft.title || defaultTitle(draft), category: draft.category || "other",
     starts_at: startsAt(draft).toISOString(), meeting_point: draft.location,
-    distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null, status: "published"
+    distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null,
+    map_url: draft.map_url ?? null, pace: draft.pace ?? null, status: "published"
   }, { actorType: "whatsapp" });
   dropDraft(clubId, userId);
   const conn = getConnection(clubId);
@@ -167,13 +175,16 @@ function publishDraft(clubId, userId, draft) {
  * msg: { id, from, fromAlt?, text }
  */
 export function handleIncoming(clubId, msg) {
+  currentClub = clubId;
   const text = String(msg.text || "").trim().slice(0, 1000);
   if (!text || !msg.from) return null;
   // Only messages meant for PaceUp are looked at further (the club phone may also be someone's own phone).
   const link = text.match(/^\s*link\s+([A-Za-z0-9]{6})\s*$/i);
   const admin = link ? null : senderAdmin(clubId, msg.from, msg.fromAlt);
   if (!link && !admin) return null; // members and strangers get no bot replies
-  if (admin && !CALL.test(text) && !isRequest(text) && !loadDraft(clubId, admin.userId)) return null;
+  const template = admin ? templateInText(clubId, text) : null;
+  const asks = (t) => isRequest(t) || (template && (/\b(create|new|add|post|schedule|plan)\b/i.test(t) || (() => { const f = parseActivity(t, { tz: TZ() }); return Boolean(f.date || f.time || f.time_ambiguous); })()));
+  if (admin && !CALL.test(text) && !asks(text) && !loadDraft(clubId, admin.userId)) return null;
   if (msg.id) {
     const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_inbound (club_id, message_id, created_at) VALUES (?, ?, ?)").run(clubId, msg.id, iso()).changes;
     if (!fresh) return null;
@@ -191,7 +202,7 @@ export function handleIncoming(clubId, msg) {
   let draft = loadDraft(clubId, userId);
 
   // With no draft open, only an obvious request starts a chat; anything else is the admin's own conversation.
-  if (!draft && !CALL.test(text) && !isRequest(text)) return null;
+  if (!draft && !CALL.test(text) && !asks(text)) return null;
   if (CALL.test(text) || HELP.test(text)) return draft ? draftReply(draft, "We're working on this activity:") : helpText(clubName);
   if (NO.test(text)) {
     if (!draft) return "Nothing to cancel. Send new activity details whenever you're ready.";
@@ -208,6 +219,13 @@ export function handleIncoming(clubId, msg) {
 
   const tz = TZ();
   const found = parseActivity(text, { tz });
+  // A saved template named in the message ("Pandala Sunday 6am") fills in everything but the date and time.
+  if (template) {
+    const from = { template: template.name, title: template.title, category: template.category, location: template.meeting_point, map_url: template.map_url,
+      distance_km: template.distance_km, pace: template.pace, notes: template.notes, capacity: template.capacity };
+    for (const [k, v] of Object.entries(from)) if (v != null && v !== "" && found[k] == null) found[k] = v;
+    if (draft?.category) draft.category = found.category || draft.category;
+  }
   const title = titleFrom(text);
   if (title && !found.title && (!draft || !draft.title)) found.title = title;
   // A bare reply to "Where are we meeting?" is the place.
@@ -229,10 +247,10 @@ export function handleIncoming(clubId, msg) {
   }
 
   const isNew = !draft;
-  if (draft?.category) delete found.category; // the sport is set by the first message
+  if (draft?.category && !template) delete found.category; // the sport is set by the first message (or a template)
   draft = { ...(draft || {}), ...found };
   if (found.time) delete draft.time_ambiguous;
   if (found.time_ambiguous) delete draft.time;
   saveDraft(clubId, userId, draft);
-  return draftReply(draft, isNew ? "Got it. Here's what I have so far:" : "Updated:");
+  return draftReply(draft, template ? `Using your *${template.name}* template:` : isNew ? "Got it. Here's what I have so far:" : "Updated:");
 }

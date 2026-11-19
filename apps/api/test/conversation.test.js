@@ -75,3 +75,33 @@ test("the same message is handled once, and an admin who is demoted is ignored",
   assert.equal(say("paceup"), null);
   db.prepare("UPDATE club_memberships SET role = 'owner' WHERE user_id = ?").run(club.user.id);
 });
+
+test("templates: saved on the web, reused by name on WhatsApp", async () => {
+  const save = await call("POST", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie, payload: {
+    name: "Pandala", title: "Pandala Loop", category: "cycling", meeting_point: "Tulip Chowk", map_url: "https://maps.app.goo.gl/abc", distance_km: 50, pace: "25-30", notes: "Lights on", capacity: null } });
+  assert.equal(save.statusCode, 201, save.body);
+  assert.equal((await call("POST", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie, payload: { name: "pandala", title: "Pandala Loop", meeting_point: "Tulip Chowk", distance_km: 55 } })).statusCode, 200, "same name updates");
+  const list = (await call("GET", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie })).json().templates;
+  assert.deepEqual(list.map((t) => [t.name, t.distance_km]), [["pandala", 55]]);
+  const renamed = await call("PATCH", `/api/clubs/${club.clubId}/templates/${list[0].id}`, { cookie: club.cookie, payload: { name: "Pandala" } });
+  assert.equal(renamed.json().template.name, "Pandala");
+  await call("POST", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie, payload: { name: "Pandala", title: "Pandala Loop", category: "cycling", meeting_point: "Tulip Chowk", map_url: "https://maps.app.goo.gl/abc", distance_km: 50, pace: "25-30", notes: "Lights on" } });
+
+  assert.equal(say("pandala is lovely"), null, "naming a template without a day or time isn't a request");
+  assert.match(say("PaceUp"), /saved template: \*Pandala\*/);
+  const reply = say("Pandala tomorrow 6am");
+  assert.match(reply, /Using your \*Pandala\* template/);
+  assert.match(reply, /\*Pandala Loop\*/);
+  assert.match(reply, /📍 Tulip Chowk/);
+  assert.match(reply, /📏 50 km/);
+  assert.match(reply, /Reply \*YES\* to publish/, "only the date and time were needed");
+  assert.match(say("change distance to 60"), /📏 60 km/);
+  assert.match(say("yes"), /Ride created!/);
+  const ride = db.prepare("SELECT * FROM rides WHERE club_id = ? ORDER BY created_at DESC").get(club.clubId);
+  assert.deepEqual([ride.title, ride.meeting_point, ride.distance_km, ride.pace, ride.map_url, ride.notes], ["Pandala Loop", "Tulip Chowk", 60, "25-30", "https://maps.app.goo.gl/abc", "Lights on"]);
+
+  // Only admins manage templates.
+  const del = await call("DELETE", `/api/clubs/${club.clubId}/templates/${list[0].id}`, { cookie: club.cookie });
+  assert.equal(del.statusCode, 200);
+  assert.deepEqual((await call("GET", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie })).json().templates, []);
+});

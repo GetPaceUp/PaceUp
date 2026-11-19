@@ -13,6 +13,7 @@ import { registerRideRoutes } from "./rides.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
 import { registerClubAdminRoutes } from "./clubs-admin.js";
+import { registerTemplateRoutes } from "./templates.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
@@ -138,6 +139,7 @@ export async function buildApp(options = {}) {
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
   registerRosterRoutes(app, { requireClubRole });
+  registerTemplateRoutes(app, { requireClubRole });
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
   registerWhatsAppRoutes(app, { requireClubRole, rateLimit: options.authRateLimit });
 
