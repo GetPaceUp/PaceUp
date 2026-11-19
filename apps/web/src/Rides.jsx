@@ -6,7 +6,7 @@ export const api = async (url, options = {}) => {
     headers: options.body ? { "Content-Type": "application/json" } : undefined
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = new Error(data.error || "Something went wrong. Please try again."); error.status = response.status; throw error; }
+  if (!response.ok) { const error = new Error(data.error || "Something went wrong. Please try again."); error.status = response.status; error.data = data; throw error; }
   return data;
 };
 

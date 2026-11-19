@@ -327,10 +327,12 @@ export function addRosterPerson(clubId, name, phone) {
   if (clean.length < 2) throw new DomainError(400, "Enter a name (at least 2 letters).");
   const mobile = cleanPhone(phone);
   if (!mobile) throw new DomainError(400, "Enter a valid mobile number.");
-  const sameNumber = db.prepare("SELECT name FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, mobile);
-  if (sameNumber) throw new DomainError(409, `That number is already on the list as ${sameNumber.name}.`);
-  if (db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ?").get(clubId, nameKey(clean))) throw new DomainError(409, `${clean} is already on the list. Add a surname or initial to tell them apart.`);
-  return mergeRoster(clubId, [{ name: clean, phone: mobile }], "manual");
+  const already = (row, message) => Object.assign(new DomainError(409, message), { existing: { id: row.id, name: row.name, phone: row.phone } });
+  const sameNumber = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, mobile);
+  if (sameNumber) throw already(sameNumber, `Already on the list as ${sameNumber.name}.`);
+  const sameName = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND name_key = ?").get(clubId, nameKey(clean));
+  if (sameName) throw already(sameName, `${sameName.name} is already on the list with another number. If it's someone else, add a surname or initial.`);
+  return { ...mergeRoster(clubId, [{ name: clean, phone: mobile }], "manual"), person: { name: clean, phone: mobile } };
 }
 
 export function renameRosterPerson(clubId, id, name) {
@@ -467,7 +469,10 @@ export function registerRosterRoutes(app, { requireClubRole }) {
     schema: { params, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 } }, required: ["name", "phone"] } }, preHandler: pre
   }, async (req, reply) => {
     try { return reply.code(201).send(addRosterPerson(req.params.clubId, req.body.name, req.body.phone)); }
-    catch (error) { return domain(reply, error); }
+    catch (error) {
+      if (error instanceof DomainError && error.existing) return reply.code(409).send({ error: error.message, existing: error.existing });
+      return domain(reply, error);
+    }
   });
 
   // Phone books are read in the browser and arrive as name + numbers only (photos and

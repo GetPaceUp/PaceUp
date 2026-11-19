@@ -93,7 +93,7 @@ function NameCleanup({ base, onApplied }) {
 }
 
 /** Club admins: the names riders pick from when they tap "I'm in". */
-export function RosterPanel({ clubId }) {
+export function RosterPanel({ clubId, onBack }) {
   const [data, setData] = useState(null);
   const [q, setQ] = useState("");
   const [view, setView] = useState("named");
@@ -140,7 +140,20 @@ export function RosterPanel({ clubId }) {
     } finally { if (fileInput.current) fileInput.current.value = ""; }
   });
   const sync = () => run(async () => { await api(`${base}/sync`, { method: "POST" }); await load(); });
-  const add = (e) => { e.preventDefault(); run(async () => { await api(base, { method: "POST", body: JSON.stringify({ name, phone }) }); setNotice(`Added ${name.trim()}.`); setName(""); setPhone("+91 "); await load(); }); };
+  const [added, setAdded] = useState(null); // { ok, text, existing }
+  const [adding, setAdding] = useState(false);
+  async function add(e) {
+    e.preventDefault(); setAdding(true); setAdded(null);
+    try {
+      const r = await api(base, { method: "POST", body: JSON.stringify({ name, phone }) });
+      setAdded({ ok: true, text: `✓ Added ${r.person?.name || name.trim()}${r.person?.phone ? ` (${phoneText(r.person.phone)})` : ""}.` });
+      setName(""); setPhone("+91 "); setQ(""); await load("");
+    } catch (err) {
+      setAdded({ ok: false, text: err.message, existing: err.data?.existing || null });
+    } finally { setAdding(false); }
+  }
+  // Show the entry that's already there, so it can be checked or edited.
+  const showExisting = (p) => { setView("named"); setQ(p.phone || p.name); };
   const rename = async (p, value) => { await api(`${base}/${p.id}`, { method: "PATCH", body: JSON.stringify({ name: value }) }); await load(); };
   const nameMember = async (p, value) => { await api(`${base}/from-group/${p.id}`, { method: "POST", body: JSON.stringify({ name: value }) }); await load(); };
   const remove = (p) => run(async () => { await api(`${base}/${p.id}`, { method: "DELETE" }); await load(); });
@@ -151,6 +164,7 @@ export function RosterPanel({ clubId }) {
 
   return (
     <section className="admin-panel roster-panel">
+      {onBack && <button type="button" className="text-button back-link" onClick={onBack}>← Back to dashboard</button>}
       <h3>Member list <span className="count">{data.total}</span></h3>
       <p className="panel-copy">Members tap "I'm in", type a few letters and pick their name from this list. Nobody signs in.</p>
 
@@ -174,22 +188,38 @@ export function RosterPanel({ clubId }) {
       </div>
 
       {view === "named" || !unnamed.count ? <>
-        {data.total > 8 && <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${data.total} names`} aria-label="Search the member list" />}
+        <form className="stack-form roster-add" onSubmit={add}>
+          <label htmlFor="roster-add">Add someone</label>
+          <input id="roster-add" value={name} onChange={(e) => { setName(e.target.value); setAdded(null); }} placeholder="Full name" minLength={2} maxLength={80} autoCapitalize="words" required />
+          <input id="roster-add-phone" aria-label="Mobile number" type="tel" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setAdded(null); }} placeholder="+91 98765 43210" maxLength={20} pattern="[+0-9 ()-]{10,20}" required />
+          <button type="submit" disabled={busy || adding}>{adding ? "Adding…" : "Add"}</button>
+          {added && (added.ok
+            ? <p className="success-note" role="status">{added.text}</p>
+            : <p className="error" role="alert">{added.text}{added.existing && <> <button type="button" className="text-button" onClick={() => showExisting(added.existing)}>Show {added.existing.name}</button></>}</p>)}
+        </form>
+        {(data.total > 8 || q) && <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${data.total} names`} aria-label="Search the member list" />}
         <div className="roster-list">
           {data.people.map((p) => <NameRow key={p.id} label={p.name} sub={[p.phone && phoneText(p.phone), p.self_added && "Added themselves from an RSVP link"].filter(Boolean).join(" · ")} initial={p.name} action="Edit" busy={busy} onSave={(v) => rename(p, v)} onRemove={() => remove(p)} />)}
           {data.people.length === 0 && <p className="panel-copy">{q ? "No names match." : "No names yet."}</p>}
           {data.total > data.people.length && !q && <p className="panel-copy">Showing the first {data.people.length}. Search to find others.</p>}
         </div>
-        <form className="stack-form roster-add" onSubmit={add}>
-          <label htmlFor="roster-add">Add someone</label>
-          <input id="roster-add" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoCapitalize="words" required />
-          <input id="roster-add-phone" aria-label="Mobile number" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" maxLength={20} pattern="[+0-9 ()-]{10,20}" required />
-          <button type="submit" disabled={busy}>Add</button>
-        </form>
       </> : <div className="roster-list">
         <p className="panel-copy">These group members haven't got a name yet. Type the name the club knows them by.</p>
         {unnamed.people.map((p) => <NameRow key={p.id} label={phoneText(p.phone)} sub={p.hint ? `WhatsApp name: ${p.hint}` : "No name from WhatsApp"} initial={p.hint || ""} action="Add name" busy={busy} onSave={(v) => nameMember(p, v)} />)}
       </div>}
+    </section>
+  );
+}
+
+/** Dashboard card: the member list lives on its own page, it isn't needed day to day. */
+export function MembersCard({ clubId, onOpen }) {
+  const [info, setInfo] = useState(null);
+  useEffect(() => { setInfo(null); api(`/api/clubs/${clubId}/roster?q=`).then((d) => setInfo({ total: d.total, unnamed: d.unnamed.count })).catch(() => setInfo({})); }, [clubId]);
+  return (
+    <section className="admin-panel members-card">
+      <div><h3>Member list {info?.total != null && <span className="count">{info.total}</span>}</h3>
+        <p className="panel-copy">The names members pick from when they tap "I'm in".{info?.unnamed ? ` ${info.unnamed} group members still need a name.` : ""}</p></div>
+      <button type="button" className="secondary-button" onClick={onOpen}>Open member list</button>
     </section>
   );
 }

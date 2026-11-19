@@ -64,10 +64,16 @@ test("add and remove one person", async () => {
   assert.equal(added.statusCode, 409, "already there from the upload");
   assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh" } })).statusCode, 400, "a mobile number is required");
   assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh", phone: "12" } })).statusCode, 400);
-  assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh", phone: "98111 00077" } })).statusCode, 201);
+  const ok = await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh", phone: "98111 00077" } });
+  assert.equal(ok.statusCode, 201);
+  assert.deepEqual(ok.json().person, { name: "Kabir Singh", phone: "919811100077" });
   const dup = await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Two", phone: "+91 98111-00077" } });
   assert.equal(dup.statusCode, 409);
-  assert.match(dup.json().error, /already on the list as Kabir Singh/);
+  assert.match(dup.json().error, /Already on the list as Kabir Singh/);
+  assert.equal(dup.json().existing.name, "Kabir Singh", "the page can point at the entry that's already there");
+  const sameName = await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "kabir singh", phone: "98111 00078" } });
+  assert.equal(sameName.statusCode, 409);
+  assert.equal(sameName.json().existing.phone, "919811100077");
   const kabir = (await roster(owner, "kabir")).people[0];
   assert.equal((await call("DELETE", `/api/clubs/${owner.clubId}/roster/${kabir.id}`, { cookie: other.cookie })).statusCode, 404);
   assert.equal((await call("DELETE", `/api/clubs/${owner.clubId}/roster/${kabir.id}`, { cookie: owner.cookie })).statusCode, 200);
