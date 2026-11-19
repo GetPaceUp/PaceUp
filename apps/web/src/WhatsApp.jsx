@@ -117,6 +117,7 @@ export function WhatsAppPanel({ clubId }) {
               {wa.groups.map((g) => <option key={g.jid} value={g.jid}>{g.name} ({g.size})</option>)}
             </select>
           : <p className="panel-copy">{wa.groups_linked ? "Your club's groups aren't on this number anymore. Ask the PaceUp Super Admin to check them." : "No WhatsApp groups are linked to your club yet. The PaceUp Super Admin chooses which groups belong to the club."}</p>}
+        {wa.can_pick_groups && <p className="panel-copy">You're the Super Admin: <a href="/superadmin">choose this club's groups</a> (Super Admin → All clubs → Groups).</p>}
         {wa.group && <p className="panel-copy">You can pick a different group for any activity or template.</p>}
         {wa.groups.length > 1 && <MemberGroups wa={wa} busy={busy} onSave={(jids) => act("/member-groups", "PUT", { jids })} />}
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group name out of date? Refresh"}</button>

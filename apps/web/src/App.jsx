@@ -23,6 +23,12 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [selectedClub, setSelectedClub] = useState("");
+  // Only the Super Admin gets a way into the Super Admin console from the dashboard.
+  const [isSuper, setIsSuper] = useState(false);
+  useEffect(() => {
+    if (!user?.id) { setIsSuper(false); return; }
+    fetch("/api/auth/me", { credentials: "include" }).then((r) => (r.ok ? r.json() : null)).then((d) => setIsSuper(Boolean(d?.user?.super_admin))).catch(() => {});
+  }, [user?.id]);
   // The member list has its own page (#members) so the dashboard stays short.
   const [page, setPage] = useState(() => (window.location.hash === "#members" ? "members" : "home"));
   useEffect(() => {
@@ -183,7 +189,7 @@ export default function App() {
         <section className="dashboard">
           <div className="dashboard-head">
             <div><p className="eyebrow">YOUR PACEUP</p><h2>Welcome, {user.name.split(" ")[0]}</h2><p className="hero-copy">{user.phone ? phoneText(user.phone) : user.email}</p>{!user.phone && <AddPhone onAdded={(u) => setUser(u)} />}</div>
-            <button type="button" className="secondary-button" onClick={logout}>Sign out</button>
+            <div className="head-actions">{isSuper && <a className="secondary-button" href="/superadmin">Super Admin</a>}<button type="button" className="secondary-button" onClick={logout}>Sign out</button></div>
           </div>
           {inviteToken && <section className="workspace invite-accept"><h3>You've been invited to a PaceUp club</h3><p>Accept the invitation using the account signed in above.</p><button onClick={acceptInvite}>Accept invitation</button></section>}
           <section className="workspace">
