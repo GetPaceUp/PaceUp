@@ -46,12 +46,16 @@ test("pairing: connect shows a QR, scanning connects and lists the number's grou
   // The linked phone may be personal: the club admin sees none of its groups until the Super Admin links some.
   assert.equal(connected.groups.length, 0);
   assert.equal(connected.groups_linked, 0);
+  assert.equal(connected.can_pick_groups, false, "a club admin gets no link to the Super Admin picker");
   const all = fakeSessions.get(a.clubId).groups;
   assert.equal((await wa(a, "PUT", "/group", { jid: all[0].jid })).statusCode, 400, "can't post to an unlinked group");
   const platform = (method = "GET", payload, who = a) => call(method, `/api/platform/clubs/${a.clubId}/whatsapp-groups`, { cookie: who.cookie, payload });
   assert.equal((await platform()).statusCode, 403, "club admins can't list the phone's groups");
   db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE email = 'bala@example.com'").run();
   const pv = (await platform("GET", undefined, b)).json();
+  assert.equal((await wa(b)).json().whatsapp.can_pick_groups, true);
+  assert.equal((await call("GET", "/api/auth/me", { cookie: b.cookie })).json().user.super_admin, true);
+  assert.equal((await call("GET", "/api/auth/me", { cookie: a.cookie })).json().user.super_admin, false);
   assert.equal(pv.groups.length, 2);
   assert.ok(pv.groups.every((g) => !g.linked));
   assert.equal((await platform("PUT", { jids: ["made-up@g.us"] }, b)).statusCode, 400);

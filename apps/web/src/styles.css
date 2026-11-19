@@ -128,3 +128,4 @@ label.check input { width: auto; margin: 0; }
 .club-name-view .field-grow{text-align:left}
 .members-card{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}.back-link{display:block;margin-bottom:8px;padding-left:0;text-align:left}
 .group-add-pick{display:grid;gap:6px}.check-label{display:flex;gap:8px;align-items:center;font-weight:600}.check-label input{width:18px;height:18px}
+.head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}

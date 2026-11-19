@@ -3,7 +3,7 @@
 import QRCode from "qrcode";
 import { db } from "../db.js";
 import { getConnection, enqueueTest, outboxStats, memberGroups, knownGroups, clubGroups, allowedGroupIds, isClubGroup } from "./outbox.js";
-import { audit } from "../db.js";
+import { audit, getPlatformRole } from "../db.js";
 
 const ADMIN = ["owner", "admin"];
 const iso = (ms) => new Date(ms).toISOString();
@@ -45,7 +45,11 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
   const pre = [app.authenticate, requireClubRole(ADMIN)];
   const base = "/api/clubs/:clubId/whatsapp";
 
-  app.get(base, { schema: { params }, preHandler: pre }, async (req) => view(req.params.clubId));
+  app.get(base, { schema: { params }, preHandler: pre }, async (req) => {
+    const v = await view(req.params.clubId);
+    v.whatsapp.can_pick_groups = getPlatformRole(req.user.sub) === "super_admin"; // shows the Super Admin a link to the group picker
+    return v;
+  });
 
   app.post(`${base}/connect`, { schema: { params }, preHandler: pre }, async (req) => {
     ensureRow(req.params.clubId);

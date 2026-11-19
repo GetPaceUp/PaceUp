@@ -177,7 +177,7 @@ export async function buildApp(options = {}) {
     try {
       const user = await usePasswordReset(request.body.token, request.body.password, request.ip);
       setSession(reply, user);
-      return { user, clubs: listClubsForUser(user.id) };
+      return { user: { ...user, super_admin: getPlatformRole(user.id) === "super_admin" }, clubs: listClubsForUser(user.id) };
     } catch (error) { return sendDomain(reply, error); }
   });
 
@@ -279,7 +279,7 @@ export async function buildApp(options = {}) {
       reply.clearCookie("paceup_session", { path: "/" });
       return reply.code(401).send({ error: "Please sign in again." });
     }
-    return { user, clubs: listClubsForUser(user.id) };
+    return { user: { ...user, super_admin: getPlatformRole(user.id) === "super_admin" }, clubs: listClubsForUser(user.id) };
   });
 
   app.patch("/api/clubs/:clubId", {
