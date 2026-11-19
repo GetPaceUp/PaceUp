@@ -6,6 +6,7 @@ import { useTempDatabase, sessionCookie, makeClient } from "./helpers.js";
 const { tempDir } = useTempDatabase();
 const { buildApp } = await import("../src/server.js");
 const { db } = await import("../src/db.js");
+const ph = (n) => "98" + String([...n.toLowerCase().replace(/\s+/g, " ").trim()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1e8, 7)).padStart(8, "0");
 const app = await buildApp({ logger: false, authRateLimit: 1000, publicRateLimit: 1000 });
 const { call, registerOwner, invite } = makeClient(app);
 
@@ -63,12 +64,12 @@ test("activity lifecycle: draft, publish, edit, unpublish, cancel, with an audit
   assert.equal(published.json().ride.title, "Nandi Hills sunrise run");
   assert.equal((await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "draft" } })).json().ride.status, "draft", "unpublish while nobody has joined");
   await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "published" } });
-  await phone().rsvp(code, { status: "going", name: "Rahul Verma" });
+  await phone().rsvp(code, { status: "going", name: "Rahul Verma", phone: ph("Rahul Verma") });
   assert.equal((await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "draft" } })).statusCode, 409, "can't unpublish once people joined");
 
   const cancelled = await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "cancelled" } });
   assert.equal(cancelled.json().ride.status, "cancelled");
-  assert.equal((await phone().rsvp(code, { status: "going", name: "Late Comer" })).statusCode, 409);
+  assert.equal((await phone().rsvp(code, { status: "going", name: "Late Comer", phone: ph("Late Comer") })).statusCode, 409);
   assert.equal((await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { title: "Revived" } })).statusCode, 409);
 
   const history = cancelled.json().ride.history.map((h) => h.action).reverse();
@@ -80,7 +81,7 @@ test("activity lifecycle: draft, publish, edit, unpublish, cancel, with an audit
 test("public page: anyone with the link sees details and who's going; admins also see who is listed", async () => {
   const ride = await publish({ capacity: null });
   await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: arjun.cookie, payload: { status: "going" } });
-  await phone().rsvp(ride.code, { status: "going", name: "Rahul Verma" });
+  await phone().rsvp(ride.code, { status: "going", name: "Rahul Verma", phone: ph("Rahul Verma") });
 
   const visitor = (await call("GET", `/api/r/${ride.code}`)).json().ride;
   assert.equal(visitor.notes, "Lights mandatory");
@@ -120,7 +121,7 @@ test("members RSVP with one tap: no duplicates, change of mind, capacity", async
 test("guests RSVP by name without an account, and only their own phone can change it", async () => {
   const { code, id } = await publish({ capacity: 5 });
   const rahul = phone();
-  const joined = await rahul.rsvp(code, { status: "going", name: "  Rahul   Verma " });
+  const joined = await rahul.rsvp(code, { status: "going", name: "  Rahul   Verma ", phone: ph("  Rahul   Verma ") });
   assert.equal(joined.statusCode, 200);
   assert.ok(rahul.cookie, "device cookie issued");
   assert.match([].concat(joined.headers["set-cookie"]).join(), /HttpOnly/i);
@@ -128,7 +129,7 @@ test("guests RSVP by name without an account, and only their own phone can chang
   assert.equal((await rahul.view(code)).json().ride.participants[0].is_you, true, "reopening the link shows you're in");
 
   // Change name, then cancel, from the same phone.
-  assert.equal((await rahul.rsvp(code, { status: "going", name: "Rahul V" })).json().ride.my_rsvp.name, "Rahul V");
+  assert.equal((await rahul.rsvp(code, { status: "going", name: "Rahul V", phone: ph("Rahul V") })).json().ride.my_rsvp.name, "Rahul V");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ?").get(id).n, 1, "a name change edits, not adds");
 
   // Another phone cannot cancel it, even knowing the name.
@@ -136,8 +137,8 @@ test("guests RSVP by name without an account, and only their own phone can chang
   const cancelTry = await stranger.rsvp(code, { status: "cancelled" });
   assert.equal(cancelTry.statusCode, 200);
   assert.equal(cancelTry.json().ride.going_count, 1, "stranger's cancel did nothing");
-  assert.equal((await stranger.rsvp(code, { status: "going", name: "rahul v" })).statusCode, 409, "same name twice is refused");
-  assert.equal((await stranger.rsvp(code, { status: "going", name: "x" })).statusCode, 400);
+  assert.equal((await stranger.rsvp(code, { status: "going", name: "rahul v", phone: ph("rahul v") })).statusCode, 409, "same name twice is refused");
+  assert.equal((await stranger.rsvp(code, { status: "going", name: "x", phone: ph("x") })).statusCode, 400);
   assert.equal((await stranger.rsvp(code, { status: "going" })).statusCode, 400, "a name is required");
   const forged = await call("PUT", `/api/r/${code}/rsvp`, { cookie: "paceup_device=not-a-real-token", payload: { status: "cancelled" } });
   assert.equal(forged.json().ride.going_count, 1);
@@ -145,13 +146,13 @@ test("guests RSVP by name without an account, and only their own phone can chang
   const gone = await rahul.rsvp(code, { status: "cancelled" });
   assert.equal(gone.json().ride.going_count, 0);
   assert.equal(gone.json().ride.my_rsvp, null);
-  assert.equal((await rahul.rsvp(code, { status: "going", name: "Rahul Verma" })).json().ride.going_count, 1, "can rejoin");
+  assert.equal((await rahul.rsvp(code, { status: "going", name: "Rahul Verma", phone: ph("Rahul Verma") })).json().ride.going_count, 1, "can rejoin");
 });
 
 test("someone new adds themselves to the club list; next time they just pick their name", async () => {
   const { code } = await publish({ capacity: null });
   const newbie = phone();
-  const joined = await newbie.rsvp(code, { status: "going", name: "zoya khan" });
+  const joined = await newbie.rsvp(code, { status: "going", name: "zoya khan", phone: ph("zoya khan") });
   assert.equal(joined.statusCode, 200, joined.body);
   assert.deepEqual(joined.json().ride.my_rsvp, { id: joined.json().ride.my_rsvp.id, name: "Zoya Khan", listed: true });
   const row = db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND name = 'Zoya Khan'").get(clubId);
@@ -160,7 +161,7 @@ test("someone new adds themselves to the club list; next time they just pick the
   assert.deepEqual(names.map((n) => n.name), ["Zoya Khan"]);
   // Typing an exact name that is already on the list uses that entry rather than adding a copy.
   const other = await publish({ capacity: null });
-  await newbie.rsvp(other.code, { status: "going", name: "Zoya Khan" });
+  await newbie.rsvp(other.code, { status: "going", name: "Zoya Khan", phone: ph("Zoya Khan") });
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ? AND name_key = 'zoya khan'").get(clubId).n, 1);
   const roster = (await call("GET", `/api/clubs/${clubId}/roster?q=zoya`, { cookie: owner.cookie })).json();
   assert.equal(roster.people[0].self_added, 1, "admins see who added themselves");
@@ -193,18 +194,18 @@ test("simultaneous RSVPs never exceed capacity or duplicate a person", async () 
   const { code, id } = await publish({ capacity: 2 });
   const phones = Array.from({ length: 6 }, () => phone());
   // Give each phone its device cookie first.
-  for (const [i, p] of phones.entries()) { await p.rsvp(code, { status: "going", name: `Warmup ${i}` }); await p.rsvp(code, { status: "cancelled" }); }
-  const results = await Promise.all(phones.map((p, i) => p.rsvp(code, { status: "going", name: `Rider ${i}` })));
+  for (const [i, p] of phones.entries()) { await p.rsvp(code, { status: "going", name: `Warmup ${i}`, phone: ph(`Warmup ${i}`) }); await p.rsvp(code, { status: "cancelled" }); }
+  const results = await Promise.all(phones.map((p, i) => p.rsvp(code, { status: "going", name: `Rider ${i}`, phone: ph(`Rider ${i}`) })));
   assert.equal(results.filter((r) => r.statusCode === 200).length, 2);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ? AND status = 'going'").get(id).n, 2);
-  const again = await Promise.all([1, 2, 3].map(() => phones[0].rsvp(code, { status: "going", name: "Rider 0" })));
+  const again = await Promise.all([1, 2, 3].map(() => phones[0].rsvp(code, { status: "going", name: "Rider 0", phone: ph("Rider 0") })));
   assert.ok(again.every((r) => r.statusCode === 200 || r.statusCode === 409));
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ? AND device_hash IS NOT NULL").get(id).n, 6, "one row per phone");
 });
 
 test("admins manage participants; other clubs can't touch them", async () => {
   const { code, id } = await publish();
-  await phone().rsvp(code, { status: "going", name: "Spam Name" });
+  await phone().rsvp(code, { status: "going", name: "Spam Name", phone: ph("Spam Name") });
   const admin = (await call("GET", `/api/r/${code}`, { cookie: owner.cookie })).json().ride;
   const rsvpId = admin.participants[0].id;
   const url = `/api/clubs/${clubId}/rides/${id}/participants/${rsvpId}`;
@@ -232,7 +233,7 @@ test("dashboard lists upcoming and past separately; started activities close RSV
   assert.ok((await ridesOf(clubId, "past")).json().rides.some((r) => r.id === past.id));
   assert.ok(!(await ridesOf(clubId)).json().rides.some((r) => r.id === past.id));
   assert.ok((await ridesOf(clubId)).json().rides.some((r) => r.id === justStarted.id), "still shown until 12 h after start");
-  assert.equal((await phone().rsvp(justStarted.code, { status: "going", name: "Late Rider" })).statusCode, 409);
+  assert.equal((await phone().rsvp(justStarted.code, { status: "going", name: "Late Rider", phone: ph("Late Rider") })).statusCode, 409);
   assert.equal((await call("GET", `/api/r/${past.code}`)).json().ride.past, true);
 });
 

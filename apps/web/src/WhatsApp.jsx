@@ -31,6 +31,33 @@ function Toggle({ id, label, hint, checked, onChange }) {
   );
 }
 
+/** The member list is built from these groups, e.g. the master announcements group that has everyone. */
+function MemberGroups({ wa, busy, onSave }) {
+  const current = (wa.member_groups || []).map((g) => g.jid);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(new Set(current));
+  useEffect(() => { setPicked(new Set(current)); }, [current.join(",")]);
+  const names = (wa.member_groups || []).map((g) => g.name).join(" + ");
+  if (!open) return (
+    <div className="member-groups">
+      <p className="panel-copy"><b>Member list comes from:</b> {names || "no group yet"}. <button type="button" className="text-button" onClick={() => setOpen(true)}>Change</button></p>
+    </div>
+  );
+  const toggle = (jid) => setPicked((s) => { const n = new Set(s); n.has(jid) ? n.delete(jid) : n.add(jid); return n; });
+  return (
+    <div className="member-groups">
+      <p className="panel-copy"><b>Build the member list from</b> these groups. Tick the group that has everyone (like your announcements group), or several groups. People in more than one are listed once.</p>
+      <ul className="cleanup-list">
+        {wa.groups.map((g) => <li key={g.jid}><label><input type="checkbox" checked={picked.has(g.jid)} onChange={() => toggle(g.jid)} /><span><b>{g.name}</b><small className="panel-copy">{g.size} members</small></span></label></li>)}
+      </ul>
+      <div className="cleanup-actions">
+        <button type="button" disabled={busy || !picked.size} onClick={async () => { await onSave([...picked]); setOpen(false); }}>Save ({picked.size})</button>
+        <button type="button" className="text-button" onClick={() => { setPicked(new Set(current)); setOpen(false); }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 export function WhatsAppPanel({ clubId }) {
   const [wa, setWa] = useState(null);
   const [error, setError] = useState("");
@@ -83,13 +110,15 @@ export function WhatsAppPanel({ clubId }) {
 
       {connected && <>
         <p className="success-note">Admins can create activities by sending this number a WhatsApp message{wa.phone ? ` (${wa.phone})` : ""}, e.g. "Create a run Sunday 6 AM from Cubbon Park, 10 km". It recognises you by the mobile number on your PaceUp account.</p>
-        <label className="field-label" htmlFor="wa-group">Post activities in</label>
+        <label className="field-label" htmlFor="wa-group">Post activities in (default)</label>
         {wa.groups.length
           ? <select id="wa-group" value={wa.group?.jid || ""} disabled={busy} onChange={(e) => e.target.value && act("/group", "PUT", { jid: e.target.value })}>
               <option value="">Choose a group…</option>
               {wa.groups.map((g) => <option key={g.jid} value={g.jid}>{g.name} ({g.size})</option>)}
             </select>
           : <p className="panel-copy">This number isn't in any groups yet. Add it to your club group in WhatsApp, then press Refresh groups.</p>}
+        {wa.group && <p className="panel-copy">You can pick a different group for any activity or template.</p>}
+        {wa.groups.length > 1 && <MemberGroups wa={wa} busy={busy} onSave={(jids) => act("/member-groups", "PUT", { jids })} />}
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group missing? Refresh groups"}</button>
         {wa.group && <>
           <Toggle id="wa-new" label="New activity published" hint="Details and the link to join" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />

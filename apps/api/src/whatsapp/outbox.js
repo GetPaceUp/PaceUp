@@ -16,6 +16,14 @@ export function getConnection(clubId) {
   return db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(clubId);
 }
 
+/** The groups whose members make up the club's member list. Defaults to the posting group. */
+export function memberGroups(conn) {
+  try { const list = JSON.parse(conn?.member_groups_json || "null"); if (Array.isArray(list) && list.length) return list; } catch {}
+  return conn?.group_jid ? [conn.group_jid] : [];
+}
+/** The WhatsApp groups this number is in: [{ jid, name, size }]. */
+export const knownGroups = (conn) => { try { return JSON.parse(conn?.groups_json || "[]"); } catch { return []; } };
+
 /** Posting is set up when a club is connected (or meant to be) and has chosen a group. */
 function postingConfigured(clubId) {
   const c = getConnection(clubId);

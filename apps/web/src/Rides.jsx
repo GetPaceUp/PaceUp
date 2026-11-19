@@ -58,10 +58,10 @@ function ShareButtons({ ride }) {
 
 // ---------------------------------------------------------------- create / edit form
 
-const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", distance_km: "", pace: "", capacity: "", notes: "" };
+const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", distance_km: "", pace: "", capacity: "", notes: "", wa_group_jid: "" };
 const formFrom = (r) => ({
   title: r.title, category: r.category || "other", date: localDate(r.starts_at), time: localTime(r.starts_at), meeting_point: r.meeting_point,
-  map_url: r.map_url || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || ""
+  map_url: r.map_url || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
 });
 
 export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel }) {
@@ -78,13 +78,19 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
   const [templateNote, setTemplateNote] = useState("");
   const loadTemplates = () => api(`/api/clubs/${clubId}/templates`).then((d) => setTemplates(d.templates)).catch(() => {});
   useEffect(() => { loadTemplates(); }, [clubId]);
+  // WhatsApp groups this activity can be posted in (empty when WhatsApp isn't connected).
+  const [wa, setWa] = useState(null);
+  useEffect(() => {
+    fetch(`/api/clubs/${clubId}/whatsapp`, { credentials: "include" }).then((r) => (r.ok ? r.json() : null)).then((d) => setWa(d?.whatsapp || null)).catch(() => {});
+  }, [clubId]);
+  const groupChoices = wa?.status === "connected" && wa.group && wa.groups.length > 1 ? wa.groups : null;
   const chosen = templates.find((t) => t.id === templateId);
   function applyTemplate(id) {
     setTemplateId(id); setTemplateNote("");
     const t = templates.find((x) => x.id === id);
     if (!t) return;
     setForm((f) => ({ ...f, title: t.title ?? "", category: t.category || f.category, meeting_point: t.meeting_point ?? "", map_url: t.map_url ?? "",
-      distance_km: t.distance_km ?? "", pace: t.pace ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "" }));
+      distance_km: t.distance_km ?? "", pace: t.pace ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "", wa_group_jid: t.wa_group_jid || "" }));
     setTemplateName(t.name);
   }
   async function renameTemplate() {
@@ -99,7 +105,8 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
   }
   async function storeTemplate() {
     const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null,
-      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null };
+      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null,
+      wa_group_jid: form.wa_group_jid || null };
     await api(`/api/clubs/${clubId}/templates`, { method: "POST", body: JSON.stringify(body) });
   }
 
@@ -117,6 +124,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         map_url: form.map_url || null, pace: form.pace || null, notes: form.notes || null,
         distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
         capacity: form.capacity !== "" ? Number(form.capacity) : null,
+        ...(groupChoices || form.wa_group_jid ? { wa_group_jid: form.wa_group_jid || null } : {}),
         ...(status ? { status } : {})
       };
       const data = ride
@@ -160,6 +168,13 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         <div><label htmlFor="a-pace">Pace</label><input id="a-pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
       </div>
       <label htmlFor="a-cap">Spots (optional)</label><input id="a-cap" type="number" min="1" max="10000" inputMode="numeric" value={form.capacity} onChange={set("capacity")} placeholder="No limit" />
+      {groupChoices && <>
+        <label htmlFor="a-group">Post in WhatsApp group</label>
+        <select id="a-group" value={form.wa_group_jid} onChange={set("wa_group_jid")}>
+          <option value="">{wa.group.name} (default)</option>
+          {groupChoices.filter((g) => g.jid !== wa.group.jid).map((g) => <option key={g.jid} value={g.jid}>{g.name}</option>)}
+        </select>
+      </>}
       <label htmlFor="a-notes">Notes</label><textarea id="a-notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
       <div className="template-save">
         <label className="check"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /> Save as a template</label>
@@ -253,6 +268,8 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
   const [text, setText] = useState(initial);
   const [names, setNames] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [phone, setPhone] = useState("+91 ");
   const input = useRef();
   const seq = useRef(0);
   useEffect(() => { input.current?.focus(); }, []);
@@ -271,6 +288,16 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
   const typed = text.trim().replace(/\s+/g, " ");
   const exact = names.some((n) => n.name.toLowerCase() === typed.toLowerCase());
 
+  if (newName) return (
+    <form className="name-picker" onSubmit={(e) => { e.preventDefault(); onPick({ name: newName, phone }, newName); }}>
+      <p className="panel-copy">Joining as <b>{newName}</b>. <button type="button" className="text-button" onClick={() => setNewName("")}>Change</button></p>
+      <label htmlFor="rsvp-phone" className="field-label">Your mobile number</label>
+      <input id="rsvp-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} pattern="[+0-9 ()-]{10,20}" required autoFocus />
+      <p className="panel-copy">So the club knows who you are. Next time you just pick your name.</p>
+      <button type="submit" className="primary-button" disabled={busy}>I'm in</button>
+    </form>
+  );
+
   return (
     <div className="name-picker">
       <label htmlFor="rsvp-name" className="field-label">Your name</label>
@@ -282,7 +309,7 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
           </button></li>
         ))}
         {!searching && names.length === 0 && <li className="name-empty">Not on the club list yet. Tap below to join and be added.</li>}
-        {!exact && typed.length >= 2 && <li><button type="button" className="primary-button new-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>I'm in as {typed} <small>(new)</small></button></li>}
+        {!exact && typed.length >= 2 && <li><button type="button" className="primary-button new-option" disabled={busy} onClick={() => setNewName(typed)}>I'm in as {typed} <small>(new)</small></button></li>}
       </ul>}
       {typed.length < 2 && <p className="panel-copy">Type at least 2 letters, then tap your name.</p>}
       <button type="button" className="text-button" onClick={onClose}>Back</button>

@@ -12,7 +12,7 @@ import { parseActivity, resolveAmPm, defaultTitle, zonedToUtc, titleFrom, bareAn
 import { phoneFromJid } from "./contacts.js";
 import { templateInText, listTemplates } from "../templates.js";
 import { rideLink } from "./messages.js";
-import { getConnection } from "./outbox.js";
+import { getConnection, knownGroups } from "./outbox.js";
 
 const TZ = () => process.env.PACEUP_TIMEZONE || "Asia/Kolkata";
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
@@ -146,12 +146,14 @@ const helpText = (clubName) => {
   return `Hi! I can create ${clubName} activities for you. Send the details in one message, for example:\n\n"${EXAMPLE}"${tpl}\n\nI'll ask for anything missing and check with you before publishing.`;
 };
 
+const groupStillThere = (clubId, jid) => (jid && knownGroups(getConnection(clubId)).some((g) => g.jid === jid) ? jid : null);
+
 function publishDraft(clubId, userId, draft) {
   const ride = createRide(clubId, userId, {
     title: draft.title || defaultTitle(draft), category: draft.category || "other",
     starts_at: startsAt(draft).toISOString(), meeting_point: draft.location,
     distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null,
-    map_url: draft.map_url ?? null, pace: draft.pace ?? null, status: "published"
+    map_url: draft.map_url ?? null, pace: draft.pace ?? null, wa_group_jid: groupStillThere(clubId, draft.wa_group_jid), status: "published"
   }, { actorType: "whatsapp" });
   dropDraft(clubId, userId);
   const conn = getConnection(clubId);
@@ -163,7 +165,7 @@ function publishDraft(clubId, userId, draft) {
     "",
     `RSVP link: ${rideLink(ride)}`,
     "",
-    autoPost ? `I'll post it in ${conn.group_name || "the club group"} in a moment. You can also forward the link.` : "Forward this link to the group."
+    autoPost ? `I'll post it in ${knownGroups(conn).find((g) => g.jid === ride.wa_group_jid)?.name || conn.group_name || "the club group"} in a moment. You can also forward the link.` : "Forward this link to the group."
   ].join("\n");
 }
 
@@ -222,7 +224,7 @@ export function handleIncoming(clubId, msg) {
   // A saved template named in the message ("Pandala Sunday 6am") fills in everything but the date and time.
   if (template) {
     const from = { template: template.name, title: template.title, category: template.category, location: template.meeting_point, map_url: template.map_url,
-      distance_km: template.distance_km, pace: template.pace, notes: template.notes, capacity: template.capacity };
+      distance_km: template.distance_km, pace: template.pace, notes: template.notes, capacity: template.capacity, wa_group_jid: template.wa_group_jid };
     for (const [k, v] of Object.entries(from)) if (v != null && v !== "" && found[k] == null) found[k] = v;
     if (draft?.category) draft.category = found.category || draft.category;
   }

@@ -64,6 +64,25 @@ test("a published ride is posted to the club's group, through the club's own ses
   assert.match(msg.text, new RegExp(`https://paceup.example/r/${rideCode}`));
 });
 
+test("an activity can post to a different group than the club default; only the club's groups are allowed", async () => {
+  const info = (await wa(a)).json().whatsapp;
+  const other = info.groups.find((g) => g.jid !== info.group.jid);
+  const bad = await call("POST", `/api/clubs/${a.clubId}/rides`, { cookie: a.cookie, payload: { title: "Explorer loop", category: "cycling", starts_at: inDays(4), meeting_point: "Gate 2", wa_group_jid: "someone-else@g.us", status: "published" } });
+  assert.equal(bad.statusCode, 400);
+  const res = await call("POST", `/api/clubs/${a.clubId}/rides`, { cookie: a.cookie, payload: { title: "Explorer loop", category: "cycling", starts_at: inDays(4), meeting_point: "Gate 2", wa_group_jid: other.jid, status: "published" } });
+  assert.equal(res.statusCode, 201, res.body);
+  makeDue(); await worker.tick();
+  assert.equal(sent.at(-1).jid, other.jid);
+  assert.match(sent.at(-1).text, /Explorer loop/);
+  // Its list updates go to the same group.
+  assert.equal((await call("PUT", `/api/r/${res.json().ride.code}/rsvp`, { cookie: a.cookie, payload: { status: "going" } })).statusCode, 200);
+  for (let i = 0; i < 3; i++) { makeDue(); await worker.tick(); }
+  const list = sent.filter((m) => /Explorer loop/.test(m.text)).at(-1);
+  assert.equal(list.jid, other.jid);
+  await call("PATCH", `/api/clubs/${a.clubId}/rides/${res.json().ride.id}`, { cookie: a.cookie, payload: { status: "cancelled" } });
+  for (let i = 0; i < 3; i++) { makeDue(); await worker.tick(); }
+});
+
 test("RSVPs never wait on WhatsApp, and a burst becomes one rider-list post", async () => {
   for (const r of riders) assert.equal((await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: r.cookie, payload: { status: "going" } })).statusCode, 200);
   const queued = pending(a.clubId);

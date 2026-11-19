@@ -40,6 +40,52 @@ function NameRow({ label, sub, initial = "", action, onSave, onRemove, busy }) {
   );
 }
 
+/** Phone-book names often carry tags ("Aneesh Saraiya Cycling Sector 65"). Preview the tidy names and apply the ticked ones. */
+function NameCleanup({ base, onApplied }) {
+  const [people, setPeople] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [off, setOff] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  async function load() { try { setPeople((await api(`${base}/cleanup`)).people); } catch { setPeople([]); } }
+  useEffect(() => { load(); }, [base]);
+  if (!people.length) return msg ? <p className="success-note" role="status">{msg}</p> : null;
+  const chosen = people.filter((p) => !off.has(p.id));
+  const toggle = (id) => setOff((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  async function apply() {
+    setBusy(true);
+    try {
+      const r = await api(`${base}/cleanup`, { method: "POST", body: JSON.stringify({ ids: chosen.map((p) => p.id) }) });
+      setMsg(`Tidied ${r.applied} ${r.applied === 1 ? "name" : "names"}.${r.skipped.length ? ` Left as they were, because the tidy name is already on the list: ${r.skipped.join(", ")}.` : ""}`);
+      setOpen(false); setOff(new Set()); await load(); onApplied();
+    } catch (err) { setMsg(err.message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="cleanup-box">
+      <p><b>✨ {people.length} {people.length === 1 ? "name has" : "names have"} extra words from your phone book</b>, like "{people[0].name}". Members would see "{people[0].suggested}" instead.</p>
+      {!open
+        ? <button type="button" className="secondary-button small-button" onClick={() => setOpen(true)}>Review and tidy</button>
+        : <>
+            <ul className="cleanup-list">
+              {people.map((p) => (
+                <li key={p.id}><label>
+                  <input type="checkbox" checked={!off.has(p.id)} onChange={() => toggle(p.id)} />
+                  <span><s>{p.name}</s><b>{p.suggested}</b></span>
+                </label></li>
+              ))}
+            </ul>
+            <div className="cleanup-actions">
+              <button type="button" disabled={busy || !chosen.length} onClick={apply}>{busy ? "Tidying…" : `Apply cleanup (${chosen.length})`}</button>
+              <button type="button" className="text-button" onClick={() => setOpen(false)}>Not now</button>
+            </div>
+            <p className="panel-copy">Untick any that look wrong. You can still edit any name afterwards.</p>
+          </>}
+      {msg && <p className="success-note" role="status">{msg}</p>}
+    </div>
+  );
+}
+
 /** Club admins: the names riders pick from when they tap "I'm in". */
 export function RosterPanel({ clubId }) {
   const [data, setData] = useState(null);
@@ -49,6 +95,7 @@ export function RosterPanel({ clubId }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("+91 ");
   const fileInput = useRef();
   const base = `/api/clubs/${clubId}/roster`;
 
@@ -81,13 +128,13 @@ export function RosterPanel({ clubId }) {
         r = await api(`${base}/import`, { method: "POST", body: JSON.stringify({ filename: file.name, data: await toBase64(file) }) });
       }
       setNotice(r.mode === "phonebook"
-        ? `${r.named} of ${r.group_members} group members now have names${r.unnamed ? `, ${r.unnamed} still unnamed` : ""}. ${r.added + r.renamed} names came from your phone book. The other ${r.contacts - r.matched} contacts weren't in the group and were not saved.${r.clashes.length ? ` Check these duplicates: ${r.clashes.slice(0, 5).join(", ")}.` : ""}`
+        ? `${r.named} of ${r.group_members} group members now have names${r.unnamed ? `, ${r.unnamed} still unnamed` : ""}. ${r.added + r.renamed} names came from your phone book. The other ${r.contacts - r.matched} contacts weren't in the group and were not saved.${r.clashes.length ? ` Not added, because the name is already on the list with a different number: ${r.clashes.slice(0, 5).join(", ")}. If that's the same person with two numbers, there's nothing to do. Otherwise add a surname or initial to one of them.` : ""}`
         : `Read ${r.read} ${r.read === 1 ? "name" : "names"}: ${r.added} added, ${r.updated} updated, ${r.unchanged} already there.`);
       setQ(""); await load("");
     } finally { if (fileInput.current) fileInput.current.value = ""; }
   });
   const sync = () => run(async () => { await api(`${base}/sync`, { method: "POST" }); await load(); });
-  const add = (e) => { e.preventDefault(); run(async () => { await api(base, { method: "POST", body: JSON.stringify({ name }) }); setNotice(`Added ${name.trim()}.`); setName(""); await load(); }); };
+  const add = (e) => { e.preventDefault(); run(async () => { await api(base, { method: "POST", body: JSON.stringify({ name, phone }) }); setNotice(`Added ${name.trim()}.`); setName(""); setPhone("+91 "); await load(); }); };
   const rename = async (p, value) => { await api(`${base}/${p.id}`, { method: "PATCH", body: JSON.stringify({ name: value }) }); await load(); };
   const nameMember = async (p, value) => { await api(`${base}/from-group/${p.id}`, { method: "POST", body: JSON.stringify({ name: value }) }); await load(); };
   const remove = (p) => run(async () => { await api(`${base}/${p.id}`, { method: "DELETE" }); await load(); });
@@ -113,6 +160,7 @@ export function RosterPanel({ clubId }) {
       </div>
       {notice && <p className="success-note" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
+      <NameCleanup key={`${base}:${data.total}:${notice}`} base={base} onApplied={() => load()} />
 
       <div className="tabs" role="tablist">
         <button type="button" role="tab" aria-selected={view === "named"} className={view === "named" ? "tab on" : "tab"} onClick={() => setView("named")}>On the list ({data.total})</button>
@@ -126,7 +174,12 @@ export function RosterPanel({ clubId }) {
           {data.people.length === 0 && <p className="panel-copy">{q ? "No names match." : "No names yet."}</p>}
           {data.total > data.people.length && !q && <p className="panel-copy">Showing the first {data.people.length}. Search to find others.</p>}
         </div>
-        <form className="inline-form" onSubmit={add}><div className="field-grow"><label htmlFor="roster-add">Add someone</label><input id="roster-add" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" minLength={2} maxLength={80} required /></div><button type="submit" disabled={busy}>Add</button></form>
+        <form className="stack-form roster-add" onSubmit={add}>
+          <label htmlFor="roster-add">Add someone</label>
+          <input id="roster-add" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoCapitalize="words" required />
+          <input id="roster-add-phone" aria-label="Mobile number" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" maxLength={20} pattern="[+0-9 ()-]{10,20}" required />
+          <button type="submit" disabled={busy}>Add</button>
+        </form>
       </> : <div className="roster-list">
         <p className="panel-copy">These group members haven't got a name yet. Type the name the club knows them by.</p>
         {unnamed.people.map((p) => <NameRow key={p.id} label={phoneText(p.phone)} sub={p.hint ? `WhatsApp name: ${p.hint}` : "No name from WhatsApp"} initial={p.hint || ""} action="Add name" busy={busy} onSave={(v) => nameMember(p, v)} />)}

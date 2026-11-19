@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { db, DomainError } from "./db.js";
 import { listUnnamed, groupCount, contactById } from "./whatsapp/contacts.js";
+import { memberGroups, knownGroups } from "./whatsapp/outbox.js";
 
 const nowIso = () => new Date().toISOString();
 export const nameKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -18,6 +19,29 @@ export function cleanName(raw) {
   }
   return name.slice(0, 80);
 }
+// Words people add after a contact's name to remember where they know them from
+// ("Aneesh Saraiya Cycling Sector 65"). Everything from the first one onward is dropped.
+const TAG_WORDS = new Set(("cycling cyclist cyclists cycle cycles bicycle bicycling ride rides rider riders riding run runs runner runners running " +
+  "jog jogging walk walkers walking fof club clubs gym fitness bike bikes biker bikers biking mtb roadie trek trekking trekker hike hikes hiker hiking " +
+  "swim swims swimmer swimming tri triathlon triathlete ironman marathon marathoner ultra strava group grp decathlon coach sports sport " +
+  "sector sec society soc apartments apartment apts tower towers phase ph block colony enclave").split(" "));
+const titleWord = (w) => (w.length > 1 && (w === w.toLowerCase() || (w === w.toUpperCase() && w.length > 3)) ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w);
+
+/** "aneesh saraiya Cycling Sector 65" -> "Aneesh Saraiya". Never drops the first word. */
+export function tidyContactName(raw) {
+  let name = cleanName(raw)
+    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, " ")
+    .replace(/[([{].*?([)\]}]|$)/g, " ")
+    .split(/\s+[-–—|@,/:]\s*|\s*[|@/]\s*/)[0]
+    .replace(/\s+/g, " ").trim();
+  const words = name.split(" ").filter(Boolean);
+  let end = words.findIndex((w, i) => i > 0 && (TAG_WORDS.has(w.toLowerCase().replace(/[^\p{L}]/gu, "")) || /\d/.test(w)));
+  if (end === -1) end = words.length;
+  const kept = words.slice(0, end).map((w) => w.split(/([-'])/).map(titleWord).join(""));
+  const tidy = kept.join(" ").replace(/[.\-_'\s]+$/, "").trim();
+  return tidy.length >= 2 ? tidy : cleanName(raw);
+}
+
 export function cleanPhone(raw) {
   let digits = String(raw ?? "").replace(/\.0+$/, "").replace(/\D/g, "");
   if (digits.length === 10) digits = `91${digits}`; // Indian mobile without country code
@@ -220,7 +244,8 @@ export function namesFromPhoneBook(clubId, contacts) {
   const result = { contacts: contacts.length, matched: 0, added: 0, renamed: 0, unchanged: 0, clashes: [] };
   db.transaction(() => {
     const seen = new Set();
-    for (const c of contacts) {
+    for (const raw of contacts) {
+      const c = { ...raw, contact_name: raw.name, name: tidyContactName(raw.name) };
       if (c.name.length < 2 || !/\p{L}/u.test(c.name)) continue;
       const member = c.phones.map((p) => byPhone.get(p)).find(Boolean);
       if (!member || seen.has(member.phone)) continue;
@@ -232,12 +257,12 @@ export function namesFromPhoneBook(clubId, contacts) {
       if (existing) {
         if (existing.source !== "whatsapp" || existing.name === c.name) { result.unchanged++; continue; }
         if (clash) { result.clashes.push(c.name); continue; }
-        db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = 'upload', updated_at = ? WHERE id = ?").run(c.name, nameKey(c.name), now, existing.id);
+        db.prepare("UPDATE club_roster SET name = ?, name_key = ?, contact_name = ?, source = 'upload', updated_at = ? WHERE id = ?").run(c.name, nameKey(c.name), c.contact_name, now, existing.id);
         result.renamed++;
       } else {
         if (clash) { result.clashes.push(c.name); continue; }
-        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, wa_jid, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'upload', ?, ?)")
-          .run(randomUUID(), clubId, c.name, nameKey(c.name), member.phone, member.lid, now, now);
+        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, contact_name, phone, wa_jid, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?)")
+          .run(randomUUID(), clubId, c.name, nameKey(c.name), c.contact_name, member.phone, member.lid, now, now);
         result.added++;
       }
     }
@@ -300,8 +325,12 @@ export function listRoster(clubId, q = "") {
 export function addRosterPerson(clubId, name, phone) {
   const clean = cleanName(name);
   if (clean.length < 2) throw new DomainError(400, "Enter a name (at least 2 letters).");
-  if (db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ?").get(clubId, nameKey(clean))) throw new DomainError(409, `${clean} is already on the list.`);
-  return mergeRoster(clubId, [{ name: clean, phone: cleanPhone(phone) }], "manual");
+  const mobile = cleanPhone(phone);
+  if (!mobile) throw new DomainError(400, "Enter a valid mobile number.");
+  const sameNumber = db.prepare("SELECT name FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, mobile);
+  if (sameNumber) throw new DomainError(409, `That number is already on the list as ${sameNumber.name}.`);
+  if (db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ?").get(clubId, nameKey(clean))) throw new DomainError(409, `${clean} is already on the list. Add a surname or initial to tell them apart.`);
+  return mergeRoster(clubId, [{ name: clean, phone: mobile }], "manual");
 }
 
 export function renameRosterPerson(clubId, id, name) {
@@ -331,6 +360,30 @@ export function nameGroupMember(clubId, contactId, name) {
 export function removeRosterPerson(clubId, id) {
   const changes = db.prepare("DELETE FROM club_roster WHERE club_id = ? AND id = ?").run(clubId, id).changes;
   if (!changes) throw new DomainError(404, "Not found.");
+}
+
+/** Names imported from a phone book or WhatsApp that still carry tags, with the tidy version. */
+export function cleanupSuggestions(clubId) {
+  return db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND source IN ('upload', 'whatsapp') AND self_added = 0 ORDER BY name_key").all(clubId)
+    .map((p) => ({ ...p, suggested: tidyContactName(p.name) }))
+    .filter((p) => p.suggested !== p.name);
+}
+
+/** Applies the tidy names the admin ticked. The original stays in contact_name. */
+export function applyCleanup(clubId, ids) {
+  const wanted = new Set(ids);
+  const result = { applied: 0, skipped: [] };
+  db.transaction(() => {
+    for (const p of cleanupSuggestions(clubId)) {
+      if (!wanted.has(p.id)) continue;
+      const clash = db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(clubId, nameKey(p.suggested), p.id);
+      if (clash) { result.skipped.push(p.suggested); continue; }
+      db.prepare("UPDATE club_roster SET contact_name = COALESCE(contact_name, name), name = ?, name_key = ?, updated_at = ? WHERE id = ?")
+        .run(p.suggested, nameKey(p.suggested), nowIso(), p.id);
+      result.applied++;
+    }
+  }).immediate();
+  return result;
 }
 
 /**
@@ -369,12 +422,13 @@ export function registerRosterRoutes(app, { requireClubRole }) {
 
   app.get(base, { schema: { params, querystring: { type: "object", properties: { q: { type: "string", maxLength: 60 } } } }, preHandler: pre },
     async (req) => {
-      const conn = db.prepare("SELECT status, group_jid, group_name, roster_sync_wanted_at, roster_synced_at FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
+      const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
+      const groups = memberGroups(conn).map((jid) => knownGroups(conn).find((g) => g.jid === jid)?.name || (jid === conn?.group_jid ? conn.group_name : null)).filter(Boolean);
       return {
         ...listRoster(req.params.clubId, req.query.q),
         unnamed: listUnnamed(req.params.clubId),
         whatsapp: {
-          group: conn?.group_jid ? conn.group_name : null, connected: conn?.status === "connected",
+          group: groups.length ? groups.join(" + ") : null, connected: conn?.status === "connected",
           group_members: groupCount(req.params.clubId), synced_at: conn?.roster_synced_at || null,
           syncing: Boolean(conn?.roster_sync_wanted_at && (!conn.roster_synced_at || conn.roster_sync_wanted_at > conn.roster_synced_at))
         }
@@ -382,11 +436,16 @@ export function registerRosterRoutes(app, { requireClubRole }) {
     });
 
   app.post(`${base}/sync`, { schema: { params }, preHandler: pre }, async (req, reply) => {
-    const conn = db.prepare("SELECT status, group_jid FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
-    if (!conn || conn.status !== "connected" || !conn.group_jid) return reply.code(409).send({ error: "Connect WhatsApp and choose the club group first." });
+    const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
+    if (!conn || conn.status !== "connected" || !memberGroups(conn).length) return reply.code(409).send({ error: "Connect WhatsApp and choose the club group first." });
     db.prepare("UPDATE whatsapp_connections SET roster_sync_wanted_at = ? WHERE club_id = ?").run(nowIso(), req.params.clubId);
     return { ok: true };
   });
+
+  app.get(`${base}/cleanup`, { schema: { params }, preHandler: pre }, async (req) => ({ people: cleanupSuggestions(req.params.clubId) }));
+  app.post(`${base}/cleanup`, {
+    schema: { params, body: { type: "object", properties: { ids: { type: "array", maxItems: 5000, items: id } }, required: ["ids"] } }, preHandler: pre
+  }, async (req) => applyCleanup(req.params.clubId, req.body.ids));
 
   app.post(`${base}/from-group/:contactId`, {
     schema: { params: { type: "object", properties: { clubId: id, contactId: id }, required: ["clubId", "contactId"] }, body: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, required: ["name"] } },
@@ -405,7 +464,7 @@ export function registerRosterRoutes(app, { requireClubRole }) {
   });
 
   app.post(base, {
-    schema: { params, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: ["string", "null"], maxLength: 30 } }, required: ["name"] } }, preHandler: pre
+    schema: { params, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 } }, required: ["name", "phone"] } }, preHandler: pre
   }, async (req, reply) => {
     try { return reply.code(201).send(addRosterPerson(req.params.clubId, req.body.name, req.body.phone)); }
     catch (error) { return domain(reply, error); }

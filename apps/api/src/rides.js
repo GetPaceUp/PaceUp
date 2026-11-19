@@ -6,7 +6,7 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList } from "./whatsapp/outbox.js";
-import { suggestNames, cleanName, nameKey } from "./roster.js";
+import { suggestNames, cleanName, cleanPhone, nameKey } from "./roster.js";
 
 const nowIso = () => new Date().toISOString();
 const ADMIN_ROLES = ["owner", "admin"];
@@ -16,7 +16,17 @@ export const CATEGORIES = ["cycling", "running", "hiking", "swimming", "triathlo
 /** An activity counts as past (the "completed" state) this long after it starts. */
 const PAST_AFTER_MS = 12 * 60 * 60 * 1000;
 
-const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "distance_km", "pace", "notes", "capacity", "category"];
+const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "distance_km", "pace", "notes", "capacity", "category", "wa_group_jid"];
+
+/** An activity may post to any group the club's number is in; null means the club's default group. */
+function checkGroup(clubId, jid) {
+  if (!jid) return null;
+  const conn = db.prepare("SELECT groups_json FROM whatsapp_connections WHERE club_id = ?").get(clubId);
+  let groups = [];
+  try { groups = JSON.parse(conn?.groups_json || "[]"); } catch {}
+  if (!groups.some((g) => g.jid === jid)) throw new DomainError(400, "Pick one of the club's WhatsApp groups.");
+  return jid;
+}
 
 export const hashDevice = (token) => createHash("sha256").update(`device:${token}`).digest("hex");
 
@@ -98,7 +108,8 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
       is_you: Boolean(mine && mine.id === p.id)
     })),
     my_rsvp: mine?.status === "going" ? { id: mine.id, name: list.find((p) => p.id === mine.id)?.name || mine.participant_name, listed: Boolean(mine.user_id || mine.roster_id) } : null,
-    viewer: { signed_in: Boolean(userId), member: Boolean(membership), admin }
+    viewer: { signed_in: Boolean(userId), member: Boolean(membership), admin },
+    ...(admin ? { wa_group_jid: ride.wa_group_jid || null } : {})
   };
   if (admin) view.history = rideHistory(ride.id);
   return view;
@@ -134,10 +145,11 @@ export function createRide(clubId, userId, input, { actorType = "user" } = {}) {
       organiser_id: userId, created_by: userId, created_at: now, updated_at: now
     };
     for (const key of EDITABLE) ride[key] = input[key] ?? null;
+    ride.wa_group_jid = checkGroup(clubId, input.wa_group_jid);
     ride.category = CATEGORIES.includes(input.category) ? input.category : "other";
     db.prepare(`
-      INSERT INTO rides (id, club_id, share_code, title, category, starts_at, meeting_point, map_url, distance_km, pace, notes, capacity, status, organiser_id, created_by, created_at, updated_at)
-      VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @distance_km, @pace, @notes, @capacity, @status, @organiser_id, @created_by, @created_at, @updated_at)
+      INSERT INTO rides (id, club_id, share_code, title, category, starts_at, meeting_point, map_url, distance_km, pace, notes, capacity, wa_group_jid, status, organiser_id, created_by, created_at, updated_at)
+      VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @distance_km, @pace, @notes, @capacity, @wa_group_jid, @status, @organiser_id, @created_by, @created_at, @updated_at)
     `).run(ride);
     logActivity({ clubId, rideId: ride.id, actorType, actorId: userId, action: ride.status === "published" ? "created_published" : "created_draft" });
     if (ride.status === "published") enqueueRideEvent(ride, "ride_published");
@@ -152,6 +164,7 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     if (ride.status === "cancelled") throw new DomainError(409, "This activity was cancelled and can't be changed.");
     const going = goingCount(rideId);
     const changes = {};
+    if ("wa_group_jid" in input) input = { ...input, wa_group_jid: checkGroup(clubId, input.wa_group_jid) };
     for (const key of EDITABLE) if (key in input && input[key] !== ride[key]) changes[key] = input[key];
     if (input.status && input.status !== ride.status) {
       if (input.status === "draft" && going > 0) {
@@ -209,7 +222,7 @@ export function getRideByCode(code) { return getRideRow("share_code", code); }
  * duplicate checks and the write run in one write transaction, so simultaneous
  * taps can't overfill or double-book.
  */
-export function setRsvp(code, { userId = null, deviceHash = null, status, name = null, memberId = null, rosterId = null }) {
+export function setRsvp(code, { userId = null, deviceHash = null, status, name = null, phone = null, memberId = null, rosterId = null }) {
   return db.transaction(() => {
     const ride = getRideRow("share_code", code);
     if (!ride || ride.status === "draft") throw new DomainError(404, "Activity not found.");
@@ -245,14 +258,22 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       displayName = db.prepare("SELECT name FROM users WHERE id = ?").get(memberId).name;
     } else {
       // Someone new: they're added to the club list so next time they just pick their name.
+      // The mobile number tells the club who this is, and finds them if they're listed under another spelling.
       displayName = cleanName(name);
       if (displayName.length < 2 || displayName.length > 60) throw new DomainError(400, "Enter your name (2 to 60 characters).");
-      const listed = db.prepare("SELECT id, name FROM club_roster WHERE club_id = ? AND name_key = ?").get(ride.club_id, nameKey(displayName));
-      if (listed) { who.roster_id = listed.id; displayName = listed.name; }
-      else {
+      const mobile = cleanPhone(phone);
+      if (!mobile) throw new DomainError(400, "Enter your mobile number, so the club knows who you are.");
+      const byPhone = db.prepare("SELECT id, name FROM club_roster WHERE club_id = ? AND phone = ?").get(ride.club_id, mobile);
+      const byName = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND name_key = ?").get(ride.club_id, nameKey(displayName));
+      if (byPhone) { who.roster_id = byPhone.id; displayName = byPhone.name; }
+      else if (byName && byName.phone) throw new DomainError(409, `Someone called ${byName.name} is already on the club list with another number. Add your surname so people can tell you apart.`);
+      else if (byName) {
+        who.roster_id = byName.id; displayName = byName.name;
+        db.prepare("UPDATE club_roster SET phone = ?, updated_at = ? WHERE id = ?").run(mobile, now, byName.id);
+      } else {
         who.roster_id = randomUUID();
-        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, source, self_added, created_at, updated_at) VALUES (?, ?, ?, ?, 'manual', 1, ?, ?)")
-          .run(who.roster_id, ride.club_id, displayName, nameKey(displayName), now, now);
+        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, self_added, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'manual', 1, ?, ?)")
+          .run(who.roster_id, ride.club_id, displayName, nameKey(displayName), mobile, now, now);
       }
     }
 
@@ -301,7 +322,8 @@ const rideFields = {
   distance_km: { type: ["number", "null"], minimum: 0, maximum: 1000 },
   pace: { type: ["string", "null"], maxLength: 60 },
   notes: { type: ["string", "null"], maxLength: 2000 },
-  capacity: { type: ["integer", "null"], minimum: 1, maximum: 10000 }
+  capacity: { type: ["integer", "null"], minimum: 1, maximum: 10000 },
+  wa_group_jid: { type: ["string", "null"], maxLength: 100 }
 };
 const blankToNull = (body) => {
   for (const key of ["map_url", "pace", "notes"]) if (typeof body[key] === "string" && !body[key].trim()) body[key] = null;
@@ -344,8 +366,10 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     schema: { params: clubParams, body: { type: "object", properties: { ...rideFields, status: { type: "string", enum: ["draft", "published"] } }, required: ["title", "starts_at", "meeting_point"] } },
     preHandler: [app.authenticate, requireClubRole(ADMIN_ROLES)]
   }, async (request, reply) => {
-    const ride = createRide(request.params.clubId, request.user.sub, blankToNull(request.body));
-    return reply.code(201).send({ ride: rideView(ride, viewer(request)) });
+    try {
+      const ride = createRide(request.params.clubId, request.user.sub, blankToNull(request.body));
+      return reply.code(201).send({ ride: rideView(ride, viewer(request)) });
+    } catch (error) { return domain(reply, error); }
   });
 
   app.patch("/api/clubs/:clubId/rides/:rideId", {
@@ -390,7 +414,7 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     config: { rateLimit: { max: publicRateLimit, timeWindow: "10 minutes" } },
     schema: {
       params: codeParams,
-      body: { type: "object", properties: { status: { type: "string", enum: ["going", "cancelled"] }, name: { type: "string", maxLength: 80 }, member_id: id, roster_id: id }, required: ["status"] }
+      body: { type: "object", properties: { status: { type: "string", enum: ["going", "cancelled"] }, name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 }, member_id: id, roster_id: id }, required: ["status"] }
     },
     preHandler: [optionalUser]
   }, async (request, reply) => {
@@ -399,7 +423,7 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
       const membership = request.userId && ride ? getClubMembership(ride.club_id, request.userId) : null;
       // Members act as themselves; everyone else needs this browser's device token.
       const deviceHash = membership ? deviceHashOf(request) : (request.body.status === "going" ? ensureDevice(request, reply) : deviceHashOf(request));
-      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, memberId: request.body.member_id, rosterId: request.body.roster_id }) };
+      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, memberId: request.body.member_id, rosterId: request.body.roster_id }) };
     } catch (error) { return domain(reply, error); }
   });
 }
