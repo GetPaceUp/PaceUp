@@ -334,6 +334,48 @@ export const migrations = [
         );
       `);
     }
+  },
+  {
+    id: 13,
+    name: "mobile_sign_in",
+    up(db) {
+      // Accounts can be phone-first. A phone-only account gets a placeholder email
+      // (<phone>@phone.paceup.invalid) and an unusable password, so the users table
+      // keeps its constraints; the API never shows the placeholder.
+      if (!hasColumn(db, "users", "phone")) db.exec("ALTER TABLE users ADD COLUMN phone TEXT");
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL;
+        -- One-time sign-in codes sent on WhatsApp. Only a hash is stored.
+        CREATE TABLE login_codes (
+          id TEXT PRIMARY KEY,
+          phone TEXT NOT NULL,
+          code_hash TEXT NOT NULL,
+          purpose TEXT NOT NULL CHECK (purpose IN ('login', 'attach')),
+          user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          ip TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_login_codes_phone ON login_codes(phone, created_at);
+        -- Direct WhatsApp messages to one person (sign-in codes), sent by the worker
+        -- from a connected club number. Separate from the club-group outbox.
+        CREATE TABLE whatsapp_direct (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          to_phone TEXT NOT NULL,
+          text TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          sent_at TEXT
+        );
+        CREATE INDEX idx_wa_direct_pending ON whatsapp_direct(status, created_at);
+      `);
+    }
   }
 ];
 

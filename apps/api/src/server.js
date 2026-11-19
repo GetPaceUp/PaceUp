@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerRideRoutes } from "./rides.js";
 import { registerRosterRoutes } from "./roster.js";
+import { registerOtpRoutes } from "./otp.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
@@ -136,6 +137,7 @@ export async function buildApp(options = {}) {
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
   registerRosterRoutes(app, { requireClubRole });
+  registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
   registerWhatsAppRoutes(app, { requireClubRole, rateLimit: options.authRateLimit });
 
   // ---- password reset (one-time links shared by an admin; no email needed)
@@ -220,7 +222,7 @@ export async function buildApp(options = {}) {
       if (!invitation || invitation.accepted_at || new Date(invitation.expires_at).getTime() <= Date.now()) {
         return reply.code(410).send({ error: "This invitation has expired or has already been used." });
       }
-      if (email.toLowerCase() !== invitation.email.toLowerCase()) {
+      if (invitation.email && email.toLowerCase() !== invitation.email.toLowerCase()) {
         return reply.code(403).send({ error: "Register using the email address this invitation was sent to." });
       }
     } else if (clubName.length < 2 || clubName.length > 80 || !slug) {
@@ -255,7 +257,8 @@ export async function buildApp(options = {}) {
     const password = typeof request.body?.password === "string" ? request.body.password : "";
     if (!email || !password) return reply.code(400).send({ error: "Enter your email and password." });
     const user = findUserByEmail(email);
-    const valid = user ? await bcrypt.compare(password, user.password_hash) : false;
+    // Phone-only accounts have no password ("!"): they sign in with a WhatsApp code.
+    const valid = user && user.password_hash !== "!" ? await bcrypt.compare(password, user.password_hash) : false;
     // A password reset may have landed while bcrypt ran: only the current password signs in.
     if (!valid || findUserByEmail(email)?.password_hash !== user.password_hash) return reply.code(401).send({ error: "Email or password is incorrect." });
     const safeUser = getUserById(user.id);
@@ -314,13 +317,14 @@ export async function buildApp(options = {}) {
 
   app.post("/api/clubs/:clubId/invitations", {
     schema: { params: { type: "object", properties: { clubId: id }, required: ["clubId"] },
-      body: { type: "object", properties: { email: str(254), role: { type: "string", enum: ["admin", "member"], default: "member" } }, required: ["email"] } },
+      body: { type: "object", properties: { email: str(254), role: { type: "string", enum: ["admin", "member"], default: "member" } } } },
     preHandler: [app.authenticate, requireClubRole(["owner", "admin"])]
   }, async (request, reply) => {
     const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const role = request.body.role;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return reply.code(400).send({ error: "Enter a valid email address." });
-    const existing = findUserByEmail(email);
+    // Email is optional: an invite link without one can be used by whoever receives it (e.g. on WhatsApp).
+    if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254)) return reply.code(400).send({ error: "Enter a valid email address, or leave it empty." });
+    const existing = email ? findUserByEmail(email) : null;
     if (existing && getClubMembership(request.params.clubId, existing.id)) return reply.code(409).send({ error: "This person is already a member of the club." });
     const token = randomBytes(32).toString("base64url");
     const tokenHash = hashToken(token);

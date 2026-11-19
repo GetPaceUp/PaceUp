@@ -238,6 +238,22 @@ export class WhatsAppWorker {
     }
   }
 
+  /** Sign-in codes and other one-to-one messages: sent at once, never held for quiet hours or caps. */
+  async deliverDirect() {
+    const now = iso(Date.now());
+    db.prepare("UPDATE whatsapp_direct SET status = 'failed', last_error = COALESCE(last_error, 'expired before sending') WHERE status = 'pending' AND expires_at <= ?").run(now);
+    for (const msg of db.prepare("SELECT * FROM whatsapp_direct WHERE status = 'pending' ORDER BY created_at LIMIT 20").all()) {
+      const entry = this.sessions.get(msg.club_id);
+      if (!entry?.open) continue; // waits (until it expires) for the number to reconnect
+      try {
+        await entry.session.sendText(`${msg.to_phone}@s.whatsapp.net`, msg.text);
+        db.prepare("UPDATE whatsapp_direct SET status = 'sent', sent_at = ?, attempts = attempts + 1 WHERE id = ?").run(iso(Date.now()), msg.id);
+      } catch (error) {
+        db.prepare("UPDATE whatsapp_direct SET attempts = attempts + 1, last_error = ?, status = CASE WHEN attempts + 1 >= 3 THEN 'failed' ELSE status END WHERE id = ?").run(String(error.message).slice(0, 300), msg.id);
+      }
+    }
+  }
+
   finish(item, status, reason, attempts = item.attempts) {
     db.prepare("UPDATE outbox SET status = ?, last_error = ?, attempts = ? WHERE id = ?").run(status, reason ? String(reason).slice(0, 500) : null, attempts, item.id);
   }
@@ -246,7 +262,7 @@ export class WhatsAppWorker {
   async tick() {
     if (this.busy) return;
     this.busy = true;
-    try { await this.reconcile(); await this.deliver(); }
+    try { await this.reconcile(); await this.deliverDirect(); await this.deliver(); }
     catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
     finally { this.busy = false; }
   }
