@@ -376,6 +376,14 @@ export const migrations = [
         CREATE INDEX idx_wa_direct_pending ON whatsapp_direct(status, created_at);
       `);
     }
+  },
+  {
+    id: 14,
+    name: "roster_self_added",
+    up(db) {
+      // New members can add themselves from the RSVP page; admins see them flagged for review.
+      db.exec("ALTER TABLE club_roster ADD COLUMN self_added INTEGER NOT NULL DEFAULT 0");
+    }
   }
 ];
 

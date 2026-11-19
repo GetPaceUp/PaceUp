@@ -77,7 +77,7 @@ test("RSVPs never wait on WhatsApp, and a burst becomes one rider-list post", as
   await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: a.cookie, payload: { status: "going" } });
   const next = pending(a.clubId)[0];
   const lastSent = db.prepare("SELECT MAX(sent_at) AS t FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent'").get(rideId).t;
-  assert.ok(new Date(next.not_before) - new Date(lastSent) >= 2 * 60 * 1000, "at most one list post per ride every 2 minutes");
+  assert.ok(new Date(next.not_before) - new Date(lastSent) >= 30 * 1000, "at most one list post per ride every 30 seconds");
   makeDue(); await worker.tick();
   assert.match(sent.at(-1).text, /Priya S\. \(organiser\) 🆕/);
   assert.match(sent.at(-1).text, /Dropped out: Meera I\./);

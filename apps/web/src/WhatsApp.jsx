@@ -82,6 +82,7 @@ export function WhatsAppPanel({ clubId }) {
       {starting && <button type="button" className="text-button" onClick={() => act("/disconnect")}>Cancel</button>}
 
       {connected && <>
+        <p className="success-note">Admins can create activities by sending this number a WhatsApp message{wa.phone ? ` (${wa.phone})` : ""}, e.g. "Create a run Sunday 6 AM from Cubbon Park, 10 km". It recognises you by the mobile number on your PaceUp account.</p>
         <label className="field-label" htmlFor="wa-group">Post activities in</label>
         {wa.groups.length
           ? <select id="wa-group" value={wa.group?.jid || ""} disabled={busy} onChange={(e) => e.target.value && act("/group", "PUT", { jid: e.target.value })}>
@@ -92,7 +93,7 @@ export function WhatsAppPanel({ clubId }) {
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group missing? Refresh groups"}</button>
         {wa.group && <>
           <Toggle id="wa-new" label="New activity published" hint="Details and the link to join" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />
-          <Toggle id="wa-list" label="Who's going, after people join" hint="One updated list per activity, at most every 2 minutes" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />
+          <Toggle id="wa-list" label="Who's going, after people join" hint="One updated list per activity, at most every 30 seconds" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />
           <Toggle id="wa-changes" label="Activity changed or cancelled" hint="New time, place or cancellation" checked={wa.settings.post_changes} onChange={(v) => act("/settings", "PATCH", { post_changes: v })} />
           <Toggle id="wa-quiet" label="Quiet hours 10 PM – 5 AM" hint="Held messages go out at 5 AM" checked={wa.settings.quiet_hours} onChange={(v) => act("/settings", "PATCH", { quiet_hours: v })} />
           <dl className="wa-stats">

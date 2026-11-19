@@ -1,27 +1,34 @@
 // Creating activities by chatting with the club's WhatsApp number.
 //
-// Only club admins who linked their own WhatsApp (by sending a one-time code
-// from it) are answered; everyone else is ignored. Each admin has at most one
+// Only club admins are answered: they are recognised by the mobile number on
+// their PaceUp account (or, for accounts without one, by a one-time LINK code
+// sent from their WhatsApp). Everyone else is ignored. Each admin has at most one
 // draft. Every message is read for details and merged into the draft; PaceUp
 // asks for whatever is missing and publishes only after an explicit YES.
 import { randomUUID, createHash, randomInt } from "node:crypto";
 import { db, getClubMembership } from "../db.js";
 import { createRide } from "../rides.js";
-import { parseActivity, resolveAmPm, defaultTitle, zonedToUtc } from "./compose.js";
-import { rideLink, whenText } from "./messages.js";
+import { parseActivity, resolveAmPm, defaultTitle, zonedToUtc, titleFrom, bareAnswer, CATEGORY_LABEL, ACTIVITY_NOUN } from "./compose.js";
+import { phoneFromJid } from "./contacts.js";
+import { rideLink } from "./messages.js";
 import { getConnection } from "./outbox.js";
 
 const TZ = () => process.env.PACEUP_TIMEZONE || "Asia/Kolkata";
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
-const DRAFT_TTL_MS = 6 * 60 * 60 * 1000;
+const DRAFT_TTL_MS = 30 * 60 * 1000; // a half-finished draft is dropped after 30 quiet minutes
 const CODE_TTL_MS = 15 * 60 * 1000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
 const hashCode = (code) => createHash("sha256").update(`wa-link:${code.toUpperCase()}`).digest("hex");
 
+/** "Create a ride", or a message that names an activity with its day and time. */
+const isRequest = (text) => ACTIVITY_NOUN.test(text) && (/\b(create|new|add|post|schedule|plan|organi[sz]e|set up|setup)\b/i.test(text)
+  || (() => { const f = parseActivity(text, { tz: TZ() }); return Boolean(f.date && (f.time || f.time_ambiguous)); })());
 const EXAMPLE = "Create a run this Sunday at 6 AM from Tulip Chowk, 10 km";
-const YES = /^\s*(yes|y|yep|yeah|yup|ok|okay|confirm|publish|publish it|go|go ahead|haan|ha|👍|✅)\s*[.!]*\s*$/i;
+// The club number may be someone's own phone, so casual words ("ok", 👍) never publish.
+const YES = /^\s*(yes|y|yep|yeah|yup|confirm|publish|publish it|✅)\s*[.!]*\s*$/i;
 const NO = /^\s*(no|n|nope|cancel|stop|discard|delete|scrap it|forget it|❌)\s*[.!]*\s*$/i;
-const HELP = /^\s*(help|\?|hi|hello|hey|menu|start)\s*[.!]*\s*$/i;
+const HELP = /^\s*(help|\?|menu)\s*[.!]*\s*$/i;
+const CALL = /^\s*paceup\b[\s,:!.-]*(help|menu|hi|hello)?\s*[.!?]*\s*$/i; // "PaceUp" on its own wakes the assistant
 const NEW = /^\s*(new|start over|restart|reset)\s*[.!]*\s*$/i;
 
 // ---------------------------------------------------------------- admin linking
@@ -65,12 +72,19 @@ function linkSender(clubId, code, from, fromAlt) {
 /** The linked admin who sent this message, if they are still an admin of the club. */
 function senderAdmin(clubId, from, fromAlt) {
   const ids = [from, fromAlt].filter(Boolean);
-  const row = db.prepare(`SELECT user_id FROM whatsapp_admins WHERE club_id = ? AND linked_at IS NOT NULL AND (jid IN (${ids.map(() => "?").join(",")}) OR jid_alt IN (${ids.map(() => "?").join(",")}))`)
+  const linked = db.prepare(`SELECT user_id FROM whatsapp_admins WHERE club_id = ? AND linked_at IS NOT NULL AND (jid IN (${ids.map(() => "?").join(",")}) OR jid_alt IN (${ids.map(() => "?").join(",")}))`)
     .get(clubId, ...ids, ...ids);
-  if (!row) return null;
-  const membership = getClubMembership(clubId, row.user_id);
-  if (!membership || !["owner", "admin"].includes(membership.role)) return null;
-  return { userId: row.user_id, clubName: membership.name };
+  const candidates = linked ? [linked.user_id] : [];
+  // No login needed: an admin is known by the mobile number on their PaceUp account.
+  const phones = ids.map(phoneFromJid).filter(Boolean);
+  if (phones.length) {
+    for (const u of db.prepare(`SELECT id FROM users WHERE phone IN (${phones.map(() => "?").join(",")})`).all(...phones)) candidates.push(u.id);
+  }
+  for (const userId of candidates) {
+    const membership = getClubMembership(clubId, userId);
+    if (membership && ["owner", "admin"].includes(membership.role)) return { userId, clubName: membership.name };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- drafts
@@ -102,17 +116,22 @@ function summary(draft) {
 }
 
 /** What to ask next, or null when the draft is complete and in the future. */
+const isEmpty = (draft) => !Object.keys(draft).some((k) => k !== "category");
+const noun = (draft) => CATEGORY_LABEL[draft.category || "other"].toLowerCase();
+
 function nextQuestion(draft) {
+  if (!draft.date && !draft.title) return `What's the ${noun(draft)} called, and which day and time? (e.g. "Sunday Morning ${CATEGORY_LABEL[draft.category || "other"]}, 22 Nov, 6:30 AM")`;
   if (!draft.date) return "Which day? (e.g. Sunday, tomorrow or 23 Nov)";
   if (draft.time_ambiguous && !draft.time) return `Is ${draft.time_ambiguous} in the morning or evening? Reply *AM* or *PM*.`;
   if (!draft.time) return "What time does it start? (e.g. 6 AM)";
-  if (!draft.location) return "Where does it start? (e.g. from Tulip Chowk)";
+  if (!draft.location) return "Where are we meeting? (e.g. Tulip Chowk, 60 km)";
   if (startsAt(draft).getTime() <= Date.now()) return "That date and time has already passed. Send a new day or time.";
   return null;
 }
 
 function draftReply(draft, lead) {
   const question = nextQuestion(draft);
+  if (isEmpty(draft)) return `Great! Let's get your ${noun(draft)} published. ${question}\n\nReply *CANCEL* to stop.`;
   if (question) return `${lead}\n\n${summary(draft)}\n\n${question}\n\nReply *CANCEL* to discard.`;
   return `I have the following activity ready:\n\n${summary(draft)}\n\nShould I publish it? Reply *YES* to publish, or send a change (e.g. "time 6:30 AM", "change location to Hebbal flyover"). Reply *CANCEL* to discard.`;
 }
@@ -130,13 +149,13 @@ function publishDraft(clubId, userId, draft) {
   const conn = getConnection(clubId);
   const autoPost = conn?.desired === "on" && conn.group_jid && conn.post_new_ride;
   return [
-    "✅ Your activity is published.",
+    `✅ ${CATEGORY_LABEL[ride.category] || "Activity"} created!`,
     "",
-    `*${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`,
+    summary({ ...draft, title: ride.title }),
     "",
-    `Activity link: ${rideLink(ride)}`,
+    `RSVP link: ${rideLink(ride)}`,
     "",
-    autoPost ? `I'll post it in ${conn.group_name || "the club group"} in a moment. You can also forward the link.` : "You can share this link with your group."
+    autoPost ? `I'll post it in ${conn.group_name || "the club group"} in a moment. You can also forward the link.` : "Forward this link to the group."
   ].join("\n");
 }
 
@@ -154,6 +173,7 @@ export function handleIncoming(clubId, msg) {
   const link = text.match(/^\s*link\s+([A-Za-z0-9]{6})\s*$/i);
   const admin = link ? null : senderAdmin(clubId, msg.from, msg.fromAlt);
   if (!link && !admin) return null; // members and strangers get no bot replies
+  if (admin && !CALL.test(text) && !isRequest(text) && !loadDraft(clubId, admin.userId)) return null;
   if (msg.id) {
     const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_inbound (club_id, message_id, created_at) VALUES (?, ?, ?)").run(clubId, msg.id, iso()).changes;
     if (!fresh) return null;
@@ -170,7 +190,9 @@ export function handleIncoming(clubId, msg) {
   const { userId, clubName } = admin;
   let draft = loadDraft(clubId, userId);
 
-  if (HELP.test(text)) return draft ? draftReply(draft, "We're working on this activity:") : helpText(clubName);
+  // With no draft open, only an obvious request starts a chat; anything else is the admin's own conversation.
+  if (!draft && !CALL.test(text) && !isRequest(text)) return null;
+  if (CALL.test(text) || HELP.test(text)) return draft ? draftReply(draft, "We're working on this activity:") : helpText(clubName);
   if (NO.test(text)) {
     if (!draft) return "Nothing to cancel. Send new activity details whenever you're ready.";
     dropDraft(clubId, userId);
@@ -186,6 +208,14 @@ export function handleIncoming(clubId, msg) {
 
   const tz = TZ();
   const found = parseActivity(text, { tz });
+  const title = titleFrom(text);
+  if (title && !found.title && (!draft || !draft.title)) found.title = title;
+  // A bare reply to "Where are we meeting?" is the place.
+  const merged = { ...(draft || {}), ...found };
+  if (!merged.location && merged.date && (merged.time || merged.time_ambiguous)) {
+    const place = bareAnswer(text, { tz });
+    if (place && !(title && place === title)) found.location = place;
+  }
   if (draft?.time_ambiguous && !draft.time && !found.time) {
     const resolved = resolveAmPm(text, draft.time_ambiguous);
     if (resolved) { found.time = resolved; delete draft.time_ambiguous; }

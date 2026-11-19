@@ -2,11 +2,11 @@ import SuperAdmin from "./SuperAdmin.jsx";
 import { ClubRides, RidePage } from "./Rides.jsx";
 import { WhatsAppPanel } from "./WhatsApp.jsx";
 import { RosterPanel } from "./Roster.jsx";
-import { PhoneAuth, AddPhone, phoneText } from "./Auth.jsx";
+import { PhoneAuth, AddPhone, AddAdmin, phoneText } from "./Auth.jsx";
 import { ResetPage, ResetLinkButton } from "./PasswordReset.jsx";
 import { useEffect, useState } from "react";
 
-const emptyForm = { name: "", email: "", password: "", clubName: "" };
+const emptyForm = { name: "", email: "", password: "" };
 
 export default function App() {
   if (window.location.pathname === "/superadmin") return <SuperAdmin />;
@@ -16,7 +16,7 @@ export default function App() {
   if (resetMatch) return <ResetPage token={resetMatch[1]} />;
   const [user, setUser] = useState(null);
   const [clubs, setClubs] = useState([]);
-  const [mode, setMode] = useState("register");
+  const [mode, setMode] = useState("login");
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -174,11 +174,11 @@ export default function App() {
               <p className="auth-switch"><button type="button" className="text-button" onClick={() => { setUseEmail(true); setError(""); }}>Use email and password instead</button></p>
             </> : <>
             <form className="create-form" onSubmit={handleSubmit}>
-              {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required />{!inviteToken && <><label htmlFor="clubName">Club or community name</label><input id="clubName" value={form.clubName} onChange={(e) => update("clubName", e.target.value)} placeholder="e.g. Sunday Trail Crew" minLength={2} maxLength={80} required /></> }</>}
+              {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required /></>}
               <label htmlFor="email">Email address</label><input id="email" type="email" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@example.com" autoComplete="email" required />
               <label htmlFor="password">Password</label><input id="password" type="password" value={form.password} onChange={(e) => update("password", e.target.value)} placeholder={mode === "register" ? "At least 10 characters" : "Your password"} minLength={mode === "register" ? 10 : undefined} maxLength={128} autoComplete={mode === "register" ? "new-password" : "current-password"} required />
               {error && <p className="error" role="alert">{error}</p>}
-              <button className="primary-button" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "register" ? "Create account and club" : "Sign in"}</button>
+              <button className="primary-button" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}</button>
             </form>
             <p className="auth-switch"><button type="button" className="text-button" onClick={() => setUseEmail(false)}>Use mobile number instead</button></p>
             {mode === "login" && !forgot && <p className="auth-switch"><button type="button" className="text-button" onClick={() => setForgot(true)}>Forgot password?</button></p>}
@@ -198,11 +198,12 @@ export default function App() {
             <div className="section-heading"><div><p className="eyebrow">CLUB ADMINISTRATION</p><h2>Your clubs</h2></div><span className="count">{clubs.length} {clubs.length === 1 ? "CLUB" : "CLUBS"}</span></div>
             {clubs.length > 1 && <label className="field-label" htmlFor="club-select">Choose a club</label>}
             {clubs.length > 1 && <select id="club-select" value={selectedClub} onChange={(e) => setSelectedClub(e.target.value)}>{clubs.map((club) => <option key={club.id} value={club.id}>{club.name}</option>)}</select>}
+            {clubs.length === 0 && <p className="panel-copy">You're not in a club yet. Ask your club admin for an invite link. If your number is on a club's member list, sign in with it and you'll join automatically.</p>}
             {clubs.length > 0 && !["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <p className="panel-copy">You are a member of this club. Club administration is available to its admins.</p>}
             {clubs.length > 0 && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <>
               <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required /></div><button type="submit">Save changes</button></form>
               <div className="admin-grid">
-                <section className="admin-panel"><h3>Invite someone</h3><p className="panel-copy">Create a secure invitation link for a club admin or member.</p><form className="stack-form" onSubmit={sendInvite}><label htmlFor="invite-email">Email address <span className="optional">(optional)</span></label><input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Leave empty to share the link on WhatsApp" /><label htmlFor="invite-role">Role</label><select id="invite-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}><option value="member">Member</option><option value="admin">Club admin</option></select><button type="submit">Create invite link</button></form>{inviteLink && <div className="invite-result"><p>Invitation created. Copy and share this link:</p><input readOnly value={inviteLink} onFocus={(e) => e.target.select()} /><button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(inviteLink)}>Copy link</button><small>Valid for 7 days. Email delivery isn't connected yet.</small></div>}</section>
+                <section className="admin-panel"><h3>Invite someone</h3><p className="panel-copy">Create a secure invitation link for a club admin or member.</p><form className="stack-form" onSubmit={sendInvite}><label htmlFor="invite-email">Email address <span className="optional">(optional)</span></label><input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="Leave empty to share the link on WhatsApp" /><label htmlFor="invite-role">Role</label><select id="invite-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}><option value="member">Member</option><option value="admin">Club admin</option></select><button type="submit">Create invite link</button></form><AddAdmin clubId={selectedClub} onAdded={() => loadClubData(selectedClub)} />{inviteLink && <div className="invite-result"><p>Invitation created. Copy and share this link:</p><input readOnly value={inviteLink} onFocus={(e) => e.target.select()} /><button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(inviteLink)}>Copy link</button><small>Valid for 7 days. Email delivery isn't connected yet.</small></div>}</section>
                 <section className="admin-panel"><h3>Members <span className="count">{members.length}</span></h3>{members.map((member) => <div className="member-row" key={member.id}><div className="member-avatar">{member.name.slice(0,1).toUpperCase()}</div><div className="member-info"><strong>{member.name}</strong><small>{member.phone ? phoneText(member.phone) : member.email}</small></div><span className="role-tag">{member.role}</span>{member.role === "member" && member.id !== user.id && <ResetLinkButton endpoint={`/api/clubs/${selectedClub}/members/${member.id}/password-reset`} name={member.name} />}</div>)}{invitations.filter((invite) => !invite.accepted_at).length > 0 && <><h4>Pending invitations</h4>{invitations.filter((invite) => !invite.accepted_at).map((invite) => <div className="pending-row" key={invite.id}>{invite.email}<span>{invite.role}</span></div>)}</>}</section>
               </div>
               <RosterPanel clubId={selectedClub} />

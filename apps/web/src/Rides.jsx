@@ -188,7 +188,7 @@ export function ClubRides({ club }) {
 
 // ---------------------------------------------------------------- public activity page
 
-/** The name box: type a few letters, pick yourself from the club's list, or join as a guest. */
+/** The name box: type a few letters, pick yourself from the club's list, or add yourself if you're new. */
 function NamePicker({ code, initial = "", busy, onPick, onClose }) {
   const [text, setText] = useState(initial);
   const [names, setNames] = useState([]);
@@ -221,8 +221,10 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
             <span className="avatar">{n.name.slice(0, 1).toUpperCase()}</span><span>{n.name}</span>
           </button></li>
         ))}
-        {!searching && names.length === 0 && <li className="name-empty">Not on the club list yet.</li>}
-        {!exact && typed.length >= 2 && <li><button type="button" className="guest-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>Join as <b>{typed}</b> (guest)</button></li>}
+        {!searching && names.length === 0 && typed.includes(" ") && <li className="name-empty">Not on the club list yet.</li>}
+        {!exact && typed.length >= 2 && (typed.includes(" ")
+          ? <li><button type="button" className="guest-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>I'm new: add <b>{typed}</b> to the club list</button></li>
+          : !searching && <li className="name-empty">New here? Type your full name to add yourself.</li>)}
       </ul>}
       {typed.length < 2 && <p className="panel-copy">Type at least 2 letters, then tap your name.</p>}
       <button type="button" className="text-button" onClick={onClose}>Back</button>

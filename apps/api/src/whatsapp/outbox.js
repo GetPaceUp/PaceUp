@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db.js";
 
-export const LIST_INTERVAL_MS = 2 * 60 * 1000;   // at most one participant-list post per activity per 2 min
+export const LIST_INTERVAL_MS = 30 * 1000;       // at most one participant-list post per activity per 30 s
 export const FIRST_LIST_DELAY_MS = 20 * 1000;    // let the first few taps of a burst gather
 export const HOURLY_CAP = 20;                    // posts per club number per rolling hour
 export const MAX_ATTEMPTS = 8;
@@ -40,7 +40,7 @@ export function enqueueRideEvent(ride, kind) {
 /**
  * Called on every RSVP change. Coalesces: if a list post for this activity is already
  * waiting, it will pick up this change when it is sent; otherwise schedule one
- * no sooner than 2 minutes after the previous list post for the ride.
+ * no sooner than 30 seconds after the previous list post for the ride.
  */
 export function enqueueRiderList(ride) {
   if (!postingConfigured(ride.club_id)) return;

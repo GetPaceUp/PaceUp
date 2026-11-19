@@ -6,7 +6,7 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList } from "./whatsapp/outbox.js";
-import { suggestNames } from "./roster.js";
+import { suggestNames, cleanName, nameKey } from "./roster.js";
 
 const nowIso = () => new Date().toISOString();
 const ADMIN_ROLES = ["owner", "admin"];
@@ -244,8 +244,17 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       who.user_id = memberId;
       displayName = db.prepare("SELECT name FROM users WHERE id = ?").get(memberId).name;
     } else {
-      displayName = String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ");
+      // Someone new: they're added to the club list so next time they just pick their name.
+      displayName = cleanName(name);
       if (displayName.length < 2 || displayName.length > 60) throw new DomainError(400, "Enter your name (2 to 60 characters).");
+      const listed = db.prepare("SELECT id, name FROM club_roster WHERE club_id = ? AND name_key = ?").get(ride.club_id, nameKey(displayName));
+      if (listed) { who.roster_id = listed.id; displayName = listed.name; }
+      else {
+        if (displayName.split(" ").length < 2) throw new DomainError(400, "Add your surname too, so the club can tell people apart.");
+        who.roster_id = randomUUID();
+        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, source, self_added, created_at, updated_at) VALUES (?, ?, ?, ?, 'manual', 1, ?, ?)")
+          .run(who.roster_id, ride.club_id, displayName, nameKey(displayName), now, now);
+      }
     }
 
     // The same person must not appear twice.

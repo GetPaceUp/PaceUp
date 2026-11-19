@@ -6,6 +6,14 @@ import { phoneFromJid, lidFromJid } from "./contacts.js";
 
 const quiet = pino({ level: process.env.WHATSAPP_LOG_LEVEL || "warn" });
 
+// libsignal (used by Baileys) prints whole session records, private keys included,
+// with console.info/warn. Drop those lines so keys never reach the system journal.
+const SIGNAL_NOISE = /^(Closing session|Opening session|Removing old closed session|Session already (closed|open)|Closing open session|Migrating session|Decrypted message with closed session|Closing stale open session)/;
+for (const level of ["info", "warn", "log"]) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => { if (typeof args[0] === "string" && SIGNAL_NOISE.test(args[0])) return; original(...args); };
+}
+
 export const baileysAdapter = {
   name: "baileys",
   async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
@@ -13,6 +21,9 @@ export const baileysAdapter = {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     let version;
     try { ({ version } = await fetchLatestBaileysVersion()); } catch { /* use the library default */ }
+    const sentByUs = new Set();
+    const bare = (jid) => String(jid || "").replace(/:\d+@/, "@");
+    const isSelfChat = (jid) => [sock.user?.id, sock.user?.lid].filter(Boolean).map(bare).includes(bare(jid));
     const sock = makeWASocket({
       auth: state, logger: quiet, version,
       browser: Browsers.ubuntu("PaceUp"),
@@ -47,7 +58,10 @@ export const baileysAdapter = {
       if (type !== "notify") return;
       for (const m of messages) {
         const jid = m.key?.remoteJid || "";
-        if (m.key?.fromMe || !/@(s\.whatsapp\.net|lid)$/.test(jid)) continue; // skip groups, status, channels
+        if (!/@(s\.whatsapp\.net|lid)$/.test(jid)) continue; // skip groups, status, channels
+        // Our own messages are skipped, except notes typed into "Message yourself" on the club phone
+        // (when the club number is an admin's own phone). Our replies there are never read back.
+        if (m.key?.fromMe && (!isSelfChat(jid) || sentByUs.has(m.key.id))) continue;
         const ts = Number(m.messageTimestamp || 0) * 1000;
         if (ts && Date.now() - ts > 10 * 60 * 1000) continue;
         const inner = m.message?.ephemeralMessage?.message || m.message?.viewOnceMessage?.message || m.message;
@@ -73,7 +87,8 @@ export const baileysAdapter = {
         await sock.sendPresenceUpdate("composing", jid).catch(() => {});
         await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1800));
         await sock.sendPresenceUpdate("paused", jid).catch(() => {});
-        await sock.sendMessage(jid, { text });
+        const sent = await sock.sendMessage(jid, { text });
+        if (sent?.key?.id) { sentByUs.add(sent.key.id); if (sentByUs.size > 500) sentByUs.delete(sentByUs.values().next().value); }
       },
       /** Who is in a group: [{ phone, lid }] (either may be missing). */
       async groupParticipants(jid) {

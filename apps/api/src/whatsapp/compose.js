@@ -193,3 +193,31 @@ export function defaultTitle(draft) {
   const weekday = new Date(`${draft.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
   return `${weekday} ${label}`;
 }
+
+const COMMAND = /^\s*(?:please\s+)?(?:create|new|add|post|schedule|plan|organi[sz]e|set up|setup|make|start|let'?s)\b/i;
+export const ACTIVITY_NOUN = new RegExp(CATEGORY_WORDS.map(([, re]) => re.source).join("|") + "|\\b(activity|event|session|meet)\\b", "i");
+const segments = (text) => String(text || "").split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+const titleCase = (s) => s.replace(/\s+/g, " ").trim().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+
+/** A name like "Sunday Morning Ride" given as its own part of a message, or null. */
+export function titleFrom(text) {
+  for (const seg of segments(text)) {
+    if (COMMAND.test(seg) || /\d|\b(from|at|near)\b|@/i.test(seg)) continue;
+    const words = seg.split(/\s+/);
+    if (words.length < 2 || words.length > 8 || seg.length > 80 || !ACTIVITY_NOUN.test(seg)) continue;
+    return titleCase(seg.replace(/^["']|["'.!]$/g, ""));
+  }
+  return null;
+}
+
+/** Parts of a message that carry no recognisable detail: a bare answer such as "Tulip Chowk". */
+export function bareAnswer(text, opts) {
+  for (const seg of segments(text)) {
+    if (COMMAND.test(seg) || seg.length < 2 || !/\p{L}/u.test(seg)) continue;
+    const found = parseActivity(seg, opts);
+    if (Object.keys(found).some((k) => k !== "category")) continue;
+    if (found.category && seg.split(/\s+/).length <= 3 && ACTIVITY_NOUN.test(seg)) continue; // just "a ride"
+    return seg.replace(/[\s.!]+$/, "").slice(0, 200);
+  }
+  return null;
+}
