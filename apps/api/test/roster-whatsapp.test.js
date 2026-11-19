@@ -68,6 +68,21 @@ test("a phone-book export names group members and discards everyone else", async
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919000000000'").get().n, 0);
 });
 
+test("phone books read in the browser arrive as names and numbers only", async () => {
+  const { readVcf: browserVcf } = await import("../../web/src/phonebook.js");
+  const photo = "A".repeat(200000);
+  const vcf = ["BEGIN:VCARD", "VERSION:3.0", "FN:Priya Sharma", "TEL:98765-00003", `PHOTO;ENCODING=b;TYPE=JPEG:${photo}`, "END:VCARD",
+    "BEGIN:VCARD", "VERSION:3.0", "FN:Stranger Danger", "TEL:+91 90000 11111", "END:VCARD"].join("\r\n");
+  const contacts = browserVcf(vcf);
+  assert.deepEqual(contacts, [{ name: "Priya Sharma", phones: ["98765-00003"] }, { name: "Stranger Danger", phones: ["+91 90000 11111"] }]);
+  assert.ok(JSON.stringify(contacts).length < 200, "the photo never leaves the phone");
+  const res = await call("POST", `/api/clubs/${club.clubId}/roster/phonebook`, { cookie: club.cookie, payload: { contacts } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.json().matched, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE name = 'Stranger Danger'").get().n, 0, "non-members discarded");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919000011111'").get().n, 0);
+});
+
 test("admins fix names; a later sync never overwrites them", async () => {
   const amit = (await roster()).people.find((p) => p.name === "Amit D (cycling)");
   assert.equal((await call("PATCH", `/api/clubs/${club.clubId}/roster/${amit.id}`, { cookie: club.cookie, payload: { name: "Amit Kumar" } })).statusCode, 409, "names stay unique");
