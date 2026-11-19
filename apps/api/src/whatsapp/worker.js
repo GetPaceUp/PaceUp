@@ -11,6 +11,7 @@ import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, t
 
 const iso = (ms) => new Date(ms).toISOString();
 const PAIRING_TIMEOUT_MS = 5 * 60 * 1000;
+const GROUPS_REFRESH_MS = 2 * 60 * 1000;
 const QUIET_START = 22, QUIET_END = 5;
 
 function defaultDataDir() {
@@ -59,6 +60,8 @@ export class WhatsAppWorker {
           this.log.info?.(`[whatsapp] club ${clubId} connected`);
           await this.refreshGroups(clubId);
         },
+        // WhatsApp told us the number's groups changed: refetch on the next tick.
+        onGroupsChanged: () => { entry.groupsAt = 0; },
         onClose: ({ loggedOut, restartRequired, error }) => {
           entry.open = false;
           this.sessions.delete(clubId);
@@ -85,8 +88,8 @@ export class WhatsAppWorker {
     if (!entry?.open) return;
     try {
       const groups = await entry.session.listGroups();
-      this.setConn(clubId, { groups_json: JSON.stringify(groups) });
       entry.groupsAt = Date.now();
+      this.setConn(clubId, { groups_json: JSON.stringify(groups), groups_updated_at: iso(entry.groupsAt) });
     } catch (error) { this.log.warn?.(`[whatsapp] could not list groups for ${clubId}: ${error.message}`); }
   }
 
@@ -116,7 +119,8 @@ export class WhatsAppWorker {
         this.setConn(c.club_id, { desired: "off", status: "disconnected", qr: null, last_error: "The QR code expired before it was scanned. Press Connect to try again." });
       } else if (entry.open) {
         this.setConn(c.club_id, { last_seen_at: iso(Date.now()) });
-        if (!entry.groupsAt || Date.now() - entry.groupsAt > 10 * 60 * 1000) await this.refreshGroups(c.club_id);
+        const asked = c.groups_wanted_at && new Date(c.groups_wanted_at).getTime() > (entry.groupsAt || 0);
+        if (asked || !entry.groupsAt || Date.now() - entry.groupsAt > GROUPS_REFRESH_MS) await this.refreshGroups(c.club_id);
       }
     }
     for (const [clubId, entry] of this.sessions) {

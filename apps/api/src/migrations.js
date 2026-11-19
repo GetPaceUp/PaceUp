@@ -196,6 +196,17 @@ export const migrations = [
         CREATE INDEX idx_password_resets_user ON password_resets(user_id);
       `);
     }
+  },
+  {
+    id: 9,
+    name: "whatsapp_groups_refresh",
+    up(db) {
+      // Set by the admin's "Refresh groups" button; the worker re-reads the
+      // number's groups when this is newer than its last fetch.
+      const cols = db.prepare("PRAGMA table_info(whatsapp_connections)").all().map((c) => c.name);
+      if (!cols.includes("groups_wanted_at")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN groups_wanted_at TEXT");
+      if (!cols.includes("groups_updated_at")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN groups_updated_at TEXT");
+    }
   }
 ];
 

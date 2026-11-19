@@ -51,10 +51,10 @@ export function WhatsAppPanel({ clubId }) {
   useEffect(() => { setWa(null); setConfirmOff(false); load(); }, [clubId]);
   useEffect(() => {
     clearInterval(timer.current);
-    const fast = wa && wa.desired === "on" && wa.status !== "connected";
+    const fast = wa && wa.desired === "on" && (wa.status !== "connected" || wa.groups_refreshing);
     timer.current = setInterval(load, fast ? 2000 : 15000);
     return () => clearInterval(timer.current);
-  }, [clubId, wa?.desired, wa?.status]);
+  }, [clubId, wa?.desired, wa?.status, wa?.groups_refreshing]);
 
   if (!wa) return <section className="admin-panel wa-panel"><h3>WhatsApp</h3><p className="panel-copy">Loading…</p></section>;
   const [cls, label] = STATUS[wa.status] || STATUS.disconnected;
@@ -88,7 +88,8 @@ export function WhatsAppPanel({ clubId }) {
               <option value="">Choose a group…</option>
               {wa.groups.map((g) => <option key={g.jid} value={g.jid}>{g.name} ({g.size})</option>)}
             </select>
-          : <p className="panel-copy">This number isn't in any groups yet. Add it to your club group in WhatsApp, and it will show here within a few minutes.</p>}
+          : <p className="panel-copy">This number isn't in any groups yet. Add it to your club group in WhatsApp, then press Refresh groups.</p>}
+        <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group missing? Refresh groups"}</button>
         {wa.group && <>
           <Toggle id="wa-new" label="New ride published" hint="Ride details and the RSVP link" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />
           <Toggle id="wa-list" label="Rider list after RSVPs" hint="One updated list per ride, at most every 2 minutes" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />

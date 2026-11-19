@@ -137,6 +137,30 @@ test("a club without WhatsApp queues nothing and never touches another club's se
   assert.ok(sent.every((m) => m.clubId === a.clubId));
 });
 
+test("groups: a newly joined group shows up on its own, and Refresh re-reads the list", async () => {
+  const session = fakeSessions.get(a.clubId);
+  assert.ok(session?.open, "club A is connected");
+  // WhatsApp reports the number joined a new group.
+  session.joinGroup({ jid: `${a.clubId.slice(0, 8)}-new@g.us`, name: "New riders", size: 3 });
+  await worker.tick();
+  let view = (await wa(a)).json().whatsapp;
+  assert.ok(view.groups.some((g) => g.name === "New riders"), "event-driven refresh picked up the new group");
+
+  // A change WhatsApp didn't announce: the admin presses Refresh.
+  session.groups = [...session.groups, { jid: `${a.clubId.slice(0, 8)}-quiet@g.us`, name: "Quiet group", size: 2 }];
+  await new Promise((r) => setTimeout(r, 5));
+  view = (await wa(a, "POST", "/groups/refresh")).json().whatsapp;
+  assert.equal(view.groups_refreshing, true);
+  await worker.tick();
+  view = (await wa(a)).json().whatsapp;
+  assert.equal(view.groups_refreshing, false);
+  assert.ok(view.groups.some((g) => g.name === "Quiet group"));
+  assert.equal((await wa(a, "PUT", "/group", { jid: `${a.clubId.slice(0, 8)}-quiet@g.us` })).json().whatsapp.group.name, "Quiet group");
+  // Members can't trigger it, and an unconnected club gets a clear error.
+  assert.equal((await call("POST", `/api/clubs/${a.clubId}/whatsapp/groups/refresh`, { cookie: riders[0].cookie })).statusCode, 404);
+  assert.equal((await wa(b, "POST", "/groups/refresh")).statusCode, 409);
+});
+
 test("unlinking from the phone or disconnecting in PaceUp stops posting cleanly", async () => {
   fakeSessions.get(a.clubId).drop(true);
   let s = (await wa(a)).json().whatsapp;

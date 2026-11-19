@@ -28,6 +28,7 @@ async function view(clubId) {
       phone: maskPhone(c.phone),
       group: c.group_jid ? { jid: c.group_jid, name: c.group_name } : null,
       groups: c.groups_json ? JSON.parse(c.groups_json) : [],
+      groups_refreshing: Boolean(c.groups_wanted_at && (!c.groups_updated_at || c.groups_wanted_at > c.groups_updated_at)),
       settings: { post_new_ride: Boolean(c.post_new_ride ?? 1), post_rider_list: Boolean(c.post_rider_list ?? 1), post_changes: Boolean(c.post_changes ?? 1), quiet_hours: Boolean(c.quiet_hours) },
       worker_online: c.status === "connected" ? workerOnline : null,
       stats: outboxStats(clubId)
@@ -62,6 +63,13 @@ export function registerWhatsAppRoutes(app, { requireClubRole }) {
     const group = c?.groups_json ? JSON.parse(c.groups_json).find((g) => g.jid === req.body.jid) : null;
     if (!group) return reply.code(400).send({ error: "Pick one of the groups this WhatsApp number is in." });
     update(req.params.clubId, { group_jid: group.jid, group_name: group.name });
+    return view(req.params.clubId);
+  });
+
+  app.post(`${base}/groups/refresh`, { schema: { params }, preHandler: pre }, async (req, reply) => {
+    const c = getConnection(req.params.clubId);
+    if (!c || c.status !== "connected") return reply.code(409).send({ error: "Connect WhatsApp first." });
+    update(req.params.clubId, { groups_wanted_at: iso(Date.now()) });
     return view(req.params.clubId);
   });
 
