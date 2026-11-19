@@ -10,7 +10,7 @@ const { readCsv, peopleFromRows } = await import("../src/roster.js");
 const app = await buildApp({ logger: false, authRateLimit: 1000, publicRateLimit: 1000 });
 const { call, registerOwner } = makeClient(app);
 
-const owner = await registerOwner("Club Owner", "owner@example.com", "Folks Riders");
+const owner = await registerOwner("Club Owner", "owner@example.com", "Sunrise Riders");
 const other = await registerOwner("Other Owner", "other@example.com", "Other Club");
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url)).toString("base64");
 const upload = (club, filename, data) => call("POST", `/api/clubs/${club.clubId}/roster/import`, { cookie: club.cookie, payload: { filename, data } });
