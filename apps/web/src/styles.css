@@ -129,3 +129,4 @@ label.check input { width: auto; margin: 0; }
 .members-card{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}.back-link{display:block;margin-bottom:8px;padding-left:0;text-align:left}
 .group-add-pick{display:grid;gap:6px}.check-label{display:flex;gap:8px;align-items:center;font-weight:600}.check-label input{width:18px;height:18px}
 .head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.member-info strong{overflow-wrap:anywhere}.member-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;padding-left:44px}.member-actions .text-button{padding:4px 0;font-size:13px}
