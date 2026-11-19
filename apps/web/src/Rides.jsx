@@ -61,14 +61,48 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  // Templates: a club's regular activities, saved by name without a date or time.
+  const [templates, setTemplates] = useState([]);
+  const [templateId, setTemplateId] = useState("");
+  const [saveTemplate, setSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateNote, setTemplateNote] = useState("");
+  const loadTemplates = () => api(`/api/clubs/${clubId}/templates`).then((d) => setTemplates(d.templates)).catch(() => {});
+  useEffect(() => { loadTemplates(); }, [clubId]);
+  const chosen = templates.find((t) => t.id === templateId);
+  function applyTemplate(id) {
+    setTemplateId(id); setTemplateNote("");
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setForm((f) => ({ ...f, title: t.title ?? "", category: t.category || f.category, meeting_point: t.meeting_point ?? "", map_url: t.map_url ?? "",
+      distance_km: t.distance_km ?? "", pace: t.pace ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "" }));
+    setTemplateName(t.name);
+  }
+  async function renameTemplate() {
+    const name = window.prompt("New name for this template", chosen.name);
+    if (!name) return;
+    try { await api(`/api/clubs/${clubId}/templates/${chosen.id}`, { method: "PATCH", body: JSON.stringify({ name }) }); await loadTemplates(); setTemplateNote(`Renamed to ${name.trim()}.`); }
+    catch (err) { setError(err.message); }
+  }
+  async function deleteTemplate() {
+    try { await api(`/api/clubs/${clubId}/templates/${chosen.id}`, { method: "DELETE" }); setTemplateNote(`Deleted ${chosen.name}.`); setTemplateId(""); await loadTemplates(); }
+    catch (err) { setError(err.message); }
+  }
+  async function storeTemplate() {
+    const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null,
+      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null };
+    await api(`/api/clubs/${clubId}/templates`, { method: "POST", body: JSON.stringify(body) });
+  }
 
   async function submit(status) {
     setError("");
     if (!form.title || !form.date || !form.time || !form.meeting_point) { setError("Add a title, date, start time and meeting point."); return; }
     const startsAt = new Date(`${form.date}T${form.time}`);
     if (Number.isNaN(startsAt.getTime())) { setError("Check the date and start time."); return; }
+    if (saveTemplate && templateName.trim().length < 2) { setError("Give the template a name, e.g. Pandala."); return; }
     setSaving(true);
     try {
+      if (saveTemplate) await storeTemplate();
       const body = {
         title: form.title, category: form.category, starts_at: startsAt.toISOString(), meeting_point: form.meeting_point,
         map_url: form.map_url || null, pace: form.pace || null, notes: form.notes || null,
@@ -79,7 +113,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       const data = ride
         ? await api(`/api/clubs/${clubId}/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify(body) })
         : await api(`/api/clubs/${clubId}/rides`, { method: "POST", body: JSON.stringify(body) });
-      if (!ride) setForm(blank);
+      if (!ride) { setForm(blank); setTemplateId(""); setSaveTemplate(false); }
       onSaved(data.ride);
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
@@ -87,6 +121,18 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
 
   return (
     <form className="stack-form ride-form" onSubmit={(e) => { e.preventDefault(); submit(ride ? null : "published"); }}>
+      {!ride && templates.length > 0 && <>
+        <label htmlFor="a-tpl">Start from a template</label>
+        <div className="template-bar">
+          <select id="a-tpl" value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
+            <option value="">None: start blank</option>
+            {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          {chosen && <><button type="button" className="text-button" onClick={renameTemplate}>Rename</button><button type="button" className="text-button remove" onClick={deleteTemplate}>Delete</button></>}
+        </div>
+        {chosen && <p className="panel-copy">Filled in from {chosen.name}. Set the date and time, and change anything else you need.</p>}
+        {templateNote && <p className="success-note" role="status">{templateNote}</p>}
+      </>}
       <label htmlFor="a-cat">Type</label>
       <div className="cat-row" id="a-cat" role="radiogroup">
         {Object.entries(CATEGORIES).map(([key, c]) => (
@@ -106,6 +152,11 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       </div>
       <label htmlFor="a-cap">Spots (optional)</label><input id="a-cap" type="number" min="1" max="10000" inputMode="numeric" value={form.capacity} onChange={set("capacity")} placeholder="No limit" />
       <label htmlFor="a-notes">Notes</label><textarea id="a-notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
+      <div className="template-save">
+        <label className="check"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /> Save as a template</label>
+        {saveTemplate && <input type="text" aria-label="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Name, e.g. Pandala" maxLength={40} />}
+      </div>
+      {saveTemplate && <p className="panel-copy">Saves everything except the date and time, so next time you only pick a date. Using an existing name updates that template.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {ride
         ? <><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button type="button" className="text-button" onClick={onCancel}>Close without saving</button></>
@@ -188,7 +239,7 @@ export function ClubRides({ club }) {
 
 // ---------------------------------------------------------------- public activity page
 
-/** The name box: type a few letters, pick yourself from the club's list, or join as a guest. */
+/** The name box: type a few letters, pick yourself from the club's list, or add yourself if you're new. */
 function NamePicker({ code, initial = "", busy, onPick, onClose }) {
   const [text, setText] = useState(initial);
   const [names, setNames] = useState([]);
@@ -221,8 +272,10 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
             <span className="avatar">{n.name.slice(0, 1).toUpperCase()}</span><span>{n.name}</span>
           </button></li>
         ))}
-        {!searching && names.length === 0 && <li className="name-empty">Not on the club list yet.</li>}
-        {!exact && typed.length >= 2 && <li><button type="button" className="guest-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>Join as <b>{typed}</b> (guest)</button></li>}
+        {!searching && names.length === 0 && typed.includes(" ") && <li className="name-empty">Not on the club list yet.</li>}
+        {!exact && typed.length >= 2 && (typed.includes(" ")
+          ? <li><button type="button" className="guest-option" disabled={busy} onClick={() => onPick({ name: typed }, typed)}>I'm new: add <b>{typed}</b> to the club list</button></li>
+          : !searching && <li className="name-empty">New here? Type your full name to add yourself.</li>)}
       </ul>}
       {typed.length < 2 && <p className="panel-copy">Type at least 2 letters, then tap your name.</p>}
       <button type="button" className="text-button" onClick={onClose}>Back</button>

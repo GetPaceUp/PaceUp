@@ -22,7 +22,7 @@ test("no connected WhatsApp: a clear error, nothing stored", async () => {
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM login_codes").get().n, 0);
 });
 
-test("sign up with a mobile number: code on WhatsApp, name, club. No email or password.", async () => {
+test("sign up with a mobile number: code on WhatsApp and a name. No email, password or club creation.", async () => {
   db.prepare("INSERT INTO whatsapp_connections (club_id, desired, status, updated_at, last_seen_at) VALUES (?, 'on', 'connected', ?, ?)").run(owner.clubId, new Date().toISOString(), new Date().toISOString());
   assert.equal((await start("12")).statusCode, 400);
   const sent = await start("98765 43210");
@@ -35,12 +35,15 @@ test("sign up with a mobile number: code on WhatsApp, name, club. No email or pa
 
   assert.equal((await start("98765 43210")).statusCode, 429, "30 s between codes");
   assert.equal((await verify({ phone: "9876543210", code: "000000" === code ? "111111" : "000000" })).statusCode, 400);
+  // The club's member list already has this number (from the WhatsApp group).
+  db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES ('r1', ?, 'Amit Daga', 'amit daga', '919876543210', 'whatsapp', ?, ?)").run(owner.clubId, new Date().toISOString(), new Date().toISOString());
   const unknown = await verify({ phone: "+91 98765 43210", code });
-  assert.deepEqual(unknown.json(), { needs_signup: true }, "new number: ask for a name, code still valid");
+  assert.deepEqual(unknown.json(), { needs_signup: true, name_hint: "Amit Daga" }, "new number: ask for a name (pre-filled from the club list), code still valid");
   const created = await verify({ phone: "9876543210", code, name: "Amit Daga", clubName: "Pune Pacers" });
   assert.equal(created.statusCode, 201, created.body);
   assert.deepEqual(created.json().user, { id: created.json().user.id, name: "Amit Daga", email: null, phone: "919876543210" });
-  assert.equal(created.json().clubs[0].name, "Pune Pacers");
+  assert.deepEqual(created.json().clubs.map((c) => [c.name, c.role]), [["Folks Riders", "member"]], "joins the club whose list has the number; no new club");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM clubs WHERE name = 'Pune Pacers'").get().n, 0);
   const cookie = sessionCookie(created);
   assert.equal((await call("GET", "/api/auth/me", { cookie })).json().user.phone, "919876543210");
   assert.equal((await verify({ phone: "9876543210", code })).statusCode, 400, "a code works once");

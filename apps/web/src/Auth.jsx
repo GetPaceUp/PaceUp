@@ -15,7 +15,6 @@ export function PhoneAuth({ mode, inviteToken, onDone }) {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
-  const [clubName, setClubName] = useState("");
   const [needsName, setNeedsName] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,9 +32,9 @@ export function PhoneAuth({ mode, inviteToken, onDone }) {
   async function verify(e) {
     e.preventDefault(); setError(""); setBusy(true);
     try {
-      const body = { phone, code, ...(registering ? { name, ...(inviteToken ? { inviteToken } : { clubName }) } : {}) };
+      const body = { phone, code, ...(registering ? { name, ...(inviteToken ? { inviteToken } : {}) } : {}) };
       const data = await api("/api/auth/otp/verify", { method: "POST", body: JSON.stringify(body) });
-      if (data.needs_signup) { setNeedsName(true); return; }
+      if (data.needs_signup) { setNeedsName(true); if (data.name_hint && !name.trim()) setName(data.name_hint); return; }
       onDone(data);
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -43,8 +42,7 @@ export function PhoneAuth({ mode, inviteToken, onDone }) {
 
   if (step === "phone") return (
     <form className="create-form" onSubmit={send}>
-      {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required />
-        {!inviteToken && <><label htmlFor="clubName">Club or community name <span className="optional">(if you're starting one)</span></label><input id="clubName" value={clubName} onChange={(e) => setClubName(e.target.value)} placeholder="e.g. Sunday Trail Crew" maxLength={80} /></>}</>}
+      {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required /></>}
       <label htmlFor="phone">Mobile number</label>
       <input id="phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} required />
       {error && <p className="error" role="alert">{error}</p>}
@@ -59,9 +57,8 @@ export function PhoneAuth({ mode, inviteToken, onDone }) {
       <label htmlFor="otp">6-digit code</label>
       <input id="otp" className="otp-input" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="••••••" required autoFocus />
       {needsName && <>
-        <p className="success-note">This number is new to PaceUp. Tell us your name to finish.</p>
+        <p className="success-note">This number isn't on PaceUp yet. Check your name to finish. Already have an account with email? Go back, sign in with email and add this number there instead.</p>
         <label htmlFor="name2">Your name</label><input id="name2" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required />
-        {!inviteToken && <><label htmlFor="club2">Club or community name <span className="optional">(if you're starting one)</span></label><input id="club2" value={clubName} onChange={(e) => setClubName(e.target.value)} placeholder="e.g. Sunday Trail Crew" maxLength={80} /></>}
       </>}
       {error && <p className="error" role="alert">{error}</p>}
       <button className="primary-button" type="submit" disabled={busy || code.length !== 6}>{busy ? "Checking…" : needsName ? "Create account" : "Continue"}</button>
@@ -86,7 +83,7 @@ export function AddPhone({ onAdded }) {
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
-  if (!open) return <p className="panel-copy add-phone">Sign in faster with your mobile number. <button type="button" className="text-button" onClick={() => setOpen(true)}>Add mobile number</button></p>;
+  if (!open) return <div className="phone-banner" role="note"><p><b>📱 Add your mobile number.</b> Sign in with a WhatsApp code, and create activities by messaging the club number.</p><button type="button" onClick={() => setOpen(true)}>Add mobile number</button></div>;
   return (
     <form className="inline-form add-phone" onSubmit={go}>
       <div className="field-grow">

@@ -90,7 +90,7 @@ test("public page: anyone with the link sees details and who's going; admins als
   assert.equal(visitor.organiser.name, "Priya S.");
 
   const admin = (await call("GET", `/api/r/${ride.code}`, { cookie: owner.cookie })).json().ride;
-  assert.deepEqual(admin.participants.map((p) => [p.name, p.kind]), [["Arjun Rao", "member"], ["Rahul Verma", "guest"]]);
+  assert.deepEqual(admin.participants.map((p) => [p.name, p.kind]), [["Arjun Rao", "member"], ["Rahul Verma", "roster"]]);
 });
 
 test("members RSVP with one tap: no duplicates, change of mind, capacity", async () => {
@@ -146,6 +146,25 @@ test("guests RSVP by name without an account, and only their own phone can chang
   assert.equal(gone.json().ride.going_count, 0);
   assert.equal(gone.json().ride.my_rsvp, null);
   assert.equal((await rahul.rsvp(code, { status: "going", name: "Rahul Verma" })).json().ride.going_count, 1, "can rejoin");
+});
+
+test("someone new adds themselves to the club list; next time they just pick their name", async () => {
+  const { code } = await publish({ capacity: null });
+  const newbie = phone();
+  assert.equal((await newbie.rsvp(code, { status: "going", name: "Zoya" })).statusCode, 400, "a surname is needed to join the list");
+  const joined = await newbie.rsvp(code, { status: "going", name: "zoya khan" });
+  assert.equal(joined.statusCode, 200, joined.body);
+  assert.deepEqual(joined.json().ride.my_rsvp, { id: joined.json().ride.my_rsvp.id, name: "Zoya Khan", listed: true });
+  const row = db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND name = 'Zoya Khan'").get(clubId);
+  assert.equal(row.self_added, 1);
+  const names = (await call("GET", `/api/r/${code}/names?q=zoya`)).json().names;
+  assert.deepEqual(names.map((n) => n.name), ["Zoya Khan"]);
+  // Typing an exact name that is already on the list uses that entry rather than adding a copy.
+  const other = await publish({ capacity: null });
+  await newbie.rsvp(other.code, { status: "going", name: "Zoya Khan" });
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ? AND name_key = 'zoya khan'").get(clubId).n, 1);
+  const roster = (await call("GET", `/api/clubs/${clubId}/roster?q=zoya`, { cookie: owner.cookie })).json();
+  assert.equal(roster.people[0].self_added, 1, "admins see who added themselves");
 });
 
 test("signed-up members are suggested too; picking one never needs a login", async () => {

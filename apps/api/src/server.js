@@ -12,10 +12,12 @@ import { pathToFileURL } from "node:url";
 import { registerRideRoutes } from "./rides.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
+import { registerClubAdminRoutes } from "./clubs-admin.js";
+import { registerTemplateRoutes } from "./templates.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
-  findUserByEmail, getUserById, listClubsForUser, registerAccount,
+  findUserByEmail, getUserById, listClubsForUser, registerAccount, createUser,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
   createClubInvitation, findInvitation, acceptInvitation, registerWithInvitation,
   getPlatformRole, getPlatformOverview, changePlatformRole, listPlatformAudit,
@@ -137,6 +139,7 @@ export async function buildApp(options = {}) {
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
   registerRosterRoutes(app, { requireClubRole });
+  registerTemplateRoutes(app, { requireClubRole });
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
   registerWhatsAppRoutes(app, { requireClubRole, rateLimit: options.authRateLimit });
 
@@ -185,6 +188,7 @@ export async function buildApp(options = {}) {
     ...getPlatformOverview(),
     services: { api: "online", whatsapp: "not_configured", ssl: "managed_by_deployment" }
   }));
+  registerClubAdminRoutes(app, { requireClubRole, requirePlatformAdmin });
   app.get("/api/platform/audit", { preHandler: [app.authenticate, requirePlatformAdmin] }, async () => ({ entries: listPlatformAudit(100) }));
   app.patch("/api/platform/users/:userId/role", {
     preHandler: [app.authenticate, requirePlatformAdmin],
@@ -208,9 +212,7 @@ export async function buildApp(options = {}) {
     const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
     const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const password = typeof request.body?.password === "string" ? request.body.password : "";
-    const clubName = typeof request.body?.clubName === "string" ? request.body.clubName.trim() : "";
     const inviteToken = typeof request.body?.inviteToken === "string" ? request.body.inviteToken : "";
-    const slug = makeSlug(clubName);
 
     if (name.length < 2 || name.length > 80) return reply.code(400).send({ error: "Enter your name (2–80 characters)." });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return reply.code(400).send({ error: "Enter a valid email address." });
@@ -225,20 +227,13 @@ export async function buildApp(options = {}) {
       if (invitation.email && email.toLowerCase() !== invitation.email.toLowerCase()) {
         return reply.code(403).send({ error: "Register using the email address this invitation was sent to." });
       }
-    } else if (clubName.length < 2 || clubName.length > 80 || !slug) {
-      return reply.code(400).send({ error: "Enter a valid club name (2–80 characters)." });
     }
 
     try {
       const passwordHash = await bcrypt.hash(password, 12);
       const userInput = { id: randomUUID(), name, email, passwordHash };
-      const user = invitation
-        ? registerWithInvitation(hashToken(inviteToken), userInput)
-        : registerAccount({
-            user: userInput,
-            club: { id: randomUUID(), name: clubName, slug },
-            membership: { id: randomUUID() }
-          }).user;
+      // Clubs are created by the platform owner only; a sign-up without an invitation is just an account.
+      const user = invitation ? registerWithInvitation(hashToken(inviteToken), userInput) : createUser(userInput);
       setSession(reply, user);
       return reply.code(201).send({ user, clubs: listClubsForUser(user.id) });
     } catch (error) {

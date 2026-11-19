@@ -376,6 +376,34 @@ export const migrations = [
         CREATE INDEX idx_wa_direct_pending ON whatsapp_direct(status, created_at);
       `);
     }
+  },
+  {
+    id: 14,
+    name: "roster_self_added",
+    up(db) {
+      // New members can add themselves from the RSVP page; admins see them flagged for review.
+      db.exec("ALTER TABLE club_roster ADD COLUMN self_added INTEGER NOT NULL DEFAULT 0");
+    }
+  },
+  {
+    id: 15,
+    name: "activity_templates",
+    up(db) {
+      // Named, reusable activity details per club ("Pandala"): everything except the date and time.
+      db.exec(`
+        CREATE TABLE activity_templates (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          name_key TEXT NOT NULL,
+          fields TEXT NOT NULL,
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (club_id, name_key)
+        );
+      `);
+    }
   }
 ];
 

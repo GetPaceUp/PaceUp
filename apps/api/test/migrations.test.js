@@ -23,7 +23,7 @@ process.env.PACEUP_SUPERADMIN_EMAIL = "existing@example.com";
 const { db } = await import("../src/db.js");
 
 test("the live database upgrades in place, keeps its data and is backed up first", () => {
-  assert.deepEqual(db.prepare("SELECT id FROM schema_migrations ORDER BY id").all().map((r) => r.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(db.prepare("SELECT id FROM schema_migrations ORDER BY id").all().map((r) => r.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
   const user = db.prepare("SELECT name, platform_role FROM users").get();
   assert.equal(user.name, "Existing Owner");
   assert.equal(user.platform_role, "super_admin", "owner bootstrap applied");

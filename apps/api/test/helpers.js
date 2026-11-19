@@ -22,10 +22,13 @@ export function makeClient(app) {
   async function call(method, url, { cookie, payload, headers = {} } = {}) {
     return app.inject({ method, url, payload, headers: { ...(cookie ? { cookie } : {}), ...headers } });
   }
+  // Clubs are created by the platform owner; tests create one directly and make this person its owner.
   async function registerOwner(name, email, clubName) {
-    const res = await call("POST", "/api/auth/register", { payload: { name, email, password: "strong-password-123", clubName } });
+    const res = await call("POST", "/api/auth/register", { payload: { name, email, password: "strong-password-123" } });
     if (res.statusCode !== 201) throw new Error(`register failed ${res.statusCode} ${res.body}`);
-    return { cookie: sessionCookie(res), user: res.json().user, clubId: res.json().clubs[0].id };
+    const { createClub } = await import("../src/clubs-admin.js");
+    const { club } = createClub({ name: clubName, actorId: res.json().user.id });
+    return { cookie: sessionCookie(res), user: res.json().user, clubId: club.id };
   }
   async function invite(cookie, clubId, email, role = "member") {
     const res = await call("POST", `/api/clubs/${clubId}/invitations`, { cookie, payload: { email, role } });

@@ -79,6 +79,8 @@ const createAccountAndClub = db.transaction(({ user, club, membership }) => {
   };
 });
 export function registerAccount(data) { return createAccountAndClub.immediate(data); }
+/** An account with no club yet: clubs are created by the platform owner, and people join by invitation or a club list. */
+export function createUser(user) { insertUser.run(user.id, user.name, user.email, user.passwordHash); return selectSafeUser.get(user.id); }
 export function findUserByEmail(email) { return db.prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE").get(email); }
 export function getUserById(id) { return selectSafeUser.get(id); }
 export function listClubsForUser(userId) {

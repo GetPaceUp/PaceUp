@@ -293,7 +293,7 @@ export function listRoster(clubId, q = "") {
   const args = key ? [`${key}%`, `% ${key}%`, `%${key.replace(/\D/g, "") || "-"}%`] : [];
   return {
     total: db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ?").get(clubId).n,
-    people: db.prepare(`SELECT id, name, phone, source, created_at FROM club_roster WHERE club_id = ? ${where} ORDER BY name_key LIMIT 300`).all(clubId, ...args)
+    people: db.prepare(`SELECT id, name, phone, source, self_added, created_at FROM club_roster WHERE club_id = ? ${where} ORDER BY name_key LIMIT 300`).all(clubId, ...args)
   };
 }
 
@@ -311,7 +311,7 @@ export function renameRosterPerson(clubId, id, name) {
   if (!row) throw new DomainError(404, "Not found.");
   const clash = db.prepare("SELECT id FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(clubId, nameKey(clean), id);
   if (clash) throw new DomainError(409, `${clean} is already on the list. Add a surname or initial to tell them apart.`);
-  db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = CASE WHEN source = 'whatsapp' THEN 'manual' ELSE source END, updated_at = ? WHERE id = ?").run(clean, nameKey(clean), nowIso(), id);
+  db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = CASE WHEN source = 'whatsapp' THEN 'manual' ELSE source END, self_added = 0, updated_at = ? WHERE id = ?").run(clean, nameKey(clean), nowIso(), id);
 }
 
 /** An admin types the name of a group member WhatsApp gave no name for. */
