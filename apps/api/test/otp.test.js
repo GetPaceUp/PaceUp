@@ -14,7 +14,7 @@ const allowResend = () => db.prepare("UPDATE login_codes SET created_at = ?").ru
 const start = (phone) => call("POST", "/api/auth/otp/start", { payload: { phone } });
 const verify = (payload) => call("POST", "/api/auth/otp/verify", { payload });
 
-const owner = await registerOwner("Email Owner", "owner@example.com", "Folks Riders");
+const owner = await registerOwner("Email Owner", "owner@example.com", "Sunrise Riders");
 
 test("no connected WhatsApp: a clear error, nothing stored", async () => {
   const res = await start("+91 98765 43210");
@@ -42,7 +42,7 @@ test("sign up with a mobile number: code on WhatsApp and a name. No email, passw
   const created = await verify({ phone: "9876543210", code, name: "Amit Daga", clubName: "Pune Pacers" });
   assert.equal(created.statusCode, 201, created.body);
   assert.deepEqual(created.json().user, { id: created.json().user.id, name: "Amit Daga", email: null, phone: "919876543210" });
-  assert.deepEqual(created.json().clubs.map((c) => [c.name, c.role]), [["Folks Riders", "member"]], "joins the club whose list has the number; no new club");
+  assert.deepEqual(created.json().clubs.map((c) => [c.name, c.role]), [["Sunrise Riders", "member"]], "joins the club whose list has the number; no new club");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM clubs WHERE name = 'Pune Pacers'").get().n, 0);
   const cookie = sessionCookie(created);
   assert.equal((await call("GET", "/api/auth/me", { cookie })).json().user.phone, "919876543210");
@@ -79,7 +79,7 @@ test("an invited person joins with just their phone", async () => {
   await start("9811122233");
   const res = await verify({ phone: "9811122233", code: lastCode("919811122233"), name: "Neha Joshi", inviteToken: token });
   assert.equal(res.statusCode, 201, res.body);
-  assert.deepEqual(res.json().clubs.map((c) => [c.name, c.role]), [["Folks Riders", "member"]]);
+  assert.deepEqual(res.json().clubs.map((c) => [c.name, c.role]), [["Sunrise Riders", "member"]]);
   // Invite links can now be made without an email.
   const noEmail = await call("POST", `/api/clubs/${owner.clubId}/invitations`, { cookie: owner.cookie, payload: { role: "member" } });
   assert.equal(noEmail.statusCode, 201);

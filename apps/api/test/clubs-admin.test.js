@@ -28,13 +28,13 @@ test("only the platform owner creates clubs, naming the first admin by mobile nu
   assert.equal((await call("POST", "/api/platform/clubs", { cookie: sessionCookie(someone), payload: { name: "Nope Club" } })).statusCode, 403);
 
   const boss = await register("Boss", "boss@example.com");
-  const missingName = await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "Folks Riders", adminPhone: "98111 22233" } });
+  const missingName = await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "Sunrise Riders", adminPhone: "98111 22233" } });
   assert.equal(missingName.statusCode, 400, "a new number needs a name");
-  const res = await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "Folks Riders", adminPhone: "98111 22233", adminName: "kavya rao" } });
+  const res = await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "Sunrise Riders", adminPhone: "98111 22233", adminName: "kavya rao" } });
   assert.equal(res.statusCode, 201, res.body);
   assert.equal(res.json().owner.name, "Kavya Rao");
   assert.equal(res.json().owner.phone, "919811122233");
-  assert.equal((await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "folks riders" } })).statusCode, 409);
+  assert.equal((await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "sunrise riders" } })).statusCode, 409);
 
   // Without a number, the platform owner owns it.
   const own = await call("POST", "/api/platform/clubs", { cookie: boss.cookie, payload: { name: "Boss Club" } });

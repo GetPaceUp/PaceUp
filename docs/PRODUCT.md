@@ -70,7 +70,7 @@ Unless validated by actual pilot usage, defer:
 
 ## 7. Pilot and validation
 
-Folks On Forks is the initial pilot community. Validate the core flows with real organisers and members before expanding scope. Pilot-specific branding, rules, and workflows must remain configuration or integration concerns rather than assumptions baked into the core product.
+A single pilot club is the initial community. Validate the core flows with real organisers and members before expanding scope. Pilot-specific branding, rules, and workflows must remain configuration or integration concerns rather than assumptions baked into the core product.
 
 ## 8. Success signals
 

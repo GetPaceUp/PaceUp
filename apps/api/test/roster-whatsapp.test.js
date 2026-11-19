@@ -16,7 +16,7 @@ const { call, registerOwner } = makeClient(app);
 const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
-const club = await registerOwner("Club Owner", "owner@example.com", "Folks Riders");
+const club = await registerOwner("Club Owner", "owner@example.com", "Sunrise Riders");
 const roster = () => call("GET", `/api/clubs/${club.clubId}/roster`, { cookie: club.cookie }).then((r) => r.json());
 const b64 = (s) => Buffer.from(s).toString("base64");
 
