@@ -184,7 +184,7 @@ export class WhatsAppWorker {
       const club = db.prepare("SELECT name FROM clubs WHERE id = ?").get(item.club_id);
       return { text: testText(club?.name || "Your club") };
     }
-    const ride = db.prepare(`SELECT r.*, u.name AS organiser_name FROM rides r LEFT JOIN users u ON u.id = r.organiser_id WHERE r.id = ?`).get(item.ride_id);
+    const ride = db.prepare(`SELECT r.*, u.name AS organiser_name, c.name AS club_name FROM rides r LEFT JOIN users u ON u.id = r.organiser_id LEFT JOIN clubs c ON c.id = r.club_id WHERE r.id = ?`).get(item.ride_id);
     if (!ride) return { skip: "ride deleted" };
     if (item.kind === "ride_cancelled") return { text: rideCancelledText(ride) };
     if (ride.status !== "published") return { skip: `ride is ${ride.status}` };

@@ -391,7 +391,8 @@ export function RidePage({ code }) {
         <div><dt>When</dt><dd>{when(ride.starts_at)}</dd></div>
         <div><dt>Meet</dt><dd>{ride.meeting_point}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>
         {(ride.distance_km || ride.pace) && <div><dt>Distance</dt><dd>{[ride.distance_km && `${ride.distance_km} km`, paceText(ride.pace, ride.category)].filter(Boolean).join(" · ")}</dd></div>}
-        {ride.organiser && <div><dt>Organiser</dt><dd>{ride.organiser.name}</dd></div>}
+        <div><dt>Organiser</dt><dd>{ride.club.name}</dd></div>
+        {ride.organiser && <div><dt>Lead</dt><dd>{ride.organiser.name}</dd></div>}
         {ride.notes && <div><dt>Notes</dt><dd className="ride-notes">{ride.notes}</dd></div>}
       </dl>
 
@@ -417,7 +418,7 @@ export function RidePage({ code }) {
       <Participants ride={ride} busy={busy} onRemove={removeParticipant} />
 
       {ride.viewer.admin && ride.status !== "cancelled" && <div className="admin-tools">
-        <h3>Organiser tools</h3>
+        <h3>Admin tools</h3>
         {ride.status === "published" && open && <ShareButtons ride={ride} />}
         <div className="tool-row">
           {!ride.started && <button type="button" className="secondary-button small-button" onClick={() => setEditing(true)}>Edit details</button>}
