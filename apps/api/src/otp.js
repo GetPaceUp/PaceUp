@@ -105,11 +105,37 @@ function createPhoneAccount({ phone, user, inviteToken, hashToken }) {
   return { user: getUserById(created.id), created: true };
 }
 
+const RANK = { member: 1, admin: 2, owner: 3 };
+
+/**
+ * An admin may have invited this number before its owner added it to their email
+ * account, which made a phone-only account for it. Proving the number with a code
+ * folds that account into this one: clubs, RSVPs and activities move over.
+ */
+function absorbPhoneOnlyAccount(fromId, intoId) {
+  for (const m of db.prepare("SELECT * FROM club_memberships WHERE user_id = ?").all(fromId)) {
+    const mine = db.prepare("SELECT * FROM club_memberships WHERE club_id = ? AND user_id = ?").get(m.club_id, intoId);
+    if (!mine) db.prepare("UPDATE club_memberships SET user_id = ? WHERE id = ?").run(intoId, m.id);
+    else if (RANK[m.role] > RANK[mine.role]) db.prepare("UPDATE club_memberships SET role = ? WHERE id = ?").run(m.role, mine.id);
+  }
+  db.prepare("UPDATE OR IGNORE ride_rsvps SET user_id = ? WHERE user_id = ?").run(intoId, fromId);
+  db.prepare("DELETE FROM ride_rsvps WHERE user_id = ?").run(fromId); // already going under the email account
+  for (const [table, col] of [["rides", "organiser_id"], ["rides", "created_by"], ["club_invitations", "invited_by"], ["club_invitations", "accepted_by"], ["activity_templates", "created_by"]]) {
+    db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(intoId, fromId);
+  }
+  db.prepare("DELETE FROM users WHERE id = ?").run(fromId); // sessions and codes cascade
+}
+
 export function attachPhone(userId, phone, code) {
   checkCode(phone, code, "attach", { userId });
-  const taken = db.prepare("SELECT id FROM users WHERE phone = ? AND id != ?").get(phone, userId);
-  if (taken) throw new DomainError(409, "This number is already used by another PaceUp account.");
-  db.prepare("UPDATE users SET phone = ? WHERE id = ?").run(phone, userId);
+  db.transaction(() => {
+    const taken = db.prepare("SELECT id, email, password_hash FROM users WHERE phone = ? AND id != ?").get(phone, userId);
+    if (taken) {
+      if (taken.password_hash !== "!" || !taken.email.endsWith(`@${PHONE_EMAIL_DOMAIN}`)) throw new DomainError(409, "This number is already used by another PaceUp account.");
+      absorbPhoneOnlyAccount(taken.id, userId);
+    }
+    db.prepare("UPDATE users SET phone = ? WHERE id = ?").run(phone, userId);
+  }).immediate();
   return getUserById(userId);
 }
 
