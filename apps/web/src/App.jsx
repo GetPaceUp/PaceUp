@@ -43,6 +43,8 @@ export default function App() {
 
   async function loadClubData(clubId) {
     if (!clubId) return;
+    const selected = clubs.find((item) => item.id === clubId);
+    if (!selected || !["owner", "admin"].includes(selected.role)) { setMembers([]); setInvitations([]); return; }
     const [membersResponse, invitesResponse] = await Promise.all([
       fetch(`/api/clubs/${clubId}/members`, { credentials: "include" }),
       fetch(`/api/clubs/${clubId}/invitations`, { credentials: "include" })
@@ -158,7 +160,8 @@ export default function App() {
             <div className="section-heading"><div><p className="eyebrow">CLUB ADMINISTRATION</p><h2>Your clubs</h2></div><span className="count">{clubs.length} {clubs.length === 1 ? "CLUB" : "CLUBS"}</span></div>
             {clubs.length > 1 && <label className="field-label" htmlFor="club-select">Choose a club</label>}
             {clubs.length > 1 && <select id="club-select" value={selectedClub} onChange={(e) => setSelectedClub(e.target.value)}>{clubs.map((club) => <option key={club.id} value={club.id}>{club.name}</option>)}</select>}
-            {clubs.length > 0 && <>
+            {clubs.length > 0 && !["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <p className="panel-copy">You are a member of this club. Club administration is available to its admins.</p>}
+            {clubs.length > 0 && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <>
               <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required /></div><button type="submit">Save changes</button></form>
               <div className="admin-grid">
                 <section className="admin-panel"><h3>Invite someone</h3><p className="panel-copy">Create a secure invitation link for a club admin or member.</p><form className="stack-form" onSubmit={sendInvite}><label htmlFor="invite-email">Email address</label><input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="person@example.com" required /><label htmlFor="invite-role">Role</label><select id="invite-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}><option value="admin">Club admin</option><option value="member">Member</option></select><button type="submit">Create invite link</button></form>{inviteLink && <div className="invite-result"><p>Invitation created. Copy and share this link:</p><input readOnly value={inviteLink} onFocus={(e) => e.target.select()} /><button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(inviteLink)}>Copy link</button><small>Valid for 7 days. Email delivery isn't connected yet.</small></div>}</section>
