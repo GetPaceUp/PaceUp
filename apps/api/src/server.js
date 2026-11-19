@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerRideRoutes } from "./rides.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
+import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
@@ -135,6 +136,44 @@ export async function buildApp(options = {}) {
   registerRideRoutes(app, { requireClubRole, optionalUser });
   registerWhatsAppRoutes(app, { requireClubRole });
 
+  // ---- password reset (one-time links shared by an admin; no email needed)
+  const sendDomain = (reply, error) => {
+    if (error instanceof DomainError) return reply.code(error.status).send({ error: error.message });
+    throw error;
+  };
+  const userParam = { type: "string", pattern: "^[0-9a-fA-F-]{36}$" };
+  app.post("/api/clubs/:clubId/members/:userId/password-reset", {
+    schema: { params: { type: "object", properties: { clubId: userParam, userId: userParam }, required: ["clubId", "userId"] } },
+    preHandler: [app.authenticate, requireClubRole(["owner", "admin"])]
+  }, async (request, reply) => {
+    try { return reply.code(201).send(createPasswordReset({ actorId: request.user.sub, targetId: request.params.userId, clubId: request.params.clubId, ip: request.ip })); }
+    catch (error) { return sendDomain(reply, error); }
+  });
+  app.post("/api/platform/users/:userId/password-reset", {
+    schema: { params: { type: "object", properties: { userId: userParam }, required: ["userId"] } },
+    preHandler: [app.authenticate, requirePlatformAdmin]
+  }, async (request, reply) => {
+    try { return reply.code(201).send(createPasswordReset({ actorId: request.user.sub, targetId: request.params.userId, ip: request.ip })); }
+    catch (error) { return sendDomain(reply, error); }
+  });
+  const tokenSchema = { type: "string", minLength: 20, maxLength: 200 };
+  // POST with the token in the body, so a live reset token never lands in request logs.
+  app.post("/api/password-reset/check", {
+    config: authLimit(30), schema: { body: { type: "object", properties: { token: tokenSchema }, required: ["token"] } }
+  }, async (request, reply) => {
+    try { return checkPasswordReset(request.body.token); } catch (error) { return sendDomain(reply, error); }
+  });
+  app.post("/api/password-reset", {
+    config: authLimit(10),
+    schema: { body: { type: "object", properties: { token: tokenSchema, password: { type: "string", maxLength: 128 } }, required: ["token", "password"] } }
+  }, async (request, reply) => {
+    try {
+      const user = await usePasswordReset(request.body.token, request.body.password, request.ip);
+      setSession(reply, user);
+      return { user, clubs: listClubsForUser(user.id) };
+    } catch (error) { return sendDomain(reply, error); }
+  });
+
   async function requirePlatformAdmin(request, reply) {
     if (getPlatformRole(request.user.sub) !== "super_admin") return reply.code(403).send({ error: "Platform owner access required." });
   }
@@ -215,7 +254,8 @@ export async function buildApp(options = {}) {
     if (!email || !password) return reply.code(400).send({ error: "Enter your email and password." });
     const user = findUserByEmail(email);
     const valid = user ? await bcrypt.compare(password, user.password_hash) : false;
-    if (!valid) return reply.code(401).send({ error: "Email or password is incorrect." });
+    // A password reset may have landed while bcrypt ran: only the current password signs in.
+    if (!valid || findUserByEmail(email)?.password_hash !== user.password_hash) return reply.code(401).send({ error: "Email or password is incorrect." });
     const safeUser = getUserById(user.id);
     setSession(reply, safeUser);
     return { user: safeUser, clubs: listClubsForUser(user.id) };

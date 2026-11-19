@@ -4,7 +4,7 @@ const sessions = new Map();
 
 export const fakeAdapter = {
   name: "fake",
-  async connect(clubId, { onQr, onOpen, onClose }) {
+  async connect(clubId, { onQr, onOpen, onClose, onGroupsChanged = () => {} }) {
     const session = {
       clubId, open: false, failNext: 0,
       groups: [{ jid: `${clubId.slice(0, 8)}-main@g.us`, name: "Club group", size: 42 }, { jid: `${clubId.slice(0, 8)}-admins@g.us`, name: "Club admins", size: 5 }],
@@ -16,6 +16,7 @@ export const fakeAdapter = {
         sent.push({ clubId, jid, text, at: Date.now() });
       },
       async listGroups() { return this.groups; },
+      joinGroup(group) { this.groups = [...this.groups, group]; onGroupsChanged(); },
       async logout() { this.open = false; sessions.delete(clubId); },
       end() { this.open = false; sessions.delete(clubId); }
     };

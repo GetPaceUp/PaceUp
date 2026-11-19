@@ -28,7 +28,7 @@ const insertAudit = db.prepare(`
   INSERT INTO platform_audit_log (id, actor_user_id, action, target_user_id, old_value, new_value, ip, created_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
-function audit({ actorUserId = null, action, targetUserId = null, oldValue = null, newValue = null, ip = null }) {
+export function audit({ actorUserId = null, action, targetUserId = null, oldValue = null, newValue = null, ip = null }) {
   insertAudit.run(randomUUID(), actorUserId, action, targetUserId, oldValue, newValue, ip, nowIso());
 }
 export function listPlatformAudit(limit = 100) {

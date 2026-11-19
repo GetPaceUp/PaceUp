@@ -7,7 +7,7 @@ const quiet = pino({ level: process.env.WHATSAPP_LOG_LEVEL || "warn" });
 
 export const baileysAdapter = {
   name: "baileys",
-  async connect(clubId, { authDir, onQr, onOpen, onClose }) {
+  async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {} }) {
     mkdirSync(authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     let version;
@@ -20,6 +20,8 @@ export const baileysAdapter = {
     });
     let closed = false;
     sock.ev.on("creds.update", saveCreds);
+    // Joined or created a group, renamed one, or membership changed: re-read the list.
+    for (const ev of ["groups.upsert", "groups.update", "group-participants.update"]) sock.ev.on(ev, () => onGroupsChanged());
     sock.ev.on("connection.update", (update) => {
       if (update.qr) onQr(update.qr);
       if (update.connection === "open") {

@@ -178,6 +178,35 @@ export const migrations = [
         CREATE UNIQUE INDEX idx_outbox_one_pending_list ON outbox(ride_id) WHERE kind = 'rider_list' AND status = 'pending';
       `);
     }
+  },
+  {
+    id: 8,
+    name: "password_resets",
+    up(db) {
+      db.exec(`
+        CREATE TABLE password_resets (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_password_resets_user ON password_resets(user_id);
+      `);
+    }
+  },
+  {
+    id: 9,
+    name: "whatsapp_groups_refresh",
+    up(db) {
+      // Set by the admin's "Refresh groups" button; the worker re-reads the
+      // number's groups when this is newer than its last fetch.
+      const cols = db.prepare("PRAGMA table_info(whatsapp_connections)").all().map((c) => c.name);
+      if (!cols.includes("groups_wanted_at")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN groups_wanted_at TEXT");
+      if (!cols.includes("groups_updated_at")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN groups_updated_at TEXT");
+    }
   }
 ];
 
