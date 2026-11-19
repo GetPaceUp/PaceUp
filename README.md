@@ -2,45 +2,58 @@
 
 **PaceUp** is an open-source, sport-agnostic community platform for endurance sports clubs.
 
-It helps clubs bring their people together around activities: publish events, collect RSVPs, coordinate participants, and build momentum before the start line.
+It helps clubs organise activities, bring members together and make participation simple — starting with a lightweight club directory and activity RSVP workflow.
 
-## Product direction
+## Current status
 
-PaceUp is being designed as a reusable platform that any club or community can operate. **Folks On Forks** is the initial pilot community, not the product's identity or boundary.
+The first application slice is underway:
 
-### Initial MVP
+- Fastify API with a health endpoint.
+- SQLite-backed club creation and listing.
+- React + Vite web interface.
+- Local development setup using npm workspaces.
 
-- Club and member foundations
-- Create, publish, edit, and cancel activities
-- RSVP flows with clear participation status and capacity handling
-- Participant lists and event updates
-- Activity-specific communication and notifications
-- A configurable notification layer, with WhatsApp integration as an adapter rather than a hard-coded dependency
-- A responsive experience that works well on mobile
+This is an early development build. Club creation is currently a local prototype flow; authentication, authorisation and production deployment hardening are not implemented yet.
 
-### A social layer: Ride Buzz
+## Run locally
 
-When members RSVP, the community should feel the momentum. Ride Buzz is the product concept for timely group updates around participation, milestones, and event activity. Notifications should be useful and configurable, not noisy.
+Requirements: Node.js 20 or newer and npm.
 
-## Project status
+1. Clone this repository.
+2. Copy `.env.example` to `.env` in the repository root.
+3. Install dependencies:
 
-This repository currently contains the product foundation and planning documents. Implementation choices will be recorded in the architecture documentation and accepted through focused changes.
+   ```bash
+   npm install
+   ```
+
+4. Start the API and web app:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Open http://localhost:5173.
+
+The API runs on http://127.0.0.1:3001. Its health endpoint is http://127.0.0.1:3001/health.
+
+SQLite data is stored in `data/paceup.sqlite` by default.
+
+## Project principles
+
+- Sport-agnostic and community-first.
+- Independent club data and administration.
+- Low-friction member participation.
+- RSVP persistence independent of notification delivery.
+- Self-hostable and open source.
 
 ## Documentation
 
 - [Product definition](docs/PRODUCT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Contributing](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
+- [Security](SECURITY.md)
 
-## Principles
+## Licence
 
-1. **Community first** — make it easier for people to show up together.
-2. **Sport agnostic** — support cycling, running, triathlon, hiking, and other communities.
-3. **Open and extensible** — integrations should be replaceable adapters.
-4. **Mobile friendly** — the primary journeys must work smoothly on a phone.
-5. **Respect attention** — notifications should be relevant, timely, and configurable.
-
-## License
-
-PaceUp is released under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).
