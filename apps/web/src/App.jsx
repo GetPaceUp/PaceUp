@@ -1,6 +1,7 @@
 import SuperAdmin from "./SuperAdmin.jsx";
 import { ClubRides, RidePage } from "./Rides.jsx";
 import { WhatsAppPanel } from "./WhatsApp.jsx";
+import { ResetPage, ResetLinkButton } from "./PasswordReset.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "", clubName: "" };
@@ -9,6 +10,8 @@ export default function App() {
   if (window.location.pathname === "/superadmin") return <SuperAdmin />;
   const rideMatch = window.location.pathname.match(/^\/r\/([A-Za-z0-9_-]{6,16})$/);
   if (rideMatch) return <RidePage code={rideMatch[1]} />;
+  const resetMatch = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]{20,200})$/);
+  if (resetMatch) return <ResetPage token={resetMatch[1]} />;
   const [user, setUser] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [mode, setMode] = useState("register");
@@ -25,6 +28,7 @@ export default function App() {
   const [inviteLink, setInviteLink] = useState("");
   const [notice, setNotice] = useState("");
   const [inviteToken, setInviteToken] = useState("");
+  const [forgot, setForgot] = useState(false);
 
   async function loadSession() {
     try {
@@ -165,6 +169,8 @@ export default function App() {
               {error && <p className="error" role="alert">{error}</p>}
               <button className="primary-button" type="submit" disabled={saving}>{saving ? "Please wait…" : mode === "register" ? "Create account and club" : "Sign in"}</button>
             </form>
+            {mode === "login" && !forgot && <p className="auth-switch"><button type="button" className="text-button" onClick={() => setForgot(true)}>Forgot password?</button></p>}
+            {mode === "login" && forgot && <p className="panel-copy forgot-note">Ask your club admin to send you a reset link from PaceUp. Club admins and owners can ask the PaceUp team. The link lets you choose a new password and works once.</p>}
             <p className="auth-switch">{mode === "register" ? "Already have an account?" : "New to PaceUp?"} <button type="button" className="text-button" onClick={() => { setMode(mode === "register" ? "login" : "register"); setError(""); }}>{mode === "register" ? "Sign in" : "Create an account"}</button></p>
           </section>
         </section>
@@ -184,7 +190,7 @@ export default function App() {
               <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required /></div><button type="submit">Save changes</button></form>
               <div className="admin-grid">
                 <section className="admin-panel"><h3>Invite someone</h3><p className="panel-copy">Create a secure invitation link for a club admin or member.</p><form className="stack-form" onSubmit={sendInvite}><label htmlFor="invite-email">Email address</label><input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="person@example.com" required /><label htmlFor="invite-role">Role</label><select id="invite-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}><option value="member">Member</option><option value="admin">Club admin</option></select><button type="submit">Create invite link</button></form>{inviteLink && <div className="invite-result"><p>Invitation created. Copy and share this link:</p><input readOnly value={inviteLink} onFocus={(e) => e.target.select()} /><button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(inviteLink)}>Copy link</button><small>Valid for 7 days. Email delivery isn't connected yet.</small></div>}</section>
-                <section className="admin-panel"><h3>Members <span className="count">{members.length}</span></h3>{members.map((member) => <div className="member-row" key={member.id}><div className="member-avatar">{member.name.slice(0,1).toUpperCase()}</div><div className="member-info"><strong>{member.name}</strong><small>{member.email}</small></div><span className="role-tag">{member.role}</span></div>)}{invitations.filter((invite) => !invite.accepted_at).length > 0 && <><h4>Pending invitations</h4>{invitations.filter((invite) => !invite.accepted_at).map((invite) => <div className="pending-row" key={invite.id}>{invite.email}<span>{invite.role}</span></div>)}</>}</section>
+                <section className="admin-panel"><h3>Members <span className="count">{members.length}</span></h3>{members.map((member) => <div className="member-row" key={member.id}><div className="member-avatar">{member.name.slice(0,1).toUpperCase()}</div><div className="member-info"><strong>{member.name}</strong><small>{member.email}</small></div><span className="role-tag">{member.role}</span>{member.role === "member" && member.id !== user.id && <ResetLinkButton endpoint={`/api/clubs/${selectedClub}/members/${member.id}/password-reset`} name={member.name} />}</div>)}{invitations.filter((invite) => !invite.accepted_at).length > 0 && <><h4>Pending invitations</h4>{invitations.filter((invite) => !invite.accepted_at).map((invite) => <div className="pending-row" key={invite.id}>{invite.email}<span>{invite.role}</span></div>)}</>}</section>
               </div>
               <WhatsAppPanel clubId={selectedClub} />
             </>}
