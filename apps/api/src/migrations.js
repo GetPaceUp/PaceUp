@@ -227,12 +227,14 @@ export const migrations = [
           name TEXT NOT NULL,
           name_key TEXT NOT NULL,
           phone TEXT,
+          wa_jid TEXT,
           source TEXT NOT NULL DEFAULT 'upload' CHECK (source IN ('upload', 'manual', 'whatsapp')),
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           UNIQUE (club_id, name_key)
         );
         CREATE INDEX idx_roster_club_phone ON club_roster(club_id, phone);
+        CREATE INDEX idx_roster_club_jid ON club_roster(club_id, wa_jid);
         CREATE TABLE ride_rsvps_v2 (
           id TEXT PRIMARY KEY,
           ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
@@ -305,6 +307,23 @@ export const migrations = [
           updated_at TEXT NOT NULL,
           PRIMARY KEY (club_id, user_id)
         );
+        -- People the club's WhatsApp number knows: group participants and the names
+        -- WhatsApp gives for them (saved contact name, or the name they set themselves).
+        -- Used to fill the roster from the club group. phone and lid are both optional.
+        CREATE TABLE whatsapp_contacts (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          phone TEXT,
+          lid TEXT,
+          saved_name TEXT,
+          push_name TEXT,
+          in_group INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX idx_wa_contacts_phone ON whatsapp_contacts(club_id, phone) WHERE phone IS NOT NULL;
+        CREATE UNIQUE INDEX idx_wa_contacts_lid ON whatsapp_contacts(club_id, lid) WHERE lid IS NOT NULL;
+        ALTER TABLE whatsapp_connections ADD COLUMN roster_sync_wanted_at TEXT;
+        ALTER TABLE whatsapp_connections ADD COLUMN roster_synced_at TEXT;
         -- Incoming message ids already handled, so a redelivered message is never processed twice.
         CREATE TABLE whatsapp_inbound (
           club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,

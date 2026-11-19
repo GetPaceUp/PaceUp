@@ -4,7 +4,7 @@ const sessions = new Map();
 
 export const fakeAdapter = {
   name: "fake",
-  async connect(clubId, { onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {} }) {
+  async connect(clubId, { onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
     const session = {
       clubId, open: false, failNext: 0,
       groups: [{ jid: `${clubId.slice(0, 8)}-main@g.us`, name: "Club group", size: 42 }, { jid: `${clubId.slice(0, 8)}-admins@g.us`, name: "Club admins", size: 5 }],
@@ -16,6 +16,10 @@ export const fakeAdapter = {
         sent.push({ clubId, jid, text, at: Date.now() });
       },
       async listGroups() { return this.groups; },
+      participants: [],   // [{ phone, lid }] of the club group
+      async groupParticipants() { return this.participants; },
+      /** Simulates WhatsApp reporting names (contacts sync or pushName on a message). */
+      contacts(list) { onContacts(list); },
       /** Simulates someone sending the club number a direct message. */
       receive(from, text, id = `m-${Math.random().toString(36).slice(2)}`, fromAlt = null) { return onMessage({ id, from, fromAlt, text }); },
       joinGroup(group) { this.groups = [...this.groups, group]; onGroupsChanged(); },

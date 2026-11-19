@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { db, DomainError } from "./db.js";
+import { listUnnamed, groupCount, contactById } from "./whatsapp/contacts.js";
 
 const nowIso = () => new Date().toISOString();
 export const nameKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -146,6 +147,108 @@ export function peopleFromRows(rows) {
   return people;
 }
 
+// ---------------------------------------------------------------- phone books
+
+function decodeQuotedPrintable(value, charset = "utf-8") {
+  const bytes = [];
+  const text = value.replace(/=\r?\n/g, "");
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "=" && /^[0-9A-F]{2}$/i.test(text.slice(i + 1, i + 3))) { bytes.push(parseInt(text.slice(i + 1, i + 3), 16)); i += 2; }
+    else bytes.push(...Buffer.from(text[i], "utf8"));
+  }
+  return Buffer.from(bytes).toString(/utf-?8/i.test(charset) ? "utf8" : "latin1");
+}
+const unescapeVcf = (v) => v.replace(/\\n/gi, " ").replace(/\\([,;\\])/g, "$1");
+
+/** Contacts from a .vcf phone-book export (Android, iPhone/iCloud, Google). [{ name, phones: [] }] */
+export function readVcf(text) {
+  // Unfold continuation lines (RFC 6350) and quoted-printable soft breaks.
+  const lines = text.replace(/^\uFEFF/, "").replace(/=\r?\n(?=[^\r\n])/g, "=QPSOFT").replace(/\r?\n[ \t]/g, "").split(/\r?\n/).map((l) => l.replace(/=QPSOFT/g, "=\n"));
+  const contacts = [];
+  let cur = null;
+  for (const line of lines) {
+    if (/^BEGIN:VCARD/i.test(line)) { cur = { fn: "", n: "", phones: [] }; continue; }
+    if (/^END:VCARD/i.test(line)) { if (cur) contacts.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const idx = line.indexOf(":");
+    if (idx < 0) continue;
+    const [prop, ...params] = line.slice(0, idx).split(";");
+    let value = line.slice(idx + 1);
+    const key = prop.replace(/^item\d+\./i, "").toUpperCase();
+    if (params.some((p) => /QUOTED-PRINTABLE/i.test(p))) value = decodeQuotedPrintable(value, params.find((p) => /CHARSET=/i.test(p))?.split("=")[1]);
+    if (key === "FN") cur.fn = unescapeVcf(value);
+    else if (key === "N") { const [last = "", first = "", middle = ""] = value.split(";").map(unescapeVcf); cur.n = [first, middle, last].filter(Boolean).join(" "); }
+    else if (key === "TEL") cur.phones.push(value.replace(/^tel:/i, ""));
+  }
+  return contacts.map((c) => ({ name: cleanName(c.fn || c.n), phones: c.phones.map(cleanPhone).filter(Boolean) }));
+}
+
+/** Google Contacts CSV (and similar exports): every phone column, values may hold "a ::: b". */
+function readContactsCsvRows(rows) {
+  const header = rows[0].map((h) => String(h).trim().toLowerCase());
+  const col = (re) => header.findIndex((h) => re.test(h));
+  const full = col(/^(name|full name|display name)$/), first = col(/^(first name|given name)$/), middle = col(/^(middle name|additional name)$/), last = col(/^(last name|family name|surname)$/);
+  const phoneCols = header.map((h, i) => (/phone.*value|^phone|mobile/.test(h) && !/type|label/.test(h) ? i : -1)).filter((i) => i >= 0);
+  return rows.slice(1).map((r) => ({
+    name: cleanName((full >= 0 && r[full]) || [r[first], r[middle], r[last]].filter((x) => x && String(x).trim()).join(" ")),
+    phones: phoneCols.flatMap((i) => String(r[i] || "").split(":::")).map(cleanPhone).filter(Boolean)
+  }));
+}
+
+/** Is this file a phone book (match against the group) rather than a club list? */
+export function readPhoneBook(filename, buffer) {
+  const text = buffer.toString("utf8");
+  if (/\.vcf$/i.test(filename) || /^\uFEFF?BEGIN:VCARD/i.test(text)) return readVcf(text);
+  if (/\.csv$/i.test(filename)) {
+    const rows = readCsv(text);
+    const header = (rows[0] || []).join(",").toLowerCase();
+    if (/phone 1 - value|given name|e-mail 1 - value|labels/.test(header)) return readContactsCsvRows(rows);
+  }
+  return null;
+}
+
+/**
+ * Names group members from a phone book: only contacts whose number is in the
+ * club's WhatsApp group are used; everything else is discarded, never stored.
+ * The phone-book name replaces a name that only came from WhatsApp, but never
+ * one an admin typed or uploaded.
+ */
+export function namesFromPhoneBook(clubId, contacts) {
+  const group = db.prepare("SELECT id, phone, lid FROM whatsapp_contacts WHERE club_id = ? AND in_group = 1 AND phone IS NOT NULL").all(clubId);
+  if (!group.length) throw new DomainError(409, "Connect WhatsApp and choose the club group first, so PaceUp knows whose numbers to keep.");
+  const byPhone = new Map(group.map((g) => [g.phone, g]));
+  const result = { contacts: contacts.length, matched: 0, added: 0, renamed: 0, unchanged: 0, clashes: [] };
+  db.transaction(() => {
+    const seen = new Set();
+    for (const c of contacts) {
+      if (c.name.length < 2 || !/\p{L}/u.test(c.name)) continue;
+      const member = c.phones.map((p) => byPhone.get(p)).find(Boolean);
+      if (!member || seen.has(member.phone)) continue;
+      seen.add(member.phone);
+      result.matched++;
+      const now = nowIso();
+      const existing = db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND (phone = ? OR (? IS NOT NULL AND wa_jid = ?))").get(clubId, member.phone, member.lid, member.lid);
+      const clash = db.prepare("SELECT id FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(clubId, nameKey(c.name), existing?.id || "");
+      if (existing) {
+        if (existing.source !== "whatsapp" || existing.name === c.name) { result.unchanged++; continue; }
+        if (clash) { result.clashes.push(c.name); continue; }
+        db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = 'upload', updated_at = ? WHERE id = ?").run(c.name, nameKey(c.name), now, existing.id);
+        result.renamed++;
+      } else {
+        if (clash) { result.clashes.push(c.name); continue; }
+        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, wa_jid, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'upload', ?, ?)")
+          .run(randomUUID(), clubId, c.name, nameKey(c.name), member.phone, member.lid, now, now);
+        result.added++;
+      }
+    }
+  }).immediate();
+  result.group_members = groupCount(clubId);
+  result.unnamed = listUnnamed(clubId).count;
+  result.named = result.group_members - result.unnamed;
+  result.total = db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ?").get(clubId).n;
+  return result;
+}
+
 export function parseRosterFile(filename, buffer) {
   const isXlsx = /\.xlsx$/i.test(filename) || buffer.subarray(0, 2).toString() === "PK";
   if (/\.xls$/i.test(filename) && !isXlsx) throw new DomainError(400, "Old .xls files aren't supported. In Excel, use Save As → Excel Workbook (.xlsx) or CSV.");
@@ -201,6 +304,30 @@ export function addRosterPerson(clubId, name, phone) {
   return mergeRoster(clubId, [{ name: clean, phone: cleanPhone(phone) }], "manual");
 }
 
+export function renameRosterPerson(clubId, id, name) {
+  const clean = cleanName(name);
+  if (clean.length < 2) throw new DomainError(400, "Enter a name (at least 2 letters).");
+  const row = db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND id = ?").get(clubId, id);
+  if (!row) throw new DomainError(404, "Not found.");
+  const clash = db.prepare("SELECT id FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(clubId, nameKey(clean), id);
+  if (clash) throw new DomainError(409, `${clean} is already on the list. Add a surname or initial to tell them apart.`);
+  db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = CASE WHEN source = 'whatsapp' THEN 'manual' ELSE source END, updated_at = ? WHERE id = ?").run(clean, nameKey(clean), nowIso(), id);
+}
+
+/** An admin types the name of a group member WhatsApp gave no name for. */
+export function nameGroupMember(clubId, contactId, name) {
+  const contact = contactById(clubId, contactId);
+  if (!contact) throw new DomainError(404, "That person isn't in the club group anymore.");
+  const clean = cleanName(name);
+  if (clean.length < 2) throw new DomainError(400, "Enter a name (at least 2 letters).");
+  if (db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ?").get(clubId, nameKey(clean))) {
+    throw new DomainError(409, `${clean} is already on the list. Add a surname or initial to tell them apart.`);
+  }
+  const now = nowIso();
+  db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, wa_jid, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, ?)")
+    .run(randomUUID(), clubId, clean, nameKey(clean), contact.phone, contact.lid, now, now);
+}
+
 export function removeRosterPerson(clubId, id) {
   const changes = db.prepare("DELETE FROM club_roster WHERE club_id = ? AND id = ?").run(clubId, id).changes;
   if (!changes) throw new DomainError(404, "Not found.");
@@ -241,7 +368,41 @@ export function registerRosterRoutes(app, { requireClubRole }) {
   const base = "/api/clubs/:clubId/roster";
 
   app.get(base, { schema: { params, querystring: { type: "object", properties: { q: { type: "string", maxLength: 60 } } } }, preHandler: pre },
-    async (req) => listRoster(req.params.clubId, req.query.q));
+    async (req) => {
+      const conn = db.prepare("SELECT status, group_jid, group_name, roster_sync_wanted_at, roster_synced_at FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
+      return {
+        ...listRoster(req.params.clubId, req.query.q),
+        unnamed: listUnnamed(req.params.clubId),
+        whatsapp: {
+          group: conn?.group_jid ? conn.group_name : null, connected: conn?.status === "connected",
+          group_members: groupCount(req.params.clubId), synced_at: conn?.roster_synced_at || null,
+          syncing: Boolean(conn?.roster_sync_wanted_at && (!conn.roster_synced_at || conn.roster_sync_wanted_at > conn.roster_synced_at))
+        }
+      };
+    });
+
+  app.post(`${base}/sync`, { schema: { params }, preHandler: pre }, async (req, reply) => {
+    const conn = db.prepare("SELECT status, group_jid FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
+    if (!conn || conn.status !== "connected" || !conn.group_jid) return reply.code(409).send({ error: "Connect WhatsApp and choose the club group first." });
+    db.prepare("UPDATE whatsapp_connections SET roster_sync_wanted_at = ? WHERE club_id = ?").run(nowIso(), req.params.clubId);
+    return { ok: true };
+  });
+
+  app.post(`${base}/from-group/:contactId`, {
+    schema: { params: { type: "object", properties: { clubId: id, contactId: id }, required: ["clubId", "contactId"] }, body: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, required: ["name"] } },
+    preHandler: pre
+  }, async (req, reply) => {
+    try { nameGroupMember(req.params.clubId, req.params.contactId, req.body.name); return reply.code(201).send({ ok: true }); }
+    catch (error) { return domain(reply, error); }
+  });
+
+  app.patch(`${base}/:personId`, {
+    schema: { params: { type: "object", properties: { clubId: id, personId: id }, required: ["clubId", "personId"] }, body: { type: "object", properties: { name: { type: "string", maxLength: 80 } }, required: ["name"] } },
+    preHandler: pre
+  }, async (req, reply) => {
+    try { renameRosterPerson(req.params.clubId, req.params.personId, req.body.name); return { ok: true }; }
+    catch (error) { return domain(reply, error); }
+  });
 
   app.post(base, {
     schema: { params, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: ["string", "null"], maxLength: 30 } }, required: ["name"] } }, preHandler: pre
@@ -251,14 +412,20 @@ export function registerRosterRoutes(app, { requireClubRole }) {
   });
 
   app.post(`${base}/import`, {
-    bodyLimit: 8 * 1024 * 1024,
-    schema: { params, body: { type: "object", properties: { filename: { type: "string", maxLength: 200 }, data: { type: "string", maxLength: 8 * 1024 * 1024 } }, required: ["filename", "data"] } },
+    bodyLimit: 16 * 1024 * 1024,
+    schema: { params, body: { type: "object", properties: { filename: { type: "string", maxLength: 200 }, data: { type: "string", maxLength: 16 * 1024 * 1024 } }, required: ["filename", "data"] } },
     preHandler: pre
   }, async (req, reply) => {
     try {
-      const people = parseRosterFile(req.body.filename, Buffer.from(req.body.data, "base64"));
+      const buffer = Buffer.from(req.body.data, "base64");
+      const phoneBook = readPhoneBook(req.body.filename, buffer);
+      if (phoneBook) {
+        if (!phoneBook.length) return reply.code(400).send({ error: "No contacts found in that file." });
+        return { mode: "phonebook", ...namesFromPhoneBook(req.params.clubId, phoneBook) };
+      }
+      const people = parseRosterFile(req.body.filename, buffer);
       if (!people.length) return reply.code(400).send({ error: "No names found. Put names in a column headed \"Name\" (and phones under \"Phone\", optional)." });
-      return { ...mergeRoster(req.params.clubId, people), read: people.length };
+      return { mode: "list", ...mergeRoster(req.params.clubId, people), read: people.length };
     } catch (error) {
       if (error instanceof DomainError) return domain(reply, error);
       req.log.warn(error);

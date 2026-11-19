@@ -9,11 +9,13 @@ import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS } from "./outbox.js";
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
+import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
 const PAIRING_TIMEOUT_MS = 5 * 60 * 1000;
 const GROUPS_REFRESH_MS = 2 * 60 * 1000;
+const ROSTER_REFRESH_MS = 30 * 60 * 1000;
 const QUIET_START = 22, QUIET_END = 5;
 
 function defaultDataDir() {
@@ -63,6 +65,10 @@ export class WhatsAppWorker {
           await this.refreshGroups(clubId);
         },
         onMessage: (msg) => this.onMessage(clubId, msg),
+        onContacts: (list) => {
+          try { if (recordContacts(clubId, list)) entry.rosterDirty = true; }
+          catch (error) { this.log.warn?.(`[whatsapp] could not record contacts for ${clubId}: ${error.message}`); }
+        },
         // WhatsApp told us the number's groups changed: refetch on the next tick.
         onGroupsChanged: () => { entry.groupsAt = 0; },
         onClose: ({ loggedOut, restartRequired, error }) => {
@@ -98,6 +104,25 @@ export class WhatsAppWorker {
     const entry = this.sessions.get(clubId);
     try { await entry?.session?.sendText(msg.from, reply); }
     catch (error) { this.log.warn?.(`[whatsapp] could not reply to an admin for ${clubId}: ${error.message}`); }
+  }
+
+  /** Keeps the roster filled from the club group: participant list every 30 min or on request, new names as they arrive. */
+  async syncRoster(conn, entry) {
+    if (!conn.group_jid) return;
+    const asked = conn.roster_sync_wanted_at && new Date(conn.roster_sync_wanted_at).getTime() > (entry.rosterAt || 0);
+    try {
+      if (asked || entry.rosterGroup !== conn.group_jid || Date.now() - (entry.rosterAt || 0) > ROSTER_REFRESH_MS) {
+        entry.rosterAt = Date.now();
+        entry.rosterGroup = conn.group_jid;
+        setGroupParticipants(conn.club_id, await entry.session.groupParticipants(conn.group_jid));
+        entry.rosterDirty = true;
+      }
+      if (entry.rosterDirty) {
+        entry.rosterDirty = false;
+        syncRosterFromGroup(conn.club_id);
+        this.setConn(conn.club_id, { roster_synced_at: iso(Date.now()) });
+      }
+    } catch (error) { this.log.warn?.(`[whatsapp] roster sync failed for ${conn.club_id}: ${error.message}`); }
   }
 
   async refreshGroups(clubId) {
@@ -138,6 +163,7 @@ export class WhatsAppWorker {
         this.setConn(c.club_id, { last_seen_at: iso(Date.now()) });
         const asked = c.groups_wanted_at && new Date(c.groups_wanted_at).getTime() > (entry.groupsAt || 0);
         if (asked || !entry.groupsAt || Date.now() - entry.groupsAt > GROUPS_REFRESH_MS) await this.refreshGroups(c.club_id);
+        await this.syncRoster(c, entry);
       }
     }
     for (const [clubId, entry] of this.sessions) {

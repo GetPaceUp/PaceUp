@@ -62,7 +62,7 @@ export function registerWhatsAppRoutes(app, { requireClubRole }) {
     const c = getConnection(req.params.clubId);
     const group = c?.groups_json ? JSON.parse(c.groups_json).find((g) => g.jid === req.body.jid) : null;
     if (!group) return reply.code(400).send({ error: "Pick one of the groups this WhatsApp number is in." });
-    update(req.params.clubId, { group_jid: group.jid, group_name: group.name });
+    update(req.params.clubId, { group_jid: group.jid, group_name: group.name, roster_sync_wanted_at: iso(Date.now()) });
     return view(req.params.clubId);
   });
 

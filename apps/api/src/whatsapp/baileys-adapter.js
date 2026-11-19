@@ -2,12 +2,13 @@
 import { rmSync, mkdirSync } from "node:fs";
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } from "baileys";
 import pino from "pino";
+import { phoneFromJid, lidFromJid } from "./contacts.js";
 
 const quiet = pino({ level: process.env.WHATSAPP_LOG_LEVEL || "warn" });
 
 export const baileysAdapter = {
   name: "baileys",
-  async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {} }) {
+  async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
     mkdirSync(authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     let version;
@@ -24,7 +25,25 @@ export const baileysAdapter = {
     for (const ev of ["groups.upsert", "groups.update", "group-participants.update"]) sock.ev.on(ev, () => onGroupsChanged());
     // Direct text messages to the club number (admins creating activities).
     // Only live messages: history synced on reconnect arrives as type "append".
+    // Names for the roster: contacts saved on the club phone, and the names people set themselves.
+    const toContact = (c) => ({
+      phone: phoneFromJid(c.phoneNumber) || phoneFromJid(c.id), lid: lidFromJid(c.lid) || lidFromJid(c.id),
+      saved_name: c.name || null, push_name: c.notify || c.verifiedName || null
+    });
+    sock.ev.on("contacts.upsert", (list) => onContacts(list.map(toContact)));
+    sock.ev.on("contacts.update", (list) => onContacts(list.filter((c) => c.id).map(toContact)));
+    sock.ev.on("messaging-history.set", ({ contacts = [], lidPnMappings = [] }) => {
+      onContacts([...contacts.map(toContact), ...lidPnMappings.map((m) => ({ phone: phoneFromJid(m.pn), lid: lidFromJid(m.lid) }))]);
+    });
     sock.ev.on("messages.upsert", ({ messages, type }) => {
+      const seen = [];
+      for (const m of messages) {
+        if (m.key?.fromMe || !m.pushName) continue;
+        const ids = [m.key.participant, m.key.participantAlt, m.key.remoteJid, m.key.remoteJidAlt].filter((j) => j && !j.endsWith("@g.us"));
+        const phone = ids.map(phoneFromJid).find(Boolean), lid = ids.map(lidFromJid).find(Boolean);
+        if (phone || lid) seen.push({ phone, lid, push_name: m.pushName });
+      }
+      if (seen.length) onContacts(seen);
       if (type !== "notify") return;
       for (const m of messages) {
         const jid = m.key?.remoteJid || "";
@@ -55,6 +74,11 @@ export const baileysAdapter = {
         await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1800));
         await sock.sendPresenceUpdate("paused", jid).catch(() => {});
         await sock.sendMessage(jid, { text });
+      },
+      /** Who is in a group: [{ phone, lid }] (either may be missing). */
+      async groupParticipants(jid) {
+        const meta = await sock.groupMetadata(jid);
+        return meta.participants.map((p) => ({ phone: phoneFromJid(p.phoneNumber) || phoneFromJid(p.id), lid: lidFromJid(p.lid) || lidFromJid(p.id) }));
       },
       async listGroups() {
         const groups = await sock.groupFetchAllParticipating();
