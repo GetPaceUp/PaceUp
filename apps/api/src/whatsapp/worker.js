@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { db } from "../db.js";
 import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS } from "./outbox.js";
+import { participants } from "../rides.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -140,8 +141,8 @@ export class WhatsAppWorker {
     if (new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "ride already started" };
     if (item.kind === "ride_published") return { text: ridePublishedText(ride) };
     if (item.kind === "ride_updated") return { text: rideUpdatedText(ride) };
-    const riders = db.prepare(`SELECT u.id, u.name FROM ride_rsvps rs INNER JOIN users u ON u.id = rs.user_id
-      WHERE rs.ride_id = ? AND rs.status = 'going' ORDER BY rs.updated_at`).all(ride.id);
+    // Members keep their user id as the key (as in posts made before guest RSVPs), guests their RSVP id.
+    const riders = participants(ride.id).map((p) => ({ id: p.user_id || p.id, user_id: p.user_id, name: p.name }));
     const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent' ORDER BY sent_at DESC LIMIT 1").get(ride.id);
     const previous = prevRow?.payload ? JSON.parse(prevRow.payload).riders : null;
     if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id)) return { skip: "list unchanged since last post" };

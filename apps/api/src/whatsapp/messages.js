@@ -15,12 +15,20 @@ export function shortName(name) {
   return parts.length > 1 ? `${parts[0]} ${parts.at(-1)[0].toUpperCase()}.` : parts[0];
 }
 
+const KIND = {
+  cycling: ["🚴", "ride"], running: ["🏃", "run"], hiking: ["🥾", "hike"],
+  triathlon: ["🏊", "session"], other: ["📍", "activity"]
+};
+export const emoji = (ride) => (KIND[ride.category] || KIND.other)[0];
+export const noun = (ride) => (KIND[ride.category] || KIND.other)[1];
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+
 function details(ride) {
   return [ride.distance_km ? `${ride.distance_km} km` : null, ride.pace, ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
 }
 
 export function ridePublishedText(ride) {
-  const lines = [`🚴 *New ride: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
+  const lines = [`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
   if (details(ride)) lines.push(details(ride));
   if (ride.organiser_name) lines.push(`Organiser: ${shortName(ride.organiser_name)}`);
   if (ride.notes) lines.push("", ride.notes);
@@ -28,15 +36,18 @@ export function ridePublishedText(ride) {
   return lines.join("\n");
 }
 
-/** riders: [{id, name}] in RSVP order; previous: [{id, name}] from the last list post (or null). */
+/**
+ * riders: [{id, name, user_id}] in RSVP order (id is the member's user id, or the
+ * RSVP id for a guest); previous: the same shape from the last list post, or null.
+ */
 export function riderListText(ride, riders, previous) {
   const before = new Map((previous || []).map((r) => [r.id, r]));
   const now = new Set(riders.map((r) => r.id));
   const count = ride.capacity ? `${riders.length} / ${ride.capacity}` : `${riders.length}`;
   const full = ride.capacity && riders.length >= ride.capacity;
-  const lines = [`🚴 *${ride.title}* · ${whenText(ride.starts_at, { short: true })}`, `*${count} going*${full ? " · FULL" : ""}`, ""];
+  const lines = [`${emoji(ride)} *${ride.title}* · ${whenText(ride.starts_at, { short: true })}`, `*${count} going*${full ? " · FULL" : ""}`, ""];
   riders.forEach((r, i) => {
-    const tags = [r.id === ride.organiser_id ? "(organiser)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
+    const tags = [r.user_id && r.user_id === ride.organiser_id ? "(organiser)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
     lines.push(`${i + 1}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`);
   });
   if (!riders.length) lines.push("No one yet.");
@@ -47,7 +58,7 @@ export function riderListText(ride, riders, previous) {
 }
 
 export function rideUpdatedText(ride) {
-  return [`✏️ *Ride updated: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`, "", rideLink(ride)].join("\n");
+  return [`✏️ *${cap(noun(ride))} updated: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`, "", rideLink(ride)].join("\n");
 }
 
 export function rideCancelledText(ride) {
@@ -56,4 +67,4 @@ export function rideCancelledText(ride) {
   return lines.join("\n");
 }
 
-export const testText = (clubName) => `✅ PaceUp is connected. ${clubName} rides and rider lists will be posted in this group.`;
+export const testText = (clubName) => `✅ PaceUp is connected. ${clubName} activities and participant lists will be posted in this group.`;

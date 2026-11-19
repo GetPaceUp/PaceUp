@@ -133,8 +133,8 @@ export async function buildApp(options = {}) {
   }
 
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
-  registerRideRoutes(app, { requireClubRole, optionalUser });
-  registerWhatsAppRoutes(app, { requireClubRole });
+  registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
+  registerWhatsAppRoutes(app, { requireClubRole, rateLimit: options.authRateLimit });
 
   // ---- password reset (one-time links shared by an admin; no email needed)
   const sendDomain = (reply, error) => {

@@ -207,6 +207,97 @@ export const migrations = [
       if (!cols.includes("groups_wanted_at")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN groups_wanted_at TEXT");
       if (!cols.includes("groups_updated_at")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN groups_updated_at TEXT");
     }
+  },
+  {
+    id: 10,
+    name: "guest_rsvps_and_categories",
+    up(db) {
+      if (!hasColumn(db, "rides", "category")) {
+        db.exec("ALTER TABLE rides ADD COLUMN category TEXT NOT NULL DEFAULT 'cycling' CHECK (category IN ('cycling', 'running', 'hiking', 'triathlon', 'other'))");
+      }
+      // RSVPs no longer require an account: a row belongs either to a club member
+      // (user_id) or to a guest who typed a name. device_hash identifies the phone
+      // that made it, so only that phone (or the signed-in member) can change it.
+      db.exec(`
+        CREATE TABLE ride_rsvps_v2 (
+          id TEXT PRIMARY KEY,
+          ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+          user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+          participant_name TEXT NOT NULL,
+          device_hash TEXT,
+          status TEXT NOT NULL CHECK (status IN ('going', 'cancelled')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO ride_rsvps_v2 (id, ride_id, user_id, participant_name, device_hash, status, created_at, updated_at)
+          SELECT rs.id, rs.ride_id, rs.user_id, COALESCE(u.name, 'Member'), NULL, rs.status, rs.created_at, rs.updated_at
+          FROM ride_rsvps rs LEFT JOIN users u ON u.id = rs.user_id;
+        DROP TABLE ride_rsvps;
+        ALTER TABLE ride_rsvps_v2 RENAME TO ride_rsvps;
+        CREATE INDEX idx_rsvps_ride_status ON ride_rsvps(ride_id, status);
+        CREATE UNIQUE INDEX idx_rsvps_ride_user ON ride_rsvps(ride_id, user_id) WHERE user_id IS NOT NULL;
+        CREATE UNIQUE INDEX idx_rsvps_ride_device ON ride_rsvps(ride_id, device_hash) WHERE device_hash IS NOT NULL;
+      `);
+    }
+  },
+  {
+    id: 11,
+    name: "activity_audit_log",
+    up(db) {
+      db.exec(`
+        CREATE TABLE activity_audit_log (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          ride_id TEXT REFERENCES rides(id) ON DELETE CASCADE,
+          actor_type TEXT NOT NULL CHECK (actor_type IN ('user', 'whatsapp', 'guest', 'system')),
+          actor_id TEXT,
+          action TEXT NOT NULL,
+          metadata TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_activity_audit_ride ON activity_audit_log(ride_id, created_at);
+        CREATE INDEX idx_activity_audit_club ON activity_audit_log(club_id, created_at);
+      `);
+    }
+  },
+  {
+    id: 12,
+    name: "whatsapp_admin_chat",
+    up(db) {
+      db.exec(`
+        -- Club admins who may create activities by messaging the club's number.
+        -- An admin links their own WhatsApp by sending a one-time code from it.
+        CREATE TABLE whatsapp_admins (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          jid TEXT,
+          jid_alt TEXT,
+          code_hash TEXT,
+          code_expires_at TEXT,
+          linked_at TEXT,
+          created_at TEXT NOT NULL,
+          UNIQUE (club_id, user_id)
+        );
+        CREATE INDEX idx_wa_admins_jid ON whatsapp_admins(club_id, jid);
+        CREATE INDEX idx_wa_admins_jid_alt ON whatsapp_admins(club_id, jid_alt);
+        -- One in-progress activity draft per admin chat.
+        CREATE TABLE whatsapp_drafts (
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          draft TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (club_id, user_id)
+        );
+        -- Incoming message ids already handled, so a redelivered message is never processed twice.
+        CREATE TABLE whatsapp_inbound (
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          message_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (club_id, message_id)
+        );
+      `);
+    }
   }
 ];
 
