@@ -1,45 +1,46 @@
 # PaceUp
 
-**PaceUp** is an open-source, sport-agnostic community platform that helps clubs organise activities and make participation simple.
+**PaceUp** is an open-source, sport-agnostic community platform for endurance sports clubs.
 
-It is being designed for endurance and outdoor-sport communities — including cycling, running, hiking and triathlon.
+It helps clubs bring their people together around activities: publish events, collect RSVPs, coordinate participants, and build momentum before the start line.
 
-## The idea
+## Product direction
 
-Club admins organise activities through a conversational WhatsApp workflow. PaceUp turns the details into a shareable activity page. Members open the link, find their name in their club directory and RSVP — without creating an account for basic participation.
+PaceUp is being designed as a reusable platform that any club or community can operate. **Folks On Forks** is the initial pilot community, not the product's identity or boundary.
 
-## Product principles
+### Initial MVP
 
-- **Community-first:** support the clubs and groups people already belong to.
-- **Sport-agnostic:** do not assume every activity is a cycling event.
-- **Low-friction participation:** make viewing and responding to an activity straightforward.
-- **Club autonomy:** each club manages its own members, activities, admins and messaging connection.
-- **Reliable by design:** an RSVP must not depend on a messaging provider being available.
-- **Self-hostable:** keep deployment approachable for independent communities.
-- **Open source:** build in public and welcome contributions.
+- Club and member foundations
+- Create, publish, edit, and cancel activities
+- RSVP flows with clear participation status and capacity handling
+- Participant lists and event updates
+- Activity-specific communication and notifications
+- A configurable notification layer, with WhatsApp integration as an adapter rather than a hard-coded dependency
+- A responsive experience that works well on mobile
 
-## Planned MVP
+### A social layer: Ride Buzz
 
-1. A club admin creates an activity through WhatsApp.
-2. PaceUp collects the activity details and asks for confirmation before publishing.
-3. PaceUp publishes a public activity page and a ready-to-share announcement.
-4. A member opens the page, selects their name from that club's member directory and confirms an RSVP.
-5. The participant list updates and a notification is queued for the club's WhatsApp group.
-6. Members can cancel an RSVP; duplicate responses are prevented.
-
-The initial release is focused on activity publishing, RSVPs, club member directories and dependable notifications. Attendance tracking, QR check-in, analytics, Strava integrations and other enhancements are later-stage ideas.
+When members RSVP, the community should feel the momentum. Ride Buzz is the product concept for timely group updates around participation, milestones, and event activity. Notifications should be useful and configurable, not noisy.
 
 ## Project status
 
-PaceUp is in early development. Product decisions and implementation details may evolve as the first community pilot is built and tested.
+This repository currently contains the product foundation and planning documents. Implementation choices will be recorded in the architecture documentation and accepted through focused changes.
 
 ## Documentation
 
 - [Product definition](docs/PRODUCT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
+- [Security policy](SECURITY.md)
 
-## Licence
+## Principles
 
-PaceUp is released under the [MIT Licence](LICENSE).
+1. **Community first** — make it easier for people to show up together.
+2. **Sport agnostic** — support cycling, running, triathlon, hiking, and other communities.
+3. **Open and extensible** — integrations should be replaceable adapters.
+4. **Mobile friendly** — the primary journeys must work smoothly on a phone.
+5. **Respect attention** — notifications should be relevant, timely, and configurable.
+
+## License
+
+PaceUp is released under the [MIT License](LICENSE).
