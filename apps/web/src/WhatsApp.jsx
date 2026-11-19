@@ -116,10 +116,10 @@ export function WhatsAppPanel({ clubId }) {
               <option value="">Choose a group…</option>
               {wa.groups.map((g) => <option key={g.jid} value={g.jid}>{g.name} ({g.size})</option>)}
             </select>
-          : <p className="panel-copy">This number isn't in any groups yet. Add it to your club group in WhatsApp, then press Refresh groups.</p>}
+          : <p className="panel-copy">{wa.groups_linked ? "Your club's groups aren't on this number anymore. Ask the PaceUp Super Admin to check them." : "No WhatsApp groups are linked to your club yet. The PaceUp Super Admin chooses which groups belong to the club."}</p>}
         {wa.group && <p className="panel-copy">You can pick a different group for any activity or template.</p>}
         {wa.groups.length > 1 && <MemberGroups wa={wa} busy={busy} onSave={(jids) => act("/member-groups", "PUT", { jids })} />}
-        <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group missing? Refresh groups"}</button>
+        <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group name out of date? Refresh"}</button>
         {wa.group && <>
           <Toggle id="wa-new" label="New activity published" hint="Details and the link to join" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />
           <Toggle id="wa-list" label="Who's going, after people join" hint="One updated list per activity, at most every 30 seconds" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />

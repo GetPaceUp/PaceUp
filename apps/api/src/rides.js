@@ -5,7 +5,7 @@
 // phone (or the signed-in member) can change or cancel it.
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
-import { enqueueRideEvent, enqueueRiderList } from "./whatsapp/outbox.js";
+import { enqueueRideEvent, enqueueRiderList, clubGroups } from "./whatsapp/outbox.js";
 import { suggestNames, cleanName, cleanPhone, nameKey } from "./roster.js";
 
 const nowIso = () => new Date().toISOString();
@@ -18,13 +18,11 @@ const PAST_AFTER_MS = 12 * 60 * 60 * 1000;
 
 const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "distance_km", "pace", "notes", "capacity", "category", "wa_group_jid"];
 
-/** An activity may post to any group the club's number is in; null means the club's default group. */
-function checkGroup(clubId, jid) {
+/** An activity may post to any of the club's linked groups; null means the club's default group. */
+export function checkGroup(clubId, jid) {
   if (!jid) return null;
-  const conn = db.prepare("SELECT groups_json FROM whatsapp_connections WHERE club_id = ?").get(clubId);
-  let groups = [];
-  try { groups = JSON.parse(conn?.groups_json || "[]"); } catch {}
-  if (!groups.some((g) => g.jid === jid)) throw new DomainError(400, "Pick one of the club's WhatsApp groups.");
+  const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(clubId);
+  if (!clubGroups(conn).some((g) => g.jid === jid)) throw new DomainError(400, "Pick one of the club's WhatsApp groups.");
   return jid;
 }
 

@@ -99,6 +99,17 @@ export function removeClubPerson(clubId, userId, actorId) {
   db.prepare("DELETE FROM club_memberships WHERE club_id = ? AND user_id = ?").run(clubId, userId);
 }
 
+/** Makes an existing member a club admin, or an admin a member again. */
+export function changeClubRole(clubId, userId, role, actorId) {
+  if (!["admin", "member"].includes(role)) throw new DomainError(400, "Choose member or club admin.");
+  const m = getClubMembership(clubId, userId);
+  if (!m) throw new DomainError(404, "Not a member of this club.");
+  if (m.role === "owner") throw new DomainError(409, "The club owner's role can't be changed.");
+  if (userId === actorId) throw new DomainError(409, "You can't change your own role.");
+  db.prepare("UPDATE club_memberships SET role = ? WHERE club_id = ? AND user_id = ?").run(role, clubId, userId);
+  return { id: userId, role };
+}
+
 /** A new phone account joins, as a member, every club whose member list has its number. */
 export function joinClubsByPhone(userId, phone) {
   const clubs = db.prepare("SELECT DISTINCT club_id FROM club_roster WHERE phone = ?").all(phone);
@@ -132,6 +143,12 @@ export function registerClubAdminRoutes(app, { requireClubRole, requirePlatformA
   });
   app.delete("/api/clubs/:clubId/members/:userId", { preHandler: [app.authenticate, requireClubRole(["owner", "admin"])] }, async (req, reply) => {
     try { removeClubPerson(req.params.clubId, req.params.userId, req.user.sub); return { ok: true }; } catch (error) { return fail(reply, error); }
+  });
+  app.patch("/api/clubs/:clubId/members/:userId/role", {
+    preHandler: [app.authenticate, requireClubRole(["owner", "admin"])],
+    schema: { body: { type: "object", properties: { role: { type: "string", enum: ["member", "admin"] } }, required: ["role"] } }
+  }, async (req, reply) => {
+    try { return { member: changeClubRole(req.params.clubId, req.params.userId, req.body.role, req.user.sub) }; } catch (error) { return fail(reply, error); }
   });
   app.post("/api/clubs/:clubId/admins", {
     preHandler: [app.authenticate, requireClubRole(["owner", "admin"])],

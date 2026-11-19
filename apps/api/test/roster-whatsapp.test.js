@@ -37,6 +37,8 @@ test("connecting and choosing the group pulls its members; WhatsApp names fill t
   session.scan(); await settle();
   // WhatsApp shares (before PaceUp knows the group, so names wait in memory) a saved contact name and someone's own name from a group message.
   session.contacts([{ phone: "919876500001", saved_name: "Amit Daga" }, { lid: "123456789@lid", push_name: "🚴 Kavya" }, { phone: "919999999999", saved_name: "Not In Group" }]);
+  // The Super Admin links the club's groups (here, all the number's groups).
+  db.prepare("UPDATE whatsapp_connections SET allowed_groups_json = ? WHERE club_id = ?").run(JSON.stringify(session.groups.map((g) => g.jid)), club.clubId);
   const groups = (await call("GET", `/api/clubs/${club.clubId}/whatsapp`, { cookie: club.cookie })).json().whatsapp.groups;
   await call("PUT", `/api/clubs/${club.clubId}/whatsapp/group`, { cookie: club.cookie, payload: { jid: groups[0].jid } });
   await worker.tick();

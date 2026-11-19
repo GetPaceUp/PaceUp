@@ -42,6 +42,11 @@ export function PeoplePanel({ clubId, members, me, onChange }) {
     try { const d = await api(`/api/clubs/${clubId}/members/${m.id}/welcome`, { method: "POST" }); setResult({ w: d.whatsapp, name: m.name }); }
     catch (err) { setError(err.message); } finally { setBusy(""); }
   }
+  async function changeRole(m, role) {
+    setBusy(m.id); setError(""); setResult(null);
+    try { await api(`/api/clubs/${clubId}/members/${m.id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }); onChange(); }
+    catch (err) { setError(err.message); } finally { setBusy(""); }
+  }
   async function remove(m) {
     if (busy !== `confirm-${m.id}`) { setBusy(`confirm-${m.id}`); return; }
     setBusy(m.id); setError("");
@@ -72,6 +77,7 @@ export function PeoplePanel({ clubId, members, me, onChange }) {
         <div className="member-info"><strong>{m.name}</strong><small>{m.phone ? phoneText(m.phone) : m.email}</small></div>
         <span className="role-tag">{m.role}</span>
         {m.role !== "owner" && m.id !== me && <>
+          <button type="button" className="text-button" disabled={busy === m.id} onClick={() => changeRole(m, m.role === "admin" ? "member" : "admin")}>{m.role === "admin" ? "Make member" : "Make admin"}</button>
           {m.phone && <button type="button" className="text-button" disabled={busy === m.id} onClick={() => resend(m)}>Resend</button>}
           {!m.phone && m.role === "member" && <ResetLinkButton endpoint={`/api/clubs/${clubId}/members/${m.id}/password-reset`} name={m.name} />}
           <button type="button" className="text-button remove" disabled={busy === m.id} onClick={() => remove(m)}>{busy === `confirm-${m.id}` ? "Tap to confirm" : "Remove"}</button>

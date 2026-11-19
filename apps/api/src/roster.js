@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { db, DomainError } from "./db.js";
 import { listUnnamed, groupCount, contactById } from "./whatsapp/contacts.js";
-import { memberGroups, knownGroups } from "./whatsapp/outbox.js";
+import { memberGroups, clubGroups } from "./whatsapp/outbox.js";
 
 const nowIso = () => new Date().toISOString();
 export const nameKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -423,7 +423,7 @@ export function registerRosterRoutes(app, { requireClubRole }) {
   app.get(base, { schema: { params, querystring: { type: "object", properties: { q: { type: "string", maxLength: 60 } } } }, preHandler: pre },
     async (req) => {
       const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
-      const groups = memberGroups(conn).map((jid) => knownGroups(conn).find((g) => g.jid === jid)?.name || (jid === conn?.group_jid ? conn.group_name : null)).filter(Boolean);
+      const groups = memberGroups(conn).map((jid) => clubGroups(conn).find((g) => g.jid === jid)?.name || (jid === conn?.group_jid ? conn.group_name : null)).filter(Boolean);
       return {
         ...listRoster(req.params.clubId, req.query.q),
         unnamed: listUnnamed(req.params.clubId),
