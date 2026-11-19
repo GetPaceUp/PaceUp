@@ -10,7 +10,7 @@ import { pathToFileURL } from "node:url";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
-  createClubInvitation, findInvitation, acceptClubInvitation
+  createClubInvitation, findInvitation, acceptClubInvitation, registerUser
 } from "./db.js";
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -61,22 +61,41 @@ export async function buildApp(options = {}) {
     const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const password = typeof request.body?.password === "string" ? request.body.password : "";
     const clubName = typeof request.body?.clubName === "string" ? request.body.clubName.trim() : "";
+    const inviteToken = typeof request.body?.inviteToken === "string" ? request.body.inviteToken : "";
     const slug = makeSlug(clubName);
+
     if (name.length < 2 || name.length > 80) return reply.code(400).send({ error: "Enter your name (2–80 characters)." });
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return reply.code(400).send({ error: "Enter a valid email address." });
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) return reply.code(400).send({ error: "Enter a valid email address." });
     if (password.length < 10 || password.length > 128) return reply.code(400).send({ error: "Use a password between 10 and 128 characters." });
-    if (clubName.length < 2 || clubName.length > 80 || !slug) return reply.code(400).send({ error: "Enter a valid club name (2–80 characters)." });
+
+    let invitation = null;
+    if (inviteToken) {
+      if (inviteToken.length > 200) return reply.code(400).send({ error: "This invitation link is invalid." });
+      invitation = findInvitation(createHash("sha256").update(inviteToken).digest("hex"));
+      if (!invitation || invitation.accepted_at || new Date(invitation.expires_at).getTime() <= Date.now()) {
+        return reply.code(410).send({ error: "This invitation has expired or has already been used." });
+      }
+      if (email.toLowerCase() !== invitation.email.toLowerCase()) {
+        return reply.code(403).send({ error: "Register using the email address this invitation was sent to." });
+      }
+    } else if (clubName.length < 2 || clubName.length > 80 || !slug) {
+      return reply.code(400).send({ error: "Enter a valid club name (2–80 characters)." });
+    }
+
     try {
       const passwordHash = await bcrypt.hash(password, 12);
-      const result = registerAccount({
-        user: { id: randomUUID(), name, email, passwordHash },
-        club: { id: randomUUID(), name: clubName, slug },
-        membership: { id: randomUUID() }
-      });
-      setSession(reply, result.user);
-      return reply.code(201).send({ user: result.user, clubs: listClubsForUser(result.user.id) });
+      const userInput = { id: randomUUID(), name, email, passwordHash };
+      const user = invitation
+        ? registerUser(userInput)
+        : registerAccount({
+            user: userInput,
+            club: { id: randomUUID(), name: clubName, slug },
+            membership: { id: randomUUID() }
+          }).user;
+      setSession(reply, user);
+      return reply.code(201).send({ user, clubs: listClubsForUser(user.id) });
     } catch (error) {
-      if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return reply.code(409).send({ error: error.message.includes("users.email") ? "An account with this email already exists. Sign in instead." : "A club with a similar URL name already exists. Try another club name." });
+      if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return reply.code(409).send({ error: "An account with this email already exists. Sign in instead." });
       request.log.error(error);
       return reply.code(500).send({ error: "Could not create your account. Please try again." });
     }
