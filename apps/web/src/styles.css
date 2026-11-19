@@ -73,7 +73,7 @@ textarea:focus{border-color:#e47a51;box-shadow:0 0 0 3px rgba(228,122,81,.12)}
 /* Password reset */
 .member-row{flex-wrap:wrap}.member-row .reset-inline{display:inline-flex;flex-direction:column;align-items:flex-end;gap:4px}.reset-error{color:#a83327;font-size:11px;max-width:220px;text-align:right}
 .member-row .reset-result{flex-basis:100%;margin-top:4px}.reset-result .share-row{margin-top:8px}
-.platform-user-row span:last-child{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.platform-user-row .reset-result{flex-basis:100%}
+.platform-user-row>span:last-child{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.platform-user-row .reset-result{flex-basis:100%}
 .reset-card{max-width:460px;margin:48px auto;display:grid;gap:12px}.forgot-note{background:#f7f8f5;border-radius:8px;padding:12px 14px;margin:14px 0 0;font-size:13px}
 
 /* Release 2: activities, name picker, rider list */
@@ -130,3 +130,11 @@ label.check input { width: auto; margin: 0; }
 .group-add-pick{display:grid;gap:6px}.check-label{display:flex;gap:8px;align-items:center;font-weight:600}.check-label input{width:18px;height:18px}
 .head-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .member-info strong{overflow-wrap:anywhere}.member-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;padding-left:44px}.member-actions .text-button{padding:4px 0;font-size:13px}
+/* Super Admin console on phones: rows become cards, no side scroll */
+@media(max-width:600px){.platform-table{overflow-x:visible}.platform-row{min-width:0}.platform-header,.platform-user-header{display:none}
+.platform-club-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"name btn" "meta btn";gap:4px 12px}.platform-club-row>:nth-child(1){grid-area:name;font-size:14px;overflow-wrap:anywhere}.platform-club-row>:nth-child(2){grid-area:meta;color:#849087;overflow-wrap:anywhere}.platform-club-row>:nth-child(3){display:none}.platform-club-row>:nth-child(4){grid-area:btn}
+.platform-user-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"user role" "count count" "act act";gap:6px 12px}.platform-user-row>:nth-child(1){grid-area:user;font-size:14px;overflow-wrap:anywhere}.platform-user-row>:nth-child(2){grid-area:count;color:#849087}.platform-user-row>:nth-child(3){grid-area:role;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#67816d;background:#eff5ef;padding:5px 8px;border-radius:20px}.platform-user-row>:nth-child(4){grid-area:act}
+.platform-groups .cleanup-list label{align-items:flex-start}.platform-groups .cleanup-list span{min-width:0;overflow-wrap:anywhere}}
+.platform-mobile-count{display:none}@media(max-width:600px){.platform-mobile-count{display:inline}}
+@media(max-width:600px){.platform-stats{grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}.platform-stats .workspace{padding:12px;gap:4px}.platform-stats strong{font-size:22px}.platform-stats span{font-size:9px;letter-spacing:1px}}
+@media(max-width:600px){.platform-user-row .platform-mobile-count{display:inline}}
