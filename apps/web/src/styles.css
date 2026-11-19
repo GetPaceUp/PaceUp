@@ -58,3 +58,14 @@ textarea:focus{border-color:#e47a51;box-shadow:0 0 0 3px rgba(228,122,81,.12)}
 .admin-tools{display:grid;gap:10px;border-top:1px solid #edf0eb;padding-top:16px}.admin-tools h3{font:700 14px Manrope,sans-serif;margin:0}.admin-tools .text-button{justify-self:start;color:#a83327}
 .confirm-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13px}.draft-note{background:#f7f2e8;padding:10px 12px;border-radius:8px}
 @media(max-width:480px){.ride-card{margin:18px auto}.share-row{grid-template-columns:1fr}}
+
+/* WhatsApp */
+.wa-panel{margin-top:18px;display:grid;gap:12px}.wa-panel h3{margin:0}.wa-panel .panel-copy{margin:0}
+.wa-status{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;border-radius:10px;padding:10px 12px;overflow-wrap:anywhere}.wa-status i{width:9px;height:9px;border-radius:50%;background:currentColor;flex:none}
+.st-off{background:#f2f4ef;color:#6b786f}.st-wait{background:#fbf1dc;color:#8a5a00}.st-on{background:#e9f5eb;color:#2f6b3f}.st-bad{background:#fff1ef;color:#a83327}
+.wa-pair{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.wa-qr{width:220px;max-width:100%;border:1px solid #e3e7e0;border-radius:12px;background:#fff;padding:6px}
+.wa-howto{margin:0;padding-left:18px;font-size:13px;color:#56665b;display:grid;gap:4px;min-width:0;flex:1}
+.wa-toggle{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #edf0eb;font-size:14px;cursor:pointer}.wa-toggle small{display:block;color:#7a867e;font-size:12px}.wa-toggle input{width:20px;height:20px;flex:none;accent-color:#2f6b3f}
+.wa-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0}.wa-stats div{background:#f7f8f5;border-radius:10px;padding:10px}.wa-stats dt{font-size:11px;color:#7a867e;font-weight:700}.wa-stats dd{margin:2px 0 0;font:700 15px Manrope,sans-serif}
+.wa-off{justify-self:start;color:#a83327}
+@media(max-width:480px){.wa-stats{grid-template-columns:1fr}}

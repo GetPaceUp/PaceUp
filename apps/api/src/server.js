@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerRideRoutes } from "./rides.js";
+import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
@@ -132,6 +133,7 @@ export async function buildApp(options = {}) {
 
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
   registerRideRoutes(app, { requireClubRole, optionalUser });
+  registerWhatsAppRoutes(app, { requireClubRole });
 
   async function requirePlatformAdmin(request, reply) {
     if (getPlatformRole(request.user.sub) !== "super_admin") return reply.code(403).send({ error: "Platform owner access required." });

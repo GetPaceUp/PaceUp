@@ -1,0 +1,25 @@
+# WhatsApp worker: keeps each club's linked-device session and sends the outbox.
+# Install: sudo cp deploy/paceup-whatsapp.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now paceup-whatsapp
+[Unit]
+Description=PaceUp WhatsApp worker
+After=network-online.target paceup-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=amit
+Group=amit
+WorkingDirectory=/opt/paceup
+EnvironmentFile=/etc/paceup.env
+ExecStart=/usr/local/bin/node apps/api/src/whatsapp/worker.js
+Restart=always
+RestartSec=10
+# Linked-device sessions live in /var/lib/paceup/whatsapp/<club id>/
+ProtectSystem=strict
+ReadWritePaths=/var/lib/paceup
+PrivateTmp=true
+NoNewPrivileges=true
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target
