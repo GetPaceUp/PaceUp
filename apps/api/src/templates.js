@@ -3,7 +3,7 @@
 // it pre-fills the form (or a WhatsApp draft) and every field stays editable.
 import { randomUUID } from "node:crypto";
 import { db, DomainError } from "./db.js";
-import { CATEGORIES } from "./rides.js";
+import { CATEGORIES, checkGroup } from "./rides.js";
 
 const nowIso = () => new Date().toISOString();
 export const templateKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -32,6 +32,7 @@ export function saveTemplate(clubId, userId, { name, ...fields }) {
   const clean = String(name || "").trim().replace(/\s+/g, " ");
   if (clean.length < 2 || clean.length > 40) throw new DomainError(400, "Give the template a name (2 to 40 characters).");
   const data = cleanFields(fields);
+  if (data.wa_group_jid) checkGroup(clubId, data.wa_group_jid);
   if (!data.title && !data.meeting_point) throw new DomainError(400, "Add at least a title or meeting point to save as a template.");
   const now = nowIso();
   const existing = db.prepare("SELECT id FROM activity_templates WHERE club_id = ? AND name_key = ?").get(clubId, templateKey(clean));

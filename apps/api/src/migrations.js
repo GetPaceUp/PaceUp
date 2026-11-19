@@ -425,6 +425,26 @@ export const migrations = [
         ALTER TABLE rides ADD COLUMN wa_group_jid TEXT;
       `);
     }
+  },
+  {
+    id: 18,
+    name: "whatsapp_club_groups",
+    up(db) {
+      // The linked number may be someone's personal phone with dozens of unrelated groups.
+      // Only the Super Admin sees them all; club admins see only the groups listed here.
+      if (!hasColumn(db, "whatsapp_connections", "allowed_groups_json")) db.exec("ALTER TABLE whatsapp_connections ADD COLUMN allowed_groups_json TEXT");
+      // Keep what clubs already use working: the posting group, member-list groups, and groups activities or templates post to.
+      for (const c of db.prepare("SELECT club_id, group_jid, member_groups_json FROM whatsapp_connections").all()) {
+        const jids = new Set();
+        if (c.group_jid) jids.add(c.group_jid);
+        try { for (const j of JSON.parse(c.member_groups_json || "[]")) jids.add(j); } catch {}
+        for (const r of db.prepare("SELECT DISTINCT wa_group_jid AS j FROM rides WHERE club_id = ? AND wa_group_jid IS NOT NULL").all(c.club_id)) jids.add(r.j);
+        for (const r of db.prepare("SELECT fields FROM activity_templates WHERE club_id = ?").all(c.club_id)) {
+          try { const j = JSON.parse(r.fields)?.wa_group_jid; if (j) jids.add(j); } catch {}
+        }
+        db.prepare("UPDATE whatsapp_connections SET allowed_groups_json = ? WHERE club_id = ?").run(JSON.stringify([...jids]), c.club_id);
+      }
+    }
   }
 ];
 

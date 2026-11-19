@@ -141,7 +141,7 @@ export async function buildApp(options = {}) {
   registerRosterRoutes(app, { requireClubRole });
   registerTemplateRoutes(app, { requireClubRole });
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
-  registerWhatsAppRoutes(app, { requireClubRole, rateLimit: options.authRateLimit });
+  registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAdmin, rateLimit: options.authRateLimit });
 
   // ---- password reset (one-time links shared by an admin; no email needed)
   const sendDomain = (reply, error) => {

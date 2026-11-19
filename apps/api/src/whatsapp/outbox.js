@@ -16,18 +16,31 @@ export function getConnection(clubId) {
   return db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(clubId);
 }
 
+/**
+ * The groups the Super Admin linked to this club. The linked number may be a personal
+ * phone, so club admins never see or use any other group it is in.
+ */
+export function allowedGroupIds(conn) {
+  try { const list = JSON.parse(conn?.allowed_groups_json || "[]"); return Array.isArray(list) ? list : []; } catch { return []; }
+}
+export const isClubGroup = (conn, jid) => Boolean(jid) && allowedGroupIds(conn).includes(jid);
+
 /** The groups whose members make up the club's member list. Defaults to the posting group. */
 export function memberGroups(conn) {
-  try { const list = JSON.parse(conn?.member_groups_json || "null"); if (Array.isArray(list) && list.length) return list; } catch {}
-  return conn?.group_jid ? [conn.group_jid] : [];
+  let list = [];
+  try { const l = JSON.parse(conn?.member_groups_json || "null"); if (Array.isArray(l)) list = l; } catch {}
+  if (!list.length && conn?.group_jid) list = [conn.group_jid];
+  return list.filter((jid) => isClubGroup(conn, jid));
 }
-/** The WhatsApp groups this number is in: [{ jid, name, size }]. */
+/** Every WhatsApp group this number is in: [{ jid, name, size }]. Super Admin only. */
 export const knownGroups = (conn) => { try { return JSON.parse(conn?.groups_json || "[]"); } catch { return []; } };
+/** The number's groups that belong to this club: the only ones club admins see or post to. */
+export const clubGroups = (conn) => knownGroups(conn).filter((g) => isClubGroup(conn, g.jid));
 
 /** Posting is set up when a club is connected (or meant to be) and has chosen a group. */
 function postingConfigured(clubId) {
   const c = getConnection(clubId);
-  return Boolean(c && c.desired === "on" && c.group_jid);
+  return Boolean(c && c.desired === "on" && isClubGroup(c, c.group_jid));
 }
 
 function insert(row) {

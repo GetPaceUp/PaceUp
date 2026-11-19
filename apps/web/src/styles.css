@@ -123,3 +123,4 @@ label.check input { width: auto; margin: 0; }
 .cleanup-list span { display: flex; flex-direction: column; min-width: 0; }
 .cleanup-list s { color: #8a8a80; font-size: 0.85em; overflow-wrap: anywhere; }
 .cleanup-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.platform-club-row{grid-template-columns:1.5fr 1fr .6fr .7fr}.platform-club-row button{padding:8px 10px;font-size:11px}.platform-groups{padding:12px 4px 18px;border-bottom:1px solid #edf0eb}.platform-groups-search{width:100%;margin:6px 0}

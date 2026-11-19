@@ -6,7 +6,7 @@ import { join, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { db } from "../db.js";
 import { loadAdapter } from "./adapter.js";
-import { HOURLY_CAP, MAX_ATTEMPTS, memberGroups, knownGroups } from "./outbox.js";
+import { HOURLY_CAP, MAX_ATTEMPTS, memberGroups, clubGroups, isClubGroup } from "./outbox.js";
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
@@ -218,7 +218,7 @@ export class WhatsAppWorker {
       if (handled.has(item.club_id)) continue;
       const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(item.club_id);
       const entry = this.sessions.get(item.club_id);
-      if (!conn || conn.desired !== "on" || !conn.group_jid) { this.finish(item, "skipped", "WhatsApp posting is not set up for this club"); continue; }
+      if (!conn || conn.desired !== "on" || !isClubGroup(conn, conn.group_jid)) { this.finish(item, "skipped", "WhatsApp posting is not set up for this club"); continue; }
       if (!entry?.open) continue; // stays queued until the club is connected again
       const settingOff = { ride_published: !conn.post_new_ride, rider_list: !conn.post_rider_list, ride_updated: !conn.post_changes, ride_cancelled: !conn.post_changes }[item.kind];
       if (settingOff) { this.finish(item, "skipped", "turned off in club settings"); continue; }
@@ -236,7 +236,7 @@ export class WhatsAppWorker {
       if (built.skip) { this.finish(item, "skipped", built.skip); handled.delete(item.club_id); continue; }
       try {
         const own = item.ride_id && item.kind !== "test" ? db.prepare("SELECT wa_group_jid FROM rides WHERE id = ?").get(item.ride_id)?.wa_group_jid : null;
-        const target = own && knownGroups(conn).some((g) => g.jid === own) ? own : conn.group_jid;
+        const target = own && clubGroups(conn).some((g) => g.jid === own) ? own : conn.group_jid;
         await entry.session.sendText(target, built.text);
         db.prepare("UPDATE outbox SET status = 'sent', sent_at = ?, attempts = attempts + 1, payload = ?, last_error = NULL WHERE id = ?").run(iso(Date.now()), built.payload ?? null, item.id);
         const [lo, hi] = this.sendGapMs;

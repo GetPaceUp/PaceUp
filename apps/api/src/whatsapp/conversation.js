@@ -12,7 +12,7 @@ import { parseActivity, resolveAmPm, defaultTitle, zonedToUtc, titleFrom, bareAn
 import { phoneFromJid } from "./contacts.js";
 import { templateInText, listTemplates } from "../templates.js";
 import { rideLink } from "./messages.js";
-import { getConnection, knownGroups } from "./outbox.js";
+import { getConnection, clubGroups, isClubGroup } from "./outbox.js";
 
 const TZ = () => process.env.PACEUP_TIMEZONE || "Asia/Kolkata";
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
@@ -146,7 +146,7 @@ const helpText = (clubName) => {
   return `Hi! I can create ${clubName} activities for you. Send the details in one message, for example:\n\n"${EXAMPLE}"${tpl}\n\nI'll ask for anything missing and check with you before publishing.`;
 };
 
-const groupStillThere = (clubId, jid) => (jid && knownGroups(getConnection(clubId)).some((g) => g.jid === jid) ? jid : null);
+const groupStillThere = (clubId, jid) => (jid && clubGroups(getConnection(clubId)).some((g) => g.jid === jid) ? jid : null);
 
 function publishDraft(clubId, userId, draft) {
   const ride = createRide(clubId, userId, {
@@ -157,7 +157,7 @@ function publishDraft(clubId, userId, draft) {
   }, { actorType: "whatsapp" });
   dropDraft(clubId, userId);
   const conn = getConnection(clubId);
-  const autoPost = conn?.desired === "on" && conn.group_jid && conn.post_new_ride;
+  const autoPost = conn?.desired === "on" && isClubGroup(conn, conn.group_jid) && conn.post_new_ride;
   return [
     `✅ ${CATEGORY_LABEL[ride.category] || "Activity"} created!`,
     "",
@@ -165,7 +165,7 @@ function publishDraft(clubId, userId, draft) {
     "",
     `RSVP link: ${rideLink(ride)}`,
     "",
-    autoPost ? `I'll post it in ${knownGroups(conn).find((g) => g.jid === ride.wa_group_jid)?.name || conn.group_name || "the club group"} in a moment. You can also forward the link.` : "Forward this link to the group."
+    autoPost ? `I'll post it in ${clubGroups(conn).find((g) => g.jid === ride.wa_group_jid)?.name || conn.group_name || "the club group"} in a moment. You can also forward the link.` : "Forward this link to the group."
   ].join("\n");
 }
 
