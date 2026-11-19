@@ -93,7 +93,18 @@ export const baileysAdapter = {
       /** Who is in a group: [{ phone, lid }] (either may be missing). */
       async groupParticipants(jid) {
         const meta = await sock.groupMetadata(jid);
-        return meta.participants.map((p) => ({ phone: phoneFromJid(p.phoneNumber) || phoneFromJid(p.id), lid: lidFromJid(p.lid) || lidFromJid(p.id) }));
+        const people = meta.participants.map((p) => ({ phone: phoneFromJid(p.phoneNumber) || phoneFromJid(p.id), lid: lidFromJid(p.lid) || lidFromJid(p.id) }));
+        // Big groups and community announcement groups list members by private id (@lid) only.
+        // The linked phone already knows the number behind many of them: look it up.
+        const unknown = people.filter((p) => !p.phone && p.lid).map((p) => p.lid);
+        if (unknown.length) {
+          try {
+            const found = await sock.signalRepository?.lidMapping?.getPNsForLIDs?.(unknown);
+            const byLid = new Map((found || []).map((m) => [lidFromJid(m.lid), phoneFromJid(m.pn)]));
+            for (const p of people) if (!p.phone && byLid.get(p.lid)) p.phone = byLid.get(p.lid);
+          } catch { /* keep the private ids; names can still come from WhatsApp or an admin */ }
+        }
+        return people;
       },
       async listGroups() {
         const groups = await sock.groupFetchAllParticipating();
