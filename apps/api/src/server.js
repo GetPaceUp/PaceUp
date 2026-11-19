@@ -65,7 +65,7 @@ export async function buildApp(options = {}) {
     const slug = makeSlug(clubName);
 
     if (name.length < 2 || name.length > 80) return reply.code(400).send({ error: "Enter your name (2–80 characters)." });
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) return reply.code(400).send({ error: "Enter a valid email address." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return reply.code(400).send({ error: "Enter a valid email address." });
     if (password.length < 10 || password.length > 128) return reply.code(400).send({ error: "Use a password between 10 and 128 characters." });
 
     let invitation = null;
