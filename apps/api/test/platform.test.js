@@ -71,7 +71,12 @@ test("passwords, cookies and invitation tokens never appear in logs", async () =
   const token = new URL(invite.json().invitation.inviteUrl).pathname.split("/").at(-1);
   await logged.inject({ method: "POST", url: "/api/invitations/accept", headers: { cookie }, payload: { token } });
   await logged.inject({ method: "GET", url: "/api/auth/me", headers: { cookie } });
+  const member = await logged.inject({ method: "POST", url: "/api/auth/register", payload: { name: "Logged Member", email: "logged@example.com", password: "member-password-42", inviteToken: token } });
+  const resetRes = await logged.inject({ method: "POST", url: `/api/clubs/${reg.json().clubs[0].id}/members/${member.json().user.id}/password-reset`, headers: { cookie } });
+  const resetToken = new URL(resetRes.json().resetUrl).pathname.split("/").at(-1);
+  assert.equal((await logged.inject({ method: "POST", url: "/api/password-reset/check", payload: { token: resetToken } })).statusCode, 200);
   await logged.close();
+  assert.ok(!output.includes(resetToken), "reset token is not logged");
   assert.ok(output.length > 0, "logger produced output");
   for (const secret of [password, cookie.split("=")[1], token]) assert.ok(!output.includes(secret), "secret leaked into logs");
 });

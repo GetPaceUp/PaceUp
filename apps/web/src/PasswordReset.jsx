@@ -9,7 +9,7 @@ export function ResetPage({ token }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/password-reset/${encodeURIComponent(token)}`, { credentials: "include" })
+    fetch("/api/password-reset/check", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
       .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); setInfo(d); setState("ready"); })
       .catch((e) => { setError(e.message || "This reset link isn't valid."); setState("invalid"); });
   }, [token]);

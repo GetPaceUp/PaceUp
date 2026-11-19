@@ -30,7 +30,7 @@ test("a club admin resets a member: link works once, sets the password, ends old
   assert.equal(created.json().name, "Arjun Rao");
   const token = tokenOf(created);
 
-  const check = await call("GET", `/api/password-reset/${token}`);
+  const check = await call("POST", "/api/password-reset/check", { payload: { token } });
   assert.equal(check.statusCode, 200);
   assert.equal(check.json().email, "ar•••@example.com");
 
@@ -45,13 +45,13 @@ test("a club admin resets a member: link works once, sets the password, ends old
   assert.equal((await login("arjun@example.com", "brand-new-password-2")).statusCode, 200);
 
   assert.equal((await call("POST", "/api/password-reset", { payload: { token, password: "another-password-3" } })).statusCode, 410, "single use");
-  assert.equal((await call("GET", `/api/password-reset/${token}`)).statusCode, 410);
+  assert.equal((await call("POST", "/api/password-reset/check", { payload: { token } })).statusCode, 410);
 });
 
 test("expired links and superseded links don't work", async () => {
   const first = tokenOf(await reset(owner, owner, member));
   const second = tokenOf(await reset(owner, owner, member));
-  assert.equal((await call("GET", `/api/password-reset/${first}`)).statusCode, 410, "only the newest link works");
+  assert.equal((await call("POST", "/api/password-reset/check", { payload: { token: first } })).statusCode, 410, "only the newest link works");
   db.prepare("UPDATE password_resets SET expires_at = ? WHERE used_at IS NULL").run(new Date(Date.now() - 1000).toISOString());
   assert.equal((await call("POST", "/api/password-reset", { payload: { token: second, password: "brand-new-password-9" } })).statusCode, 410);
 });

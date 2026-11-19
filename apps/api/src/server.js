@@ -157,10 +157,11 @@ export async function buildApp(options = {}) {
     catch (error) { return sendDomain(reply, error); }
   });
   const tokenSchema = { type: "string", minLength: 20, maxLength: 200 };
-  app.get("/api/password-reset/:token", {
-    config: authLimit(30), schema: { params: { type: "object", properties: { token: tokenSchema }, required: ["token"] } }
+  // POST with the token in the body, so a live reset token never lands in request logs.
+  app.post("/api/password-reset/check", {
+    config: authLimit(30), schema: { body: { type: "object", properties: { token: tokenSchema }, required: ["token"] } }
   }, async (request, reply) => {
-    try { return checkPasswordReset(request.params.token); } catch (error) { return sendDomain(reply, error); }
+    try { return checkPasswordReset(request.body.token); } catch (error) { return sendDomain(reply, error); }
   });
   app.post("/api/password-reset", {
     config: authLimit(10),
@@ -253,7 +254,8 @@ export async function buildApp(options = {}) {
     if (!email || !password) return reply.code(400).send({ error: "Enter your email and password." });
     const user = findUserByEmail(email);
     const valid = user ? await bcrypt.compare(password, user.password_hash) : false;
-    if (!valid) return reply.code(401).send({ error: "Email or password is incorrect." });
+    // A password reset may have landed while bcrypt ran: only the current password signs in.
+    if (!valid || findUserByEmail(email)?.password_hash !== user.password_hash) return reply.code(401).send({ error: "Email or password is incorrect." });
     const safeUser = getUserById(user.id);
     setSession(reply, safeUser);
     return { user: safeUser, clubs: listClubsForUser(user.id) };
