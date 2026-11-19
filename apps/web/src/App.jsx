@@ -1,10 +1,13 @@
 import SuperAdmin from "./SuperAdmin.jsx";
+import { ClubRides, RidePage } from "./Rides.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "", clubName: "" };
 
 export default function App() {
   if (window.location.pathname === "/superadmin") return <SuperAdmin />;
+  const rideMatch = window.location.pathname.match(/^\/r\/([A-Za-z0-9_-]{6,16})$/);
+  if (rideMatch) return <RidePage code={rideMatch[1]} />;
   const [user, setUser] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [mode, setMode] = useState("register");
@@ -26,6 +29,7 @@ export default function App() {
     try {
       const response = await fetch("/api/auth/me", { credentials: "include" });
       if (response.ok) {
+        if (returnToNext()) return;
         const data = await response.json();
         setUser(data.user);
         setClubs(data.clubs);
@@ -37,7 +41,14 @@ export default function App() {
       setLoading(false);
     }
   }
+  // After signing in from a ride link, go back to that ride.
+  function returnToNext() {
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next && /^\/r\/[A-Za-z0-9_-]{6,16}$/.test(next)) { window.location.href = next; return true; }
+    return false;
+  }
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("next")) setMode("login");
     const match = window.location.pathname.match(/^\/invite\/([^/]+)$/);
     if (match) setInviteToken(match[1]);
     loadSession();
@@ -69,6 +80,7 @@ export default function App() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Something went wrong.");
+      if (returnToNext()) return;
       setUser(data.user); setClubs(data.clubs); setSelectedClub(data.clubs[0]?.id || ""); setForm(emptyForm);
       if (mode === "register" && inviteToken) {
         // Registering through an invitation joins the club in the same step.
@@ -177,6 +189,7 @@ export default function App() {
           </section>
           {error && <p className="error" role="alert">{error}</p>}
           {notice && <p className="success-note" role="status">{notice}</p>}
+          {clubs.find((club) => club.id === selectedClub) && <ClubRides club={clubs.find((club) => club.id === selectedClub)} />}
         </section>
       )}
       <footer><span>PACEUP</span><span>Built for every kind of active community.</span></footer>

@@ -97,6 +97,43 @@ export const migrations = [
         db.exec("ALTER TABLE club_invitations ADD COLUMN accepted_by TEXT REFERENCES users(id) ON DELETE SET NULL");
       }
     }
+  },
+  {
+    id: 6,
+    name: "rides_and_rsvps",
+    up(db) {
+      db.exec(`
+        CREATE TABLE rides (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          share_code TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          starts_at TEXT NOT NULL,
+          meeting_point TEXT NOT NULL,
+          map_url TEXT,
+          distance_km REAL,
+          pace TEXT,
+          notes TEXT,
+          capacity INTEGER CHECK (capacity IS NULL OR capacity > 0),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'cancelled')),
+          organiser_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_rides_club_start ON rides(club_id, starts_at);
+        CREATE TABLE ride_rsvps (
+          id TEXT PRIMARY KEY,
+          ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          status TEXT NOT NULL CHECK (status IN ('going', 'cancelled')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (ride_id, user_id)
+        );
+        CREATE INDEX idx_rsvps_ride_status ON ride_rsvps(ride_id, status);
+      `);
+    }
   }
 ];
 

@@ -9,6 +9,7 @@ import rateLimit from "@fastify/rate-limit";
 import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { registerRideRoutes } from "./rides.js";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
@@ -120,7 +121,17 @@ export async function buildApp(options = {}) {
     };
   }
 
+  /** Identifies the signed-in user when there is one, without requiring it. */
+  async function optionalUser(request) {
+    request.userId = null;
+    try {
+      await request.jwtVerify();
+      if (request.user.sid && getActiveSession(request.user.sid, request.user.sub)) request.userId = request.user.sub;
+    } catch { /* visitor */ }
+  }
+
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
+  registerRideRoutes(app, { requireClubRole, optionalUser });
 
   async function requirePlatformAdmin(request, reply) {
     if (getPlatformRole(request.user.sub) !== "super_admin") return reply.code(403).send({ error: "Platform owner access required." });
