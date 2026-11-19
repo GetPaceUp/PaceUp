@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registerRideRoutes } from "./rides.js";
+import { registerRosterRoutes } from "./roster.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
@@ -134,6 +135,7 @@ export async function buildApp(options = {}) {
 
   app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
+  registerRosterRoutes(app, { requireClubRole });
   registerWhatsAppRoutes(app, { requireClubRole, rateLimit: options.authRateLimit });
 
   // ---- password reset (one-time links shared by an admin; no email needed)

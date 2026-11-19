@@ -7,7 +7,7 @@ const quiet = pino({ level: process.env.WHATSAPP_LOG_LEVEL || "warn" });
 
 export const baileysAdapter = {
   name: "baileys",
-  async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {} }) {
+  async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {} }) {
     mkdirSync(authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     let version;
@@ -22,6 +22,20 @@ export const baileysAdapter = {
     sock.ev.on("creds.update", saveCreds);
     // Joined or created a group, renamed one, or membership changed: re-read the list.
     for (const ev of ["groups.upsert", "groups.update", "group-participants.update"]) sock.ev.on(ev, () => onGroupsChanged());
+    // Direct text messages to the club number (admins creating activities).
+    // Only live messages: history synced on reconnect arrives as type "append".
+    sock.ev.on("messages.upsert", ({ messages, type }) => {
+      if (type !== "notify") return;
+      for (const m of messages) {
+        const jid = m.key?.remoteJid || "";
+        if (m.key?.fromMe || !/@(s\.whatsapp\.net|lid)$/.test(jid)) continue; // skip groups, status, channels
+        const ts = Number(m.messageTimestamp || 0) * 1000;
+        if (ts && Date.now() - ts > 10 * 60 * 1000) continue;
+        const inner = m.message?.ephemeralMessage?.message || m.message?.viewOnceMessage?.message || m.message;
+        const text = inner?.conversation || inner?.extendedTextMessage?.text;
+        if (text) onMessage({ id: m.key.id, from: jid, fromAlt: m.key.remoteJidAlt || null, text });
+      }
+    });
     sock.ev.on("connection.update", (update) => {
       if (update.qr) onQr(update.qr);
       if (update.connection === "open") {

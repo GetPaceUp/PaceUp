@@ -77,20 +77,20 @@ test("activity lifecycle: draft, publish, edit, unpublish, cancel, with an audit
   assert.equal(cancelled.json().ride.history[0].actor_name, "Priya Sharma");
 });
 
-test("public page: anyone with the link sees details and short names, admins see full names", async () => {
+test("public page: anyone with the link sees details and who's going; admins also see who is listed", async () => {
   const ride = await publish({ capacity: null });
   await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: arjun.cookie, payload: { status: "going" } });
   await phone().rsvp(ride.code, { status: "going", name: "Rahul Verma" });
 
   const visitor = (await call("GET", `/api/r/${ride.code}`)).json().ride;
   assert.equal(visitor.notes, "Lights mandatory");
-  assert.deepEqual(visitor.participants.map((p) => p.name), ["Arjun R.", "Rahul V."]);
+  assert.deepEqual(visitor.participants.map((p) => p.name), ["Arjun Rao", "Rahul Verma"]);
   assert.equal(visitor.participants[0].id, undefined, "no ids for the public");
   assert.equal(visitor.history, undefined);
   assert.equal(visitor.organiser.name, "Priya S.");
 
   const admin = (await call("GET", `/api/r/${ride.code}`, { cookie: owner.cookie })).json().ride;
-  assert.deepEqual(admin.participants.map((p) => [p.name, p.member]), [["Arjun Rao", true], ["Rahul Verma", false]]);
+  assert.deepEqual(admin.participants.map((p) => [p.name, p.kind]), [["Arjun Rao", "member"], ["Rahul Verma", "guest"]]);
 });
 
 test("members RSVP with one tap: no duplicates, change of mind, capacity", async () => {
@@ -148,11 +148,11 @@ test("guests RSVP by name without an account, and only their own phone can chang
   assert.equal((await rahul.rsvp(code, { status: "going", name: "Rahul Verma" })).json().ride.going_count, 1, "can rejoin");
 });
 
-test("directory suggestions: club members only, short names, and picking one never needs a login", async () => {
+test("signed-up members are suggested too; picking one never needs a login", async () => {
   const { code } = await publish({ capacity: null });
-  const names = async (q) => (await call("GET", `/api/r/${code}/members?q=${encodeURIComponent(q)}`)).json().members;
-  assert.deepEqual((await names("me")).map((m) => m.name), ["Meera I."]);
-  assert.deepEqual((await names("rao")).map((m) => m.name), ["Arjun R."], "matches surnames too");
+  const names = async (q) => (await call("GET", `/api/r/${code}/names?q=${encodeURIComponent(q)}`)).json().names;
+  assert.deepEqual((await names("me")).map((m) => m.name), ["Meera Iyer"]);
+  assert.deepEqual((await names("rao")).map((m) => m.name), ["Arjun Rao"], "matches surnames too");
   assert.deepEqual(await names("o"), [], "needs two letters");
   assert.deepEqual(await names("other"), [], "never suggests another club's members");
   assert.deepEqual(await names("%%"), []);
@@ -160,7 +160,7 @@ test("directory suggestions: club members only, short names, and picking one nev
   const p = phone();
   const meeraId = (await names("meera"))[0].id;
   const picked = await p.rsvp(code, { status: "going", member_id: meeraId });
-  assert.equal(picked.json().ride.my_rsvp.member, true);
+  assert.equal(picked.json().ride.my_rsvp.listed, true);
   // Meera herself, signed in, sees she's in, and can drop out.
   assert.equal((await call("GET", `/api/r/${code}`, { cookie: meera.cookie })).json().ride.my_rsvp.name, "Meera Iyer");
   // Someone else can't pick Meera again.

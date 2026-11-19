@@ -8,6 +8,7 @@ import { db } from "../db.js";
 import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS } from "./outbox.js";
 import { participants } from "../rides.js";
+import { handleIncoming } from "./conversation.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -61,6 +62,7 @@ export class WhatsAppWorker {
           this.log.info?.(`[whatsapp] club ${clubId} connected`);
           await this.refreshGroups(clubId);
         },
+        onMessage: (msg) => this.onMessage(clubId, msg),
         // WhatsApp told us the number's groups changed: refetch on the next tick.
         onGroupsChanged: () => { entry.groupsAt = 0; },
         onClose: ({ loggedOut, restartRequired, error }) => {
@@ -82,6 +84,20 @@ export class WhatsAppWorker {
       this.sessions.set(clubId, { open: false, retryAt: Date.now() + 30000, retries: entry.retries + 1, placeholder: true });
       this.setConn(clubId, { status: "error", last_error: String(error.message || error) });
     }
+  }
+
+  /** An admin chatting with the club number to create an activity. Replies go straight back to them. */
+  async onMessage(clubId, msg) {
+    let reply;
+    try { reply = handleIncoming(clubId, msg); }
+    catch (error) {
+      this.log.error?.(`[whatsapp] could not handle a message for ${clubId}: ${error.stack || error}`);
+      reply = "Sorry, something went wrong on our side. Nothing was published. Please try again in a minute.";
+    }
+    if (!reply) return;
+    const entry = this.sessions.get(clubId);
+    try { await entry?.session?.sendText(msg.from, reply); }
+    catch (error) { this.log.warn?.(`[whatsapp] could not reply to an admin for ${clubId}: ${error.message}`); }
   }
 
   async refreshGroups(clubId) {
@@ -141,8 +157,8 @@ export class WhatsAppWorker {
     if (new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "ride already started" };
     if (item.kind === "ride_published") return { text: ridePublishedText(ride) };
     if (item.kind === "ride_updated") return { text: rideUpdatedText(ride) };
-    // Members keep their user id as the key (as in posts made before guest RSVPs), guests their RSVP id.
-    const riders = participants(ride.id).map((p) => ({ id: p.user_id || p.id, user_id: p.user_id, name: p.name }));
+    // Stable key per person for the "new"/"dropped out" diff: user id, roster id, or the RSVP id for a guest.
+    const riders = participants(ride.id).map((p) => ({ id: p.user_id || p.roster_id || p.id, user_id: p.user_id, name: p.name }));
     const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent' ORDER BY sent_at DESC LIMIT 1").get(ride.id);
     const previous = prevRow?.payload ? JSON.parse(prevRow.payload).riders : null;
     if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id)) return { skip: "list unchanged since last post" };

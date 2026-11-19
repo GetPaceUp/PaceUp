@@ -210,7 +210,7 @@ export const migrations = [
   },
   {
     id: 10,
-    name: "guest_rsvps_and_categories",
+    name: "roster_guest_rsvps_and_categories",
     up(db) {
       if (!hasColumn(db, "rides", "category")) {
         db.exec("ALTER TABLE rides ADD COLUMN category TEXT NOT NULL DEFAULT 'cycling' CHECK (category IN ('cycling', 'running', 'hiking', 'triathlon', 'other'))");
@@ -219,10 +219,25 @@ export const migrations = [
       // (user_id) or to a guest who typed a name. device_hash identifies the phone
       // that made it, so only that phone (or the signed-in member) can change it.
       db.exec(`
+        -- The club's list of people (uploaded from Excel/CSV), for picking your name when you RSVP.
+        -- Riders are not accounts: they never sign in.
+        CREATE TABLE club_roster (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          name_key TEXT NOT NULL,
+          phone TEXT,
+          source TEXT NOT NULL DEFAULT 'upload' CHECK (source IN ('upload', 'manual', 'whatsapp')),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (club_id, name_key)
+        );
+        CREATE INDEX idx_roster_club_phone ON club_roster(club_id, phone);
         CREATE TABLE ride_rsvps_v2 (
           id TEXT PRIMARY KEY,
           ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
           user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+          roster_id TEXT REFERENCES club_roster(id) ON DELETE SET NULL,
           participant_name TEXT NOT NULL,
           device_hash TEXT,
           status TEXT NOT NULL CHECK (status IN ('going', 'cancelled')),
@@ -236,6 +251,7 @@ export const migrations = [
         ALTER TABLE ride_rsvps_v2 RENAME TO ride_rsvps;
         CREATE INDEX idx_rsvps_ride_status ON ride_rsvps(ride_id, status);
         CREATE UNIQUE INDEX idx_rsvps_ride_user ON ride_rsvps(ride_id, user_id) WHERE user_id IS NOT NULL;
+        CREATE UNIQUE INDEX idx_rsvps_ride_roster ON ride_rsvps(ride_id, roster_id) WHERE roster_id IS NOT NULL;
         CREATE UNIQUE INDEX idx_rsvps_ride_device ON ride_rsvps(ride_id, device_hash) WHERE device_hash IS NOT NULL;
       `);
     }
