@@ -411,9 +411,24 @@ export function registerRosterRoutes(app, { requireClubRole }) {
     catch (error) { return domain(reply, error); }
   });
 
+  // Phone books are read in the browser and arrive as name + numbers only (photos and
+  // everything else in the file never leave the phone). Unmatched contacts are discarded.
+  app.post(`${base}/phonebook`, {
+    bodyLimit: 12 * 1024 * 1024,
+    schema: { params, body: { type: "object", properties: { contacts: { type: "array", maxItems: 100000, items: { type: "object", properties: {
+      name: { type: "string", maxLength: 200 }, phones: { type: "array", maxItems: 20, items: { type: "string", maxLength: 40 } } }, required: ["name", "phones"] } } }, required: ["contacts"] } },
+    preHandler: pre
+  }, async (req, reply) => {
+    try {
+      const contacts = req.body.contacts.map((c) => ({ name: cleanName(c.name), phones: c.phones.map(cleanPhone).filter(Boolean) })).filter((c) => c.phones.length);
+      if (!contacts.length) return reply.code(400).send({ error: "No contacts with phone numbers found in that file." });
+      return { mode: "phonebook", ...namesFromPhoneBook(req.params.clubId, contacts) };
+    } catch (error) { return domain(reply, error); }
+  });
+
   app.post(`${base}/import`, {
-    bodyLimit: 16 * 1024 * 1024,
-    schema: { params, body: { type: "object", properties: { filename: { type: "string", maxLength: 200 }, data: { type: "string", maxLength: 16 * 1024 * 1024 } }, required: ["filename", "data"] } },
+    bodyLimit: 48 * 1024 * 1024,
+    schema: { params, body: { type: "object", properties: { filename: { type: "string", maxLength: 200 }, data: { type: "string", maxLength: 48 * 1024 * 1024 } }, required: ["filename", "data"] } },
     preHandler: pre
   }, async (req, reply) => {
     try {

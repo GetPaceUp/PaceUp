@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./Rides.jsx";
+import { readVcf } from "./phonebook.js";
 
 const toBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -69,8 +70,16 @@ export function RosterPanel({ clubId }) {
   }
   const upload = (file) => file && run(async () => {
     try {
-      if (file.size > 12 * 1024 * 1024) throw new Error("That file is over 12 MB.");
-      const r = await api(`${base}/import`, { method: "POST", body: JSON.stringify({ filename: file.name, data: await toBase64(file) }) });
+      let r;
+      if (/\.vcf$/i.test(file.name) || /vcard/i.test(file.type)) {
+        // Read on the phone: only names and numbers are sent, never photos or other details.
+        const contacts = readVcf(await file.text());
+        if (!contacts.length) throw new Error("No contacts with phone numbers found in that file.");
+        r = await api(`${base}/phonebook`, { method: "POST", body: JSON.stringify({ contacts }) });
+      } else {
+        if (file.size > 30 * 1024 * 1024) throw new Error("That file is over 30 MB. Export it as .vcf or CSV instead.");
+        r = await api(`${base}/import`, { method: "POST", body: JSON.stringify({ filename: file.name, data: await toBase64(file) }) });
+      }
       setNotice(r.mode === "phonebook"
         ? `${r.named} of ${r.group_members} group members now have names${r.unnamed ? `, ${r.unnamed} still unnamed` : ""}. ${r.added + r.renamed} names came from your phone book. The other ${r.contacts - r.matched} contacts weren't in the group and were not saved.${r.clashes.length ? ` Check these duplicates: ${r.clashes.slice(0, 5).join(", ")}.` : ""}`
         : `Read ${r.read} ${r.read === 1 ? "name" : "names"}: ${r.added} added, ${r.updated} updated, ${r.unchanged} already there.`);
