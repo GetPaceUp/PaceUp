@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { rmSync, mkdtempSync } from "node:fs";
@@ -11,6 +12,7 @@ const { db } = await import("../src/db.js");
 const { WhatsAppWorker } = await import("../src/whatsapp/worker.js");
 const { fakeAdapter, fakeSessions } = await import("../src/whatsapp/fake-adapter.js");
 const { readVcf } = await import("../src/roster.js");
+const ph = (n) => "98" + String([...n.toLowerCase().replace(/\s+/g, " ").trim()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1e8, 7)).padStart(8, "0");
 const app = await buildApp({ logger: false, authRateLimit: 1000, publicRateLimit: 1000 });
 const { call, registerOwner } = makeClient(app);
 const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
@@ -62,8 +64,9 @@ test("a phone-book export names group members and discards everyone else", async
   assert.deepEqual({ contacts: out.contacts, matched: out.matched, added: out.added, renamed: out.renamed, named: out.named, unnamed: out.unnamed, group: out.group_members },
     { contacts: 5, matched: 4, added: 3, renamed: 1, named: 5, unnamed: 0, group: 5 });
   const names = (await roster()).people.map((p) => p.name);
-  assert.deepEqual(names.sort(), ["Amit D (cycling)", "Amit Kumar", "Kavya", "Priya Sharma", "अमित"].sort(), "phone-book name replaces the WhatsApp-only name");
+  assert.deepEqual(names.sort(), ["Amit D", "Amit Kumar", "Kavya", "Priya Sharma", "अमित"].sort(), "phone-book name replaces the WhatsApp-only name");
   assert.ok(!names.includes("Plumber Raju"), "contacts outside the group are not stored");
+  assert.equal(db.prepare("SELECT contact_name FROM club_roster WHERE name = 'Amit D'").get().contact_name, "Amit D (cycling)", "the phone-book name is kept, members see the tidy one");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE name LIKE '%Raju%'").get().n, 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919000000000'").get().n, 0);
 });
@@ -83,8 +86,29 @@ test("phone books read in the browser arrive as names and numbers only", async (
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919000011111'").get().n, 0);
 });
 
+test("names imported before the tidy-up get a preview, and only ticked ones change", async () => {
+  const now = new Date().toISOString();
+  const add = (name, phone) => db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'upload', ?, ?)")
+    .run(crypto.randomUUID(), club.clubId, name, name.toLowerCase(), phone, now, now);
+  add("Aneesh Saraiya Cycling Sector 65", "919910678100");
+  add("Ankit Manocha Cycling Nirvana", "918762544321");
+  add("Kavya Cycling", "918762544999"); // tidies to "Kavya", which is already on the list
+  const base = `/api/clubs/${club.clubId}/roster/cleanup`;
+  const preview = (await call("GET", base, { cookie: club.cookie })).json().people;
+  const byName = Object.fromEntries(preview.map((p) => [p.name, p]));
+  assert.equal(byName["Aneesh Saraiya Cycling Sector 65"].suggested, "Aneesh Saraiya");
+  assert.equal(byName["Ankit Manocha Cycling Nirvana"].suggested, "Ankit Manocha");
+  assert.ok(!preview.some((p) => p.name === "Priya Sharma"), "clean names aren't listed");
+  const res = (await call("POST", base, { cookie: club.cookie, payload: { ids: [byName["Aneesh Saraiya Cycling Sector 65"].id, byName["Kavya Cycling"].id] } })).json();
+  assert.deepEqual(res, { applied: 1, skipped: ["Kavya"] });
+  const row = db.prepare("SELECT name, contact_name FROM club_roster WHERE phone = '919910678100'").get();
+  assert.deepEqual(row, { name: "Aneesh Saraiya", contact_name: "Aneesh Saraiya Cycling Sector 65" });
+  assert.equal(db.prepare("SELECT name FROM club_roster WHERE phone = '918762544321'").get().name, "Ankit Manocha Cycling Nirvana", "unticked stays as it was");
+  db.prepare("DELETE FROM club_roster WHERE phone IN ('919910678100', '918762544321', '918762544999')").run();
+});
+
 test("admins fix names; a later sync never overwrites them", async () => {
-  const amit = (await roster()).people.find((p) => p.name === "Amit D (cycling)");
+  const amit = (await roster()).people.find((p) => p.name === "Amit D");
   assert.equal((await call("PATCH", `/api/clubs/${club.clubId}/roster/${amit.id}`, { cookie: club.cookie, payload: { name: "Amit Kumar" } })).statusCode, 409, "names stay unique");
   assert.equal((await call("PATCH", `/api/clubs/${club.clubId}/roster/${amit.id}`, { cookie: club.cookie, payload: { name: "Amit Daga" } })).statusCode, 200);
   fakeSessions.get(club.clubId).contacts([{ phone: "919876500001", saved_name: "Someone Else" }]);
@@ -111,7 +135,7 @@ test("the WhatsApp rider list is still right for roster picks and guests", async
   const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: { title: "Sunday ride", starts_at: new Date(Date.now() + 86400000).toISOString(), meeting_point: "Tulip Chowk", status: "published" } })).json().ride;
   const kavya = (await call("GET", `/api/r/${ride.code}/names?q=kav`)).json().names[0];
   await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: kavya.id } });
-  await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Guest Rider" } });
+  await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Guest Rider", phone: ph("Guest Rider") } });
   db.prepare("UPDATE outbox SET not_before = ? WHERE status = 'pending'").run(new Date(Date.now() - 1000).toISOString());
   const { sent } = await import("../src/whatsapp/fake-adapter.js");
   await worker.tick(); await settle(); await worker.tick();
@@ -121,3 +145,24 @@ test("the WhatsApp rider list is still right for roster picks and guests", async
 });
 
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
+
+test("the member list can come from several groups, like a master group that has everyone", async () => {
+  const session = fakeSessions.get(club.clubId);
+  const groups = (await call("GET", `/api/clubs/${club.clubId}/whatsapp`, { cookie: club.cookie })).json().whatsapp.groups;
+  const master = groups[1];
+  session.groupMembers[master.jid] = [{ phone: "919876500001" }, { phone: "919876511111" }, { phone: "919876522222" }];
+  assert.equal((await call("PUT", `/api/clubs/${club.clubId}/whatsapp/member-groups`, { cookie: club.cookie, payload: { jids: ["nope@g.us"] } })).statusCode, 400);
+  const res = await call("PUT", `/api/clubs/${club.clubId}/whatsapp/member-groups`, { cookie: club.cookie, payload: { jids: [groups[0].jid, master.jid] } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json().whatsapp.member_groups.map((g) => g.name), [groups[0].name, master.name]);
+  await new Promise((r) => setTimeout(r, 5));
+  await worker.tick();
+  const before = (await roster()).whatsapp.group_members;
+  // Phone book now matches people who are only in the master group; the shared person counts once.
+  const out = (await call("POST", `/api/clubs/${club.clubId}/roster/phonebook`, { cookie: club.cookie, payload: { contacts: [{ name: "Explorer One Cycling Sector 9", phones: ["98765 11111"] }, { name: "Explorer Two", phones: ["9876522222"] }] } })).json();
+  assert.equal(out.matched, 2);
+  assert.ok(before >= 2 && out.group_members === before);
+  const names = (await roster()).people.map((p) => p.name);
+  assert.ok(names.includes("Explorer One") && names.includes("Explorer Two"));
+  assert.match((await roster()).whatsapp.group, / \+ /, "both groups shown as the source");
+});

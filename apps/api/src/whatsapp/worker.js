@@ -6,7 +6,7 @@ import { join, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { db } from "../db.js";
 import { loadAdapter } from "./adapter.js";
-import { HOURLY_CAP, MAX_ATTEMPTS } from "./outbox.js";
+import { HOURLY_CAP, MAX_ATTEMPTS, memberGroups, knownGroups } from "./outbox.js";
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
@@ -115,13 +115,23 @@ export class WhatsAppWorker {
 
   /** Keeps the roster filled from the club group: participant list every 30 min or on request, new names as they arrive. */
   async syncRoster(conn, entry) {
-    if (!conn.group_jid) return;
+    const groups = memberGroups(conn);
+    if (!groups.length) return;
+    const key = groups.join(",");
     const asked = conn.roster_sync_wanted_at && new Date(conn.roster_sync_wanted_at).getTime() > (entry.rosterAt || 0);
     try {
-      if (asked || entry.rosterGroup !== conn.group_jid || Date.now() - (entry.rosterAt || 0) > ROSTER_REFRESH_MS) {
+      if (asked || entry.rosterGroup !== key || Date.now() - (entry.rosterAt || 0) > ROSTER_REFRESH_MS) {
         entry.rosterAt = Date.now();
-        entry.rosterGroup = conn.group_jid;
-        const members = await entry.session.groupParticipants(conn.group_jid);
+        entry.rosterGroup = key;
+        // Everyone in any of the member groups, once each (the same person is often in several groups).
+        const seen = new Set(), members = [];
+        for (const jid of groups) {
+          for (const m of await entry.session.groupParticipants(jid)) {
+            const id = m.phone || m.lid;
+            if (!id || seen.has(id)) continue;
+            seen.add(id); members.push(m);
+          }
+        }
         setGroupParticipants(conn.club_id, members.map((m) => ({ ...(entry.names?.get(m.phone) || entry.names?.get(m.lid) || {}), ...m })));
         entry.rosterDirty = true;
       }
@@ -225,7 +235,9 @@ export class WhatsAppWorker {
       const built = this.buildText(item);
       if (built.skip) { this.finish(item, "skipped", built.skip); handled.delete(item.club_id); continue; }
       try {
-        await entry.session.sendText(conn.group_jid, built.text);
+        const own = item.ride_id && item.kind !== "test" ? db.prepare("SELECT wa_group_jid FROM rides WHERE id = ?").get(item.ride_id)?.wa_group_jid : null;
+        const target = own && knownGroups(conn).some((g) => g.jid === own) ? own : conn.group_jid;
+        await entry.session.sendText(target, built.text);
         db.prepare("UPDATE outbox SET status = 'sent', sent_at = ?, attempts = attempts + 1, payload = ?, last_error = NULL WHERE id = ?").run(iso(Date.now()), built.payload ?? null, item.id);
         const [lo, hi] = this.sendGapMs;
         this.nextSendAt.set(item.club_id, Date.now() + lo + Math.random() * (hi - lo));

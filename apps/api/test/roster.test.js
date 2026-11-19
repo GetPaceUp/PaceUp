@@ -7,6 +7,7 @@ const { tempDir } = useTempDatabase();
 const { buildApp } = await import("../src/server.js");
 const { db } = await import("../src/db.js");
 const { readCsv, peopleFromRows } = await import("../src/roster.js");
+const ph = (n) => "98" + String([...n.toLowerCase().replace(/\s+/g, " ").trim()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1e8, 7)).padStart(8, "0");
 const app = await buildApp({ logger: false, authRateLimit: 1000, publicRateLimit: 1000 });
 const { call, registerOwner } = makeClient(app);
 
@@ -59,9 +60,14 @@ test("bad files get a clear error; only admins of that club can manage the roste
 });
 
 test("add and remove one person", async () => {
-  const added = await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "neha joshi" } });
+  const added = await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "neha joshi", phone: "98111 00001" } });
   assert.equal(added.statusCode, 409, "already there from the upload");
-  assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh", phone: "" } })).statusCode, 201);
+  assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh" } })).statusCode, 400, "a mobile number is required");
+  assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh", phone: "12" } })).statusCode, 400);
+  assert.equal((await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Singh", phone: "98111 00077" } })).statusCode, 201);
+  const dup = await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Kabir Two", phone: "+91 98111-00077" } });
+  assert.equal(dup.statusCode, 409);
+  assert.match(dup.json().error, /already on the list as Kabir Singh/);
   const kabir = (await roster(owner, "kabir")).people[0];
   assert.equal((await call("DELETE", `/api/clubs/${owner.clubId}/roster/${kabir.id}`, { cookie: other.cookie })).statusCode, 404);
   assert.equal((await call("DELETE", `/api/clubs/${owner.clubId}/roster/${kabir.id}`, { cookie: owner.cookie })).statusCode, 200);
@@ -84,9 +90,9 @@ test("the rider flow: tap I'm in, type Amit, pick Amit Daga, done. No sign-in.",
 
   // Someone else can't pick Amit Daga again, or type the same name as a guest.
   assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: amits[0].id } })).statusCode, 409);
-  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "amit daga" } })).statusCode, 409);
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "amit daga", phone: ph("amit daga") } })).statusCode, 409);
   // Another club's roster entry can't be used here.
-  await call("POST", `/api/clubs/${other.clubId}/roster`, { cookie: other.cookie, payload: { name: "Outside Person" } });
+  await call("POST", `/api/clubs/${other.clubId}/roster`, { cookie: other.cookie, payload: { name: "Outside Person", phone: "98222 00001" } });
   const outside = db.prepare("SELECT id FROM club_roster WHERE club_id = ?").get(other.clubId).id;
   assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: outside } })).statusCode, 400);
 
@@ -104,3 +110,15 @@ test("the rider flow: tap I'm in, type Amit, pick Amit Daga, done. No sign-in.",
 });
 
 test.after(async () => { await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
+
+test("someone new gives a mobile number: a number already on the list joins as that person", async () => {
+  const ride = (await call("POST", `/api/clubs/${owner.clubId}/rides`, { cookie: owner.cookie, payload: { title: "Phone check", starts_at: inDays(3), meeting_point: "Gate 1", status: "published" } })).json().ride;
+  await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Shrikant Joshi", phone: "98333 44455" } });
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant" } })).statusCode, 400, "number required for someone new");
+  const res = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant", phone: "+91 98333 44455" } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json().ride.participants.map((p) => p.name), ["Shrikant Joshi"], "matched by number, no duplicate");
+  const fresh = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Meera Iyer", phone: "98333 99999" } });
+  assert.equal(fresh.statusCode, 200);
+  assert.equal(db.prepare("SELECT phone FROM club_roster WHERE club_id = ? AND name = 'Meera Iyer'").get(owner.clubId).phone, "919833399999");
+});

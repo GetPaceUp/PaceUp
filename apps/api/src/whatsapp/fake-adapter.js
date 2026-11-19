@@ -17,7 +17,8 @@ export const fakeAdapter = {
       },
       async listGroups() { return this.groups; },
       participants: [],   // [{ phone, lid }] of the club group
-      async groupParticipants() { return this.participants; },
+      groupMembers: {},   // other groups' members, by jid
+      async groupParticipants(jid) { return this.groupMembers[jid] || this.participants; },
       /** Simulates WhatsApp reporting names (contacts sync or pushName on a message). */
       contacts(list) { onContacts(list); },
       /** Simulates someone sending the club number a direct message. */

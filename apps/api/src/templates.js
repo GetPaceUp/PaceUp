@@ -7,7 +7,7 @@ import { CATEGORIES } from "./rides.js";
 
 const nowIso = () => new Date().toISOString();
 export const templateKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
-const FIELDS = ["title", "category", "meeting_point", "map_url", "distance_km", "pace", "notes", "capacity"];
+const FIELDS = ["title", "category", "meeting_point", "map_url", "distance_km", "pace", "notes", "capacity", "wa_group_jid"];
 
 function cleanFields(input = {}) {
   const out = {};
@@ -74,7 +74,7 @@ export function templateInText(clubId, text) {
 export function registerTemplateRoutes(app, { requireClubRole }) {
   const admin = [app.authenticate, requireClubRole(["owner", "admin"])];
   const fail = (reply, error) => { if (error instanceof DomainError) return reply.code(error.status).send({ error: error.message }); throw error; };
-  const body = { type: "object", properties: { name: { type: "string", maxLength: 100 }, title: { type: ["string", "null"], maxLength: 120 }, category: { type: ["string", "null"], maxLength: 20 }, meeting_point: { type: ["string", "null"], maxLength: 200 }, map_url: { type: ["string", "null"], maxLength: 500 }, distance_km: { type: ["number", "null"], minimum: 0, maximum: 1000 }, pace: { type: ["string", "null"], maxLength: 60 }, notes: { type: ["string", "null"], maxLength: 2000 }, capacity: { type: ["integer", "null"], minimum: 1, maximum: 10000 } }, required: ["name"] };
+  const body = { type: "object", properties: { name: { type: "string", maxLength: 100 }, title: { type: ["string", "null"], maxLength: 120 }, category: { type: ["string", "null"], maxLength: 20 }, meeting_point: { type: ["string", "null"], maxLength: 200 }, map_url: { type: ["string", "null"], maxLength: 500 }, distance_km: { type: ["number", "null"], minimum: 0, maximum: 1000 }, pace: { type: ["string", "null"], maxLength: 60 }, notes: { type: ["string", "null"], maxLength: 2000 }, capacity: { type: ["integer", "null"], minimum: 1, maximum: 10000 }, wa_group_jid: { type: ["string", "null"], maxLength: 100 } }, required: ["name"] };
   app.get("/api/clubs/:clubId/templates", { preHandler: admin }, async (req) => ({ templates: listTemplates(req.params.clubId) }));
   app.post("/api/clubs/:clubId/templates", { preHandler: admin, schema: { body } }, async (req, reply) => {
     try { const r = saveTemplate(req.params.clubId, req.user.sub, req.body); return reply.code(r.updated ? 200 : 201).send(r); } catch (e) { return fail(reply, e); }

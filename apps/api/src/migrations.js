@@ -404,6 +404,27 @@ export const migrations = [
         );
       `);
     }
+  },
+  {
+    id: 16,
+    name: "roster_contact_name",
+    up(db) {
+      // The name exactly as it was in the admin's phone book ("Aneesh Saraiya Cycling Sector 65"),
+      // kept when PaceUp tidies the name members see ("Aneesh Saraiya").
+      db.exec("ALTER TABLE club_roster ADD COLUMN contact_name TEXT");
+    }
+  },
+  {
+    id: 17,
+    name: "whatsapp_groups_per_activity",
+    up(db) {
+      // A club has several WhatsApp groups. The member list comes from the groups the admin ticks
+      // (usually one master group with everyone), and each activity can post to its own group.
+      db.exec(`
+        ALTER TABLE whatsapp_connections ADD COLUMN member_groups_json TEXT;
+        ALTER TABLE rides ADD COLUMN wa_group_jid TEXT;
+      `);
+    }
   }
 ];
 
