@@ -48,14 +48,55 @@ export function createClub({ name, adminPhone, adminName, actorId }) {
   }).immediate();
 }
 
-export function addClubAdmin(clubId, { phone: rawPhone, name }) {
+export function addClubAdmin(clubId, { phone, name }) { return addClubPerson(clubId, { phone, name, role: "admin" }).person; }
+
+const appUrl = () => (process.env.APP_BASE_URL || "http://localhost:5173").replace(/\/$/, "");
+const ROLE_TEXT = { owner: "an admin", admin: "an admin", member: "a member" };
+
+function welcomeText(clubId, userId, inviterId) {
+  const club = db.prepare("SELECT name FROM clubs WHERE id = ?").get(clubId);
+  const person = getUserById(userId);
+  const role = getClubMembership(clubId, userId)?.role || "member";
+  const inviter = inviterId && inviterId !== userId ? db.prepare("SELECT name FROM users WHERE id = ?").get(inviterId)?.name : null;
+  return `Hi ${person.name.split(" ")[0]}! ${inviter ? `${inviter} added you` : "You've been added"} to *${club.name}* on PaceUp as ${ROLE_TEXT[role]}.\n\nSign in with this mobile number, no password needed: ${appUrl()}/\nYou'll get a WhatsApp code to confirm it's you.`;
+}
+
+/**
+ * Sends the welcome message on WhatsApp from the club's own number. Returns
+ * { sent, text, phone } so the page can offer a share link when WhatsApp isn't connected.
+ */
+export function sendWelcome(clubId, userId, inviterId) {
+  const person = db.prepare("SELECT phone FROM users WHERE id = ?").get(userId);
+  if (!person?.phone) throw new DomainError(400, "This person has no mobile number on PaceUp.");
+  const text = welcomeText(clubId, userId, inviterId);
+  const conn = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND status = 'connected' AND desired = 'on'").get(clubId);
+  if (conn) {
+    const now = Date.now();
+    db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), clubId, person.phone, text, new Date(now + 24 * 3600 * 1000).toISOString(), new Date(now).toISOString());
+  }
+  return { sent: Boolean(conn), text, phone: person.phone };
+}
+
+/** Adds someone by mobile number (making an account if needed) and WhatsApps them a sign-in message. */
+export function addClubPerson(clubId, { phone: rawPhone, name, role = "member" }, inviterId = null) {
   const phone = cleanPhone(rawPhone);
   if (!phone) throw new DomainError(400, "Enter the mobile number with the country code, e.g. +91 98765 43210.");
-  return db.transaction(() => {
-    const userId = findOrCreatePhoneUser(phone, name);
-    setRole(clubId, userId, "admin");
-    return getUserById(userId);
+  if (!["admin", "member"].includes(role)) throw new DomainError(400, "Choose member or club admin.");
+  const userId = db.transaction(() => {
+    const id = findOrCreatePhoneUser(phone, name);
+    setRole(clubId, id, role);
+    return id;
   }).immediate();
+  return { person: getUserById(userId), whatsapp: sendWelcome(clubId, userId, inviterId) };
+}
+
+export function removeClubPerson(clubId, userId, actorId) {
+  const m = getClubMembership(clubId, userId);
+  if (!m) throw new DomainError(404, "Not a member of this club.");
+  if (m.role === "owner") throw new DomainError(409, "The club owner can't be removed.");
+  if (userId === actorId) throw new DomainError(409, "You can't remove yourself.");
+  db.prepare("DELETE FROM club_memberships WHERE club_id = ? AND user_id = ?").run(clubId, userId);
 }
 
 /** A new phone account joins, as a member, every club whose member list has its number. */
@@ -76,6 +117,21 @@ export function registerClubAdminRoutes(app, { requireClubRole, requirePlatformA
     schema: { body: { type: "object", properties: { name: str(200), adminPhone: str(30), adminName: str(200) }, required: ["name"] } }
   }, async (req, reply) => {
     try { return reply.code(201).send(createClub({ ...req.body, actorId: req.user.sub })); } catch (error) { return fail(reply, error); }
+  });
+  app.post("/api/clubs/:clubId/people", {
+    preHandler: [app.authenticate, requireClubRole(["owner", "admin"])],
+    schema: { body: { type: "object", properties: { phone: str(30), name: str(200), role: { type: "string", enum: ["member", "admin"] } }, required: ["phone"] } }
+  }, async (req, reply) => {
+    try { return reply.code(201).send(addClubPerson(req.params.clubId, req.body, req.user.sub)); } catch (error) { return fail(reply, error); }
+  });
+  app.post("/api/clubs/:clubId/members/:userId/welcome", { preHandler: [app.authenticate, requireClubRole(["owner", "admin"])] }, async (req, reply) => {
+    try {
+      if (!getClubMembership(req.params.clubId, req.params.userId)) throw new DomainError(404, "Not a member of this club.");
+      return { whatsapp: sendWelcome(req.params.clubId, req.params.userId, req.user.sub) };
+    } catch (error) { return fail(reply, error); }
+  });
+  app.delete("/api/clubs/:clubId/members/:userId", { preHandler: [app.authenticate, requireClubRole(["owner", "admin"])] }, async (req, reply) => {
+    try { removeClubPerson(req.params.clubId, req.params.userId, req.user.sub); return { ok: true }; } catch (error) { return fail(reply, error); }
   });
   app.post("/api/clubs/:clubId/admins", {
     preHandler: [app.authenticate, requireClubRole(["owner", "admin"])],

@@ -96,31 +96,3 @@ export function AddPhone({ onAdded }) {
     </form>
   );
 }
-
-/** Club admins: make someone an admin by their mobile number. They sign in later with a WhatsApp code. */
-export function AddAdmin({ clubId, onAdded }) {
-  const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState({});
-  async function add(e) {
-    e.preventDefault(); setBusy(true); setMsg({});
-    try {
-      const d = await api(`/api/clubs/${clubId}/admins`, { method: "POST", body: JSON.stringify({ phone, name }) });
-      setMsg({ ok: `${d.admin.name} is now a club admin. They sign in with their mobile number.` }); setPhone(""); setName(""); onAdded?.();
-    } catch (err) { setMsg({ error: err.message }); }
-    finally { setBusy(false); }
-  }
-  return (
-    <form className="stack-form add-admin" onSubmit={add}>
-      <h4>Add a club admin</h4>
-      <label htmlFor="admin-phone">Mobile number</label>
-      <input id="admin-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" required />
-      <label htmlFor="admin-name">Name <span className="optional">(if they're new to PaceUp)</span></label>
-      <input id="admin-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" maxLength={80} />
-      {msg.error && <p className="error" role="alert">{msg.error}</p>}
-      {msg.ok && <p className="success-note" role="status">{msg.ok}</p>}
-      <button type="submit" disabled={busy}>{busy ? "Adding…" : "Make admin"}</button>
-    </form>
-  );
-}

@@ -52,3 +52,31 @@ test("only the platform owner creates clubs, naming the first admin by mobile nu
   // Members can't add admins.
   assert.equal((await call("POST", `/api/clubs/${clubId}/admins`, { cookie: sessionCookie(someone), payload: { phone: "9811100000", name: "X Y" } })).statusCode, 404);
 });
+
+test("invites go by mobile number: added at once and WhatsApped from the club number", async () => {
+  const boss = (await call("POST", "/api/auth/login", { payload: { email: "boss@example.com", password: "strong-password-123" } }));
+  const cookie = sessionCookie(boss);
+  const clubId = db.prepare("SELECT id FROM clubs WHERE name = 'Boss Club'").get().id;
+  // WhatsApp not connected: the person is still added; the page gets the text to share by hand.
+  const first = await call("POST", `/api/clubs/${clubId}/people`, { cookie, payload: { phone: "98765 11111", name: "neha joshi", role: "member" } });
+  assert.equal(first.statusCode, 201, first.body);
+  assert.equal(first.json().whatsapp.sent, false);
+  assert.match(first.json().whatsapp.text, /Hi Neha! Boss added you to \*Boss Club\* on PaceUp as a member/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct").get().n, 0);
+
+  db.prepare("INSERT INTO whatsapp_connections (club_id, desired, status, updated_at, last_seen_at) VALUES (?, 'on', 'connected', ?, ?)").run(clubId, new Date().toISOString(), new Date().toISOString());
+  const admin = await call("POST", `/api/clubs/${clubId}/people`, { cookie, payload: { phone: "+91 98765 22222", name: "Ravi Menon", role: "admin" } });
+  assert.equal(admin.json().whatsapp.sent, true);
+  const dm = db.prepare("SELECT * FROM whatsapp_direct WHERE to_phone = '919876522222'").get();
+  assert.equal(dm.club_id, clubId, "sent from this club's number");
+  assert.match(dm.text, /as an admin/);
+  assert.match(dm.text, /Sign in with this mobile number/);
+
+  // The invited person signs in with a code to that number and lands in the club.
+  const neha = first.json().person.id;
+  assert.equal((await call("POST", `/api/clubs/${clubId}/members/${neha}/welcome`, { cookie })).json().whatsapp.sent, true, "resend");
+  assert.equal((await call("DELETE", `/api/clubs/${clubId}/members/${neha}`, { cookie })).statusCode, 200, "remove");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_memberships WHERE club_id = ? AND user_id = ?").get(clubId, neha).n, 0);
+  const bossId = db.prepare("SELECT id FROM users WHERE email = 'boss@example.com'").get().id;
+  assert.equal((await call("DELETE", `/api/clubs/${clubId}/members/${bossId}`, { cookie })).statusCode, 409, "owner stays");
+});
