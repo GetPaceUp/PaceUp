@@ -377,7 +377,12 @@ export function RidePage({ code }) {
     try {
       const data = await api(`/api/r/${code}/rsvp`, { method: "PUT", body: JSON.stringify(body) });
       setRide(data.ride); setPicking(false);
-      setFlash(body.status === "cancelled" ? "Done. You've been taken off the list." : `You're in, ${label.split(" ")[0]}! ✓`);
+      const listed = data.ride.my_rsvp?.name;
+      // Someone new who typed their number may already be on the club list under another spelling: say so.
+      const foundAs = body.phone && listed && listed.trim().toLowerCase() !== String(body.name || "").trim().toLowerCase();
+      setFlash(body.status === "cancelled" ? "Done. You've been taken off the list."
+        : foundAs ? `You're in! ✓ We found your number on the club list as ${listed}.`
+        : `You're in, ${label.split(" ")[0]}! ✓`);
     } catch (err) { setError(err.message); if (err.status === 409) load(); }
     finally { setBusy(false); }
   }
