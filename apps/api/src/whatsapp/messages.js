@@ -23,8 +23,16 @@ export const emoji = (ride) => (KIND[ride.category] || KIND.other)[0];
 export const noun = (ride) => (KIND[ride.category] || KIND.other)[1];
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
 
+const PACE_UNIT = { cycling: "km/h", running: "min/km", hiking: "km/h", swimming: "min/100 m" };
+/** "25-30" -> "25–30 km/h" for a ride; a pace with its own unit is kept as typed. */
+export function paceText(pace, category) {
+  if (!pace) return null;
+  const p = String(pace).trim().replace(/\s*-\s*/g, "–");
+  return /^[\d.:–\s]+$/.test(p) && PACE_UNIT[category] ? `${p} ${PACE_UNIT[category]}` : p;
+}
+
 function details(ride) {
-  return [ride.distance_km ? `${ride.distance_km} km` : null, ride.pace, ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
+  return [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
 }
 
 export function ridePublishedText(ride) {

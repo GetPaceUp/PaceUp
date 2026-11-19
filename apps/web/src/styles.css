@@ -110,3 +110,6 @@ textarea:focus{border-color:#e47a51;box-shadow:0 0 0 3px rgba(228,122,81,.12)}
 .template-save input[type="text"] { flex: 1 1 160px; }
 label.check { display: inline-flex; gap: 8px; align-items: center; font-weight: 600; margin: 0; }
 label.check input { width: auto; margin: 0; }
+.name-list .new-option { width: 100%; justify-content: center; margin-top: 4px; }
+.name-list .new-option small { opacity: .8; font-weight: 500; margin-left: 4px; }
+.name-list button.new-option, .name-list button.new-option:hover, .name-list button.new-option:focus-visible { background: #e3683f; color: #fff; font-weight: 700; border-radius: 10px; min-height: 48px; }
