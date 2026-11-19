@@ -5,7 +5,7 @@
   "description": "Open-source community platform for endurance sports clubs",
   "workspaces": ["apps/api", "apps/web"],
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "npm --workspace @paceup/api run dev",
     "dev:web": "npm --workspace @paceup/web run dev",
     "build": "npm run build --workspace @paceup/web",
