@@ -76,6 +76,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
   const [saveTemplate, setSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [templateNote, setTemplateNote] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const loadTemplates = () => api(`/api/clubs/${clubId}/templates`).then((d) => setTemplates(d.templates)).catch(() => {});
   useEffect(() => { loadTemplates(); }, [clubId]);
   // WhatsApp groups this activity can be posted in (empty when WhatsApp isn't connected).
@@ -145,7 +146,9 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
             <option value="">None: start blank</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-          {chosen && <><button type="button" className="text-button" onClick={renameTemplate}>Rename</button><button type="button" className="text-button remove" onClick={deleteTemplate}>Delete</button></>}
+          {chosen && (confirmDelete
+            ? <span className="confirm-inline">Delete {chosen.name}? <button type="button" className="small-button danger" onClick={() => { setConfirmDelete(false); deleteTemplate(); }}>Delete</button><button type="button" className="text-button" onClick={() => setConfirmDelete(false)}>Keep</button></span>
+            : <><button type="button" className="text-button" onClick={renameTemplate}>Rename</button><button type="button" className="text-button remove" onClick={() => setConfirmDelete(true)}>Delete</button></>)}
         </div>
         {chosen && <p className="panel-copy">Filled in from {chosen.name}. Set the date and time, and change anything else you need.</p>}
         {templateNote && <p className="success-note" role="status">{templateNote}</p>}

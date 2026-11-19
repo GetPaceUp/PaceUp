@@ -24,6 +24,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [selectedClub, setSelectedClub] = useState("");
   const [clubName, setClubName] = useState("");
+  const [editingName, setEditingName] = useState(false);
   const [members, setMembers] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [notice, setNotice] = useState("");
@@ -72,6 +73,7 @@ export default function App() {
     if (invitesResponse.ok) setInvitations((await invitesResponse.json()).invitations);
     const club = clubs.find((item) => item.id === clubId);
     if (club) setClubName(club.name);
+    setEditingName(false);
   }
   useEffect(() => { if (user && selectedClub) loadClubData(selectedClub); }, [user, selectedClub]);
 
@@ -111,7 +113,7 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not update club.");
       setClubs((current) => current.map((club) => club.id === selectedClub ? { ...club, ...data.club } : club));
-      setNotice("Club details saved.");
+      setNotice("Club name saved."); setEditingName(false);
     } catch (err) { setError(err.message); }
   }
 
@@ -183,7 +185,9 @@ export default function App() {
             {clubs.length === 0 && <p className="panel-copy">You're not in a club yet. Ask your club admin for an invite link. If your number is on a club's member list, sign in with it and you'll join automatically.</p>}
             {clubs.length > 0 && !["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <p className="panel-copy">You are a member of this club. Club administration is available to its admins.</p>}
             {clubs.length > 0 && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <>
-              <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required /></div><button type="submit">Save changes</button></form>
+              {editingName
+                ? <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required autoFocus /></div><button type="submit">Save</button><button type="button" className="secondary-button" onClick={() => { setClubName(clubs.find((club) => club.id === selectedClub)?.name || ""); setEditingName(false); setError(""); }}>Cancel</button></form>
+                : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div><button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button></div>}
               <div className="admin-grid">
                 <PeoplePanel clubId={selectedClub} members={members} me={user.id} onChange={() => loadClubData(selectedClub)} />
               </div>
