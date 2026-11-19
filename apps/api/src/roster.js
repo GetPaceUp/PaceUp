@@ -7,6 +7,7 @@ import { inflateRawSync } from "node:zlib";
 import { db, DomainError } from "./db.js";
 import { listUnnamed, groupCount, contactById } from "./whatsapp/contacts.js";
 import { memberGroups, clubGroups } from "./whatsapp/outbox.js";
+import { queueGroupAdd, groupAddView } from "./whatsapp/group-adds.js";
 
 const nowIso = () => new Date().toISOString();
 export const nameKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
@@ -431,6 +432,9 @@ export function registerRosterRoutes(app, { requireClubRole }) {
         unnamed: listUnnamed(req.params.clubId),
         whatsapp: {
           group: groups.length ? groups.join(" + ") : null, connected: conn?.status === "connected",
+          // Groups a new person can be added to, and the one to suggest (the member-list group, which usually has everyone).
+          groups: conn?.status === "connected" ? clubGroups(conn).map((g) => ({ jid: g.jid, name: g.name })) : [],
+          add_group: conn?.status === "connected" ? (memberGroups(conn).find((j) => clubGroups(conn).some((g) => g.jid === j)) || null) : null,
           group_members: groupCount(req.params.clubId), synced_at: conn?.roster_synced_at || null,
           syncing: Boolean(conn?.roster_sync_wanted_at && (!conn.roster_synced_at || conn.roster_sync_wanted_at > conn.roster_synced_at))
         }
@@ -466,13 +470,28 @@ export function registerRosterRoutes(app, { requireClubRole }) {
   });
 
   app.post(base, {
-    schema: { params, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 } }, required: ["name", "phone"] } }, preHandler: pre
+    schema: { params, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 }, wa_group_jid: { type: ["string", "null"], maxLength: 100 } }, required: ["name", "phone"] } }, preHandler: pre
   }, async (req, reply) => {
-    try { return reply.code(201).send(addRosterPerson(req.params.clubId, req.body.name, req.body.phone)); }
+    try {
+      const jid = req.body.wa_group_jid || null;
+      if (jid) { // check the group before adding anyone, so a bad pick changes nothing
+        const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(req.params.clubId);
+        if (!conn || conn.status !== "connected") throw new DomainError(409, "Connect WhatsApp first to add people to a group.");
+        if (!clubGroups(conn).some((g) => g.jid === jid)) throw new DomainError(400, "Pick one of the club's WhatsApp groups.");
+      }
+      const result = addRosterPerson(req.params.clubId, req.body.name, req.body.phone);
+      const group_add = jid ? queueGroupAdd(req.params.clubId, { phone: result.person.phone, name: result.person.name, groupJid: jid, userId: req.user.sub }) : null;
+      return reply.code(201).send({ ...result, group_add });
+    }
     catch (error) {
       if (error instanceof DomainError && error.existing) return reply.code(409).send({ error: error.message, existing: error.existing });
       return domain(reply, error);
     }
+  });
+
+  app.get(`${base}/group-adds/:addId`, { schema: { params: { type: "object", properties: { clubId: id, addId: id }, required: ["clubId", "addId"] } }, preHandler: pre }, async (req, reply) => {
+    const v = groupAddView(req.params.clubId, req.params.addId);
+    return v ? { group_add: v } : reply.code(404).send({ error: "Not found." });
   });
 
   // Phone books are read in the browser and arrive as name + numbers only (photos and

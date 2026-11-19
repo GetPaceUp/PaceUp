@@ -9,6 +9,7 @@ import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS, memberGroups, clubGroups, isClubGroup } from "./outbox.js";
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
+import { processGroupAdds } from "./group-adds.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
@@ -30,11 +31,12 @@ function localHour(ms) {
 }
 
 export class WhatsAppWorker {
-  constructor({ adapter, dataDir = defaultDataDir(), log = console, sendGapMs = [4000, 9000] } = {}) {
+  constructor({ adapter, dataDir = defaultDataDir(), log = console, sendGapMs = [4000, 9000], groupAddLimits = {} } = {}) {
     this.adapter = adapter;
     this.dataDir = dataDir;
     this.log = log;
     this.sendGapMs = sendGapMs;
+    this.groupAddLimits = groupAddLimits; // tests shorten the gap between group adds
     this.sessions = new Map();      // clubId -> { session, open, startedAt, retryAt, retries }
     this.nextSendAt = new Map();    // clubId -> ms (spacing between posts of one number)
     this.busy = false;
@@ -274,7 +276,7 @@ export class WhatsAppWorker {
   async tick() {
     if (this.busy) return;
     this.busy = true;
-    try { await this.reconcile(); await this.deliverDirect(); await this.deliver(); }
+    try { await this.reconcile(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
     catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
     finally { this.busy = false; }
   }

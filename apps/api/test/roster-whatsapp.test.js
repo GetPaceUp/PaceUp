@@ -15,7 +15,7 @@ const { readVcf } = await import("../src/roster.js");
 const ph = (n) => "98" + String([...n.toLowerCase().replace(/\s+/g, " ").trim()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1e8, 7)).padStart(8, "0");
 const app = await buildApp({ logger: false, authRateLimit: 1000, publicRateLimit: 1000 });
 const { call, registerOwner } = makeClient(app);
-const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
+const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1], groupAddLimits: { gapMs: 0 } });
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
 const club = await registerOwner("Club Owner", "owner@example.com", "Sunrise Riders");
@@ -167,4 +167,49 @@ test("the member list can come from several groups, like a master group that has
   const names = (await roster()).people.map((p) => p.name);
   assert.ok(names.includes("Explorer One") && names.includes("Explorer Two"));
   assert.match((await roster()).whatsapp.group, / \+ /, "both groups shown as the source");
+});
+
+test("adding someone can also add them to a club WhatsApp group, slowly, with an invite link when privacy blocks it", async () => {
+  const session = fakeSessions.get(club.clubId);
+  const r = await roster();
+  assert.ok(r.whatsapp.groups.length >= 1, "the page gets the club's groups to pick from");
+  assert.ok(r.whatsapp.add_group, "and suggests the member-list group");
+  const jid = r.whatsapp.add_group;
+  const add = (name, phone, wa_group_jid) => call("POST", `/api/clubs/${club.clubId}/roster`, { cookie: club.cookie, payload: { name, phone, wa_group_jid } });
+  const status = (id) => call("GET", `/api/clubs/${club.clubId}/roster/group-adds/${id}`, { cookie: club.cookie }).then((x) => x.json().group_add);
+
+  // A group outside the club's linked ones is refused, and nobody is added to the list.
+  const bad = await add("Outsider Person", "9876511111", "personal@g.us");
+  assert.equal(bad.statusCode, 400);
+  assert.equal((await call("GET", `/api/clubs/${club.clubId}/roster?q=outsider`, { cookie: club.cookie })).json().people.length, 0);
+
+  const ok = await add("Riya Kapoor", "9876511112", jid);
+  assert.equal(ok.statusCode, 201, ok.body);
+  assert.equal(ok.json().group_add.status, "pending");
+  const sentBefore = session.added.length;
+  await worker.tick();
+  assert.equal((await status(ok.json().group_add.id)).status, "added");
+  assert.deepEqual(session.added.at(-1), { groupJid: jid, phone: "919876511112" });
+  assert.equal(session.added.length, sentBefore + 1);
+
+  session.addResults["919876511113"] = "403";
+  const priv = await add("Dev Malhotra", "9876511113", jid);
+  await worker.tick();
+  const pv = await status(priv.json().group_add.id);
+  assert.equal(pv.status, "invited");
+  const { sent } = await import("../src/whatsapp/fake-adapter.js");
+  assert.match(sent.at(-1).text, /chat\.whatsapp\.com/);
+  assert.equal(sent.at(-1).jid, "919876511113@s.whatsapp.net");
+
+  session.addResults["919876511114"] = new Error("not-authorized");
+  const noAdmin = await add("Isha Rao", "9876511114", jid);
+  await worker.tick();
+  assert.match((await status(noAdmin.json().group_add.id)).detail, /needs to be an admin/);
+
+  // Without a gap override the worker waits between adds instead of doing them in a burst.
+  const slow = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
+  slow.sessions = worker.sessions;
+  const later = await add("Kunal Shah", "9876511115", jid);
+  await slow.tick();
+  assert.equal((await status(later.json().group_add.id)).status, "pending", "45 seconds haven't passed since the last add");
 });

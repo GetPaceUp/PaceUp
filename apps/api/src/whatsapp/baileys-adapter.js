@@ -106,6 +106,12 @@ export const baileysAdapter = {
         }
         return people;
       },
+      /** Adds one person to a group. WhatsApp answers per person: "200" added, "409" already in, "403" their privacy settings refuse. */
+      async addToGroup(groupJid, phone) {
+        const [result] = await sock.groupParticipantsUpdate(groupJid, [`${phone}@s.whatsapp.net`], "add");
+        return { status: String(result?.status ?? "") };
+      },
+      async groupInviteLink(groupJid) { return `https://chat.whatsapp.com/${await sock.groupInviteCode(groupJid)}`; },
       async listGroups() {
         const groups = await sock.groupFetchAllParticipating();
         return Object.values(groups).map((g) => ({ jid: g.id, name: g.subject, size: g.participants?.length || 0 }))
