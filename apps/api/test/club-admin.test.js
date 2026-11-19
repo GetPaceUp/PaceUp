@@ -50,9 +50,10 @@ test("club admins can manage their club and invite a member without crossing ten
 
   const memberRegistration = await app.inject({
     method: "POST", url: "/api/auth/register",
-    payload: { name: "New Member", email: "member@example.com", password: "another-strong-password", clubName: "Second Club" }
+    payload: { name: "New Member", email: "member@example.com", password: "another-strong-password", inviteToken: token }
   });
   assert.equal(memberRegistration.statusCode, 201);
+  assert.equal(memberRegistration.json().clubs.length, 0);
   const memberCookie = sessionCookie(memberRegistration);
 
   const accepted = await app.inject({
