@@ -63,11 +63,18 @@ export default function App() {
     try {
       const response = await fetch(mode === "register" ? "/api/auth/register" : "/api/auth/login", {
         method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify(form)
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, ...(mode === "register" && inviteToken ? { inviteToken } : {}) })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Something went wrong.");
       setUser(data.user); setClubs(data.clubs); setSelectedClub(data.clubs[0]?.id || ""); setForm(emptyForm);
+      if (mode === "register" && inviteToken) {
+        const accepted = await fetch("/api/invitations/accept", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: inviteToken }) });
+        const acceptedData = await accepted.json();
+        if (!accepted.ok) throw new Error(acceptedData.error || "Account created, but the invitation could not be accepted.");
+        setClubs(acceptedData.clubs); setSelectedClub(acceptedData.clubs.find((club) => club.id !== data.clubs[0]?.id)?.id || "");
+        window.history.replaceState({}, "", "/"); setInviteToken(""); setNotice("Account created and invitation accepted.");
+      }
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   }
@@ -138,9 +145,9 @@ export default function App() {
             <p className="hero-copy">A simple home for sports communities to organise activities, bring members together and make showing up easier.</p>
           </div>
           <section className="workspace auth-card">
-            <div className="section-heading"><div><p className="eyebrow">{mode === "register" ? "GET STARTED" : "WELCOME BACK"}</p><h2>{mode === "register" ? "Create your account" : "Sign in"}</h2></div></div>
+            <div className="section-heading"><div><p className="eyebrow">{inviteToken ? "YOU HAVE AN INVITATION" : mode === "register" ? "GET STARTED" : "WELCOME BACK"}</p><h2>{mode === "register" ? "Create your account" : "Sign in"}</h2></div></div>
             <form className="create-form" onSubmit={handleSubmit}>
-              {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required /><label htmlFor="clubName">Club or community name</label><input id="clubName" value={form.clubName} onChange={(e) => update("clubName", e.target.value)} placeholder="e.g. Sunday Trail Crew" minLength={2} maxLength={80} required /></>}
+              {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required />{!inviteToken && <><label htmlFor="clubName">Club or community name</label><input id="clubName" value={form.clubName} onChange={(e) => update("clubName", e.target.value)} placeholder="e.g. Sunday Trail Crew" minLength={2} maxLength={80} required /></> }</>}
               <label htmlFor="email">Email address</label><input id="email" type="email" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@example.com" autoComplete="email" required />
               <label htmlFor="password">Password</label><input id="password" type="password" value={form.password} onChange={(e) => update("password", e.target.value)} placeholder={mode === "register" ? "At least 10 characters" : "Your password"} minLength={mode === "register" ? 10 : undefined} maxLength={128} autoComplete={mode === "register" ? "new-password" : "current-password"} required />
               {error && <p className="error" role="alert">{error}</p>}
