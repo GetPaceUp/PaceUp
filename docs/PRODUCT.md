@@ -29,7 +29,7 @@ An authorised organiser creates an activity with its title, description, date an
 ### RSVP
 A member opens an activity and responds. The system records the response and makes the current participant status visible to authorised viewers. Members can update or withdraw their response according to the activity's rules.
 
-### Community momentum — Ride Buzz
+### Community momentum
 Meaningful RSVP activity can trigger a community update, such as a new participant joining or a participation milestone being reached. The system should avoid duplicate, excessive, or irrelevant messages. Members and clubs should have sensible notification controls.
 
 ### Activity operations
@@ -78,5 +78,5 @@ Folks On Forks is the initial pilot community. Validate the core flows with real
 - Members can RSVP and change their response on a phone.
 - Organisers can trust the participant list.
 - Event changes reach the right people.
-- Ride Buzz increases awareness without creating notification fatigue.
+- Community momentum updates increase awareness without creating notification fatigue.
 - A second club can use the product without code changes specific to the pilot club.

@@ -22,13 +22,17 @@ Requirements: Node.js 20 or newer and npm.
 
 1. Clone this repository.
 2. Copy `.env.example` to `.env` in the repository root.
-3. Install dependencies with `npm install`.
+3. Install dependencies with `npm ci` (uses the committed lockfile, the same install CI and servers use).
 4. Start the API and web app with `npm run dev`.
 5. Open http://localhost:5173.
 
 The API runs on http://127.0.0.1:3001. Its health endpoint is http://127.0.0.1:3001/health. Run API tests with `npm test --workspace @paceup/api` and build the web app with `npm run build`.
 
 SQLite data is stored in `data/paceup.sqlite` by default.
+
+### Database migrations
+
+Schema changes live in `apps/api/src/migrations.js` as numbered, forward-only steps. The API applies any pending ones automatically when it starts. If the database already has data, a snapshot is written beside it first (`<db>.pre-migration-<timestamp>.bak`), so an upgrade can be undone by stopping the API and restoring that file. `npm run migrate --workspace @paceup/api` applies migrations without starting the server and lists what has been applied. Never edit a shipped migration; add a new one.
 
 ## Project principles
 

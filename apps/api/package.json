@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "tsx watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js",
+    "migrate": "node src/migrate.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.2",
-    "@fastify/jwt": "^9.1.0",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/jwt": "^10.2.8",
+    "@fastify/rate-limit": "^11.2.2",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.11.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1"
   },

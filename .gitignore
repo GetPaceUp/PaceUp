@@ -27,3 +27,6 @@ logs/
 Thumbs.db
 .idea/
 .vscode/
+
+# Database snapshots written before migrations
+*.bak
