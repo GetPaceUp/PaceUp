@@ -48,6 +48,10 @@ const createAccountAndClub = db.transaction(({ user, club, membership }) => {
   };
 });
 export function registerAccount(data) { return createAccountAndClub(data); }
+export function registerUser(user) {
+  db.prepare("INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)").run(user.id, user.name, user.email, user.passwordHash);
+  return db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(user.id);
+}
 export function findUserByEmail(email) { return db.prepare("SELECT * FROM users WHERE email = ? COLLATE NOCASE").get(email); }
 export function getUserById(id) { return db.prepare("SELECT id, name, email FROM users WHERE id = ?").get(id); }
 export function listClubsForUser(userId) {
