@@ -14,10 +14,11 @@ export const CATEGORIES = {
   cycling: { emoji: "🚴", label: "Cycling", noun: "ride" },
   running: { emoji: "🏃", label: "Running", noun: "run" },
   hiking: { emoji: "🥾", label: "Hiking", noun: "hike" },
-  triathlon: { emoji: "🏊", label: "Triathlon", noun: "session" },
+  swimming: { emoji: "🏊", label: "Swimming", noun: "swim" },
+  triathlon: { emoji: "🏅", label: "Triathlon", noun: "triathlon" },
   other: { emoji: "📍", label: "Other", noun: "activity" }
 };
-const cat = (a) => CATEGORIES[a.category] || CATEGORIES.cycling;
+const cat = (a) => CATEGORIES[a.category] || CATEGORIES.other;
 const when = (iso) => new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const dayNum = (iso) => new Date(iso).toLocaleDateString(undefined, { day: "2-digit" });
 const monthShort = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short" }).toUpperCase();
@@ -48,14 +49,15 @@ function ShareButtons({ ride }) {
 
 // ---------------------------------------------------------------- create / edit form
 
-const emptyForm = { title: "", category: "cycling", date: "", time: "", meeting_point: "", map_url: "", distance_km: "", pace: "", capacity: "", notes: "" };
+const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", distance_km: "", pace: "", capacity: "", notes: "" };
 const formFrom = (r) => ({
-  title: r.title, category: r.category || "cycling", date: localDate(r.starts_at), time: localTime(r.starts_at), meeting_point: r.meeting_point,
+  title: r.title, category: r.category || "other", date: localDate(r.starts_at), time: localTime(r.starts_at), meeting_point: r.meeting_point,
   map_url: r.map_url || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || ""
 });
 
-export function ActivityForm({ clubId, ride = null, onSaved, onCancel }) {
-  const [form, setForm] = useState(ride ? formFrom(ride) : emptyForm);
+export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel }) {
+  const blank = { ...emptyForm, category: defaultCategory };
+  const [form, setForm] = useState(ride ? formFrom(ride) : blank);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -77,7 +79,7 @@ export function ActivityForm({ clubId, ride = null, onSaved, onCancel }) {
       const data = ride
         ? await api(`/api/clubs/${clubId}/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify(body) })
         : await api(`/api/clubs/${clubId}/rides`, { method: "POST", body: JSON.stringify(body) });
-      if (!ride) setForm(emptyForm);
+      if (!ride) setForm(blank);
       onSaved(data.ride);
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
@@ -91,7 +93,7 @@ export function ActivityForm({ clubId, ride = null, onSaved, onCancel }) {
           <button key={key} type="button" role="radio" aria-checked={form.category === key} className={form.category === key ? "cat-chip on" : "cat-chip"} onClick={() => setForm((f) => ({ ...f, category: key }))}>{c.emoji} {c.label}</button>
         ))}
       </div>
-      <label htmlFor="a-title">Title</label><input id="a-title" value={form.title} onChange={set("title")} placeholder="Sunday long ride" maxLength={120} required />
+      <label htmlFor="a-title">Title</label><input id="a-title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
       <div className="two-col">
         <div><label htmlFor="a-date">Date</label><input id="a-date" type="date" value={form.date} onChange={set("date")} required /></div>
         <div><label htmlFor="a-time">Start</label><input id="a-time" type="time" value={form.time} onChange={set("time")} required /></div>
@@ -100,10 +102,10 @@ export function ActivityForm({ clubId, ride = null, onSaved, onCancel }) {
       <label htmlFor="a-map">Map link (optional)</label><input id="a-map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
       <div className="two-col">
         <div><label htmlFor="a-km">Distance (km)</label><input id="a-km" type="number" min="0" max="1000" step="0.1" inputMode="decimal" value={form.distance_km} onChange={set("distance_km")} /></div>
-        <div><label htmlFor="a-pace">Pace</label><input id="a-pace" value={form.pace} onChange={set("pace")} placeholder="24–26 km/h" maxLength={60} /></div>
+        <div><label htmlFor="a-pace">Pace</label><input id="a-pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
       </div>
       <label htmlFor="a-cap">Spots (optional)</label><input id="a-cap" type="number" min="1" max="10000" inputMode="numeric" value={form.capacity} onChange={set("capacity")} placeholder="No limit" />
-      <label htmlFor="a-notes">Notes</label><textarea id="a-notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="Lights mandatory, regroup points, café stop…" />
+      <label htmlFor="a-notes">Notes</label><textarea id="a-notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
       {error && <p className="error" role="alert">{error}</p>}
       {ride
         ? <><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button type="button" className="text-button" onClick={onCancel}>Close without saving</button></>
@@ -151,7 +153,7 @@ export function ClubRides({ club }) {
         {admin && !showForm && <button type="button" onClick={() => { setShowForm(true); setJustPublished(null); }}>Create activity</button>}
       </div>
       {admin && whatsapp && <p className={`wa-mini ${whatsapp.status === "connected" ? "st-on" : "st-off"}`}><i />WhatsApp {whatsapp.status === "connected" ? `connected${whatsapp.group ? ` · posting to ${whatsapp.group.name}` : " · pick a group below"}` : "not connected · RSVPs still work"}</p>}
-      {showForm && <ActivityForm clubId={club.id} onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") setJustPublished(ride); setTab("upcoming"); load("upcoming"); }} />}
+      {showForm && <ActivityForm clubId={club.id} defaultCategory={rides.find((r) => r.category)?.category || "other"} onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") setJustPublished(ride); setTab("upcoming"); load("upcoming"); }} />}
       {justPublished && (
         <div className="published-note">
           <p className="success-note">Published. Share it with the club's WhatsApp group:</p>

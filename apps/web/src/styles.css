@@ -75,3 +75,25 @@ textarea:focus{border-color:#e47a51;box-shadow:0 0 0 3px rgba(228,122,81,.12)}
 .member-row .reset-result{flex-basis:100%;margin-top:4px}.reset-result .share-row{margin-top:8px}
 .platform-user-row span:last-child{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.platform-user-row .reset-result{flex-basis:100%}
 .reset-card{max-width:460px;margin:48px auto;display:grid;gap:12px}.forgot-note{background:#f7f8f5;border-radius:8px;padding:12px 14px;margin:14px 0 0;font-size:13px}
+
+/* Release 2: activities, name picker, rider list */
+.cat-row{display:flex;flex-wrap:wrap;gap:6px}.cat-chip{background:#fff;color:#34463b;border:1px solid #dce2da;padding:8px 11px;font-weight:600;font-size:13px}.cat-chip.on{background:#18231e;color:#fff;border-color:#18231e}
+.tabs{display:flex;align-items:center;gap:6px;margin:4px 0 6px;flex-wrap:wrap}.tab{background:none;color:#6b786f;padding:8px 12px;border-radius:20px;font-size:13px}.tab.on{background:#18231e;color:#fff}.tab-note{margin-left:auto;font-size:12px;color:#7a867e}
+.wa-mini{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;border-radius:10px;padding:8px 12px;margin:-8px 0 14px}.wa-mini i{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.cat-eyebrow{margin:0}
+.name-picker{display:grid;gap:10px;text-align:left}.name-picker input{font-size:17px;padding:14px}
+.name-list{list-style:none;margin:0;padding:0;border:1px solid #e3e7e0;border-radius:12px;overflow:hidden;background:#fff}
+.name-list li+li{border-top:1px solid #edf0eb}.name-list button{width:100%;display:flex;align-items:center;gap:12px;background:#fff;color:#18231e;border-radius:0;padding:13px 14px;text-align:left;font-weight:600;font-size:16px;min-height:52px}
+.name-list button:hover,.name-list button:focus-visible{background:#f7f8f5}.name-list .avatar{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#fdeee7;color:#c4562f;font-weight:800;flex:none}
+.name-list .guest-option{color:#56665b;font-weight:500;font-size:14px}.name-empty{padding:12px 14px;font-size:13px;color:#7a867e}
+.people{list-style:none;margin:0;padding:0;display:grid}.people li{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #f0f2ee;font-size:15px}
+.people .num{width:24px;color:#9aa49d;font-variant-numeric:tabular-nums;font-size:12px;text-align:right;flex:none}.people .who{flex:1;min-width:0;overflow-wrap:anywhere}.people .who em{color:#2f6b3f;font-style:normal;font-weight:700;font-size:13px}
+.people li.you{background:#f2f9f3;border-radius:8px}.tag{margin-left:8px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#8a5a00;background:#fbf1dc;border-radius:10px;padding:2px 7px}
+.text-button.remove{color:#a83327;font-size:13px}.confirm-inline{display:inline-flex;gap:8px;align-items:center}
+.tool-row{display:flex;gap:8px;flex-wrap:wrap}.text-button.danger{color:#a83327;justify-self:start}
+.history{font-size:13px;color:#56665b}.history summary{cursor:pointer;font-weight:700}.history ul{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:6px}.history small{display:block;color:#8a958e}
+.roster-panel{margin-top:18px;display:grid;gap:12px}.roster-panel h3,.roster-panel .panel-copy{margin:0}
+.roster-source{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#f7f8f5;border-radius:10px;padding:12px;font-size:13px}.roster-source p{margin:0}
+.roster-upload{display:grid;gap:8px;justify-items:start}.roster-list{display:grid;max-height:420px;overflow-y:auto}
+.name-edit{display:flex;gap:8px;align-items:center;flex:1;flex-wrap:wrap}.name-edit input{flex:1;min-width:140px;padding:9px 11px}
+@media(max-width:480px){.tab-note{margin-left:0;width:100%}}

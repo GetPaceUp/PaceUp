@@ -120,7 +120,7 @@ export function peopleFromRows(rows) {
   if (!rows.length) return [];
   const header = rows[0].map((c) => String(c).trim().toLowerCase());
   const find = (re) => header.findIndex((h) => re.test(h));
-  const hasHeader = header.some((h) => /name|phone|mobile|whatsapp|member|rider/.test(h));
+  const hasHeader = header.some((h) => /name|phone|mobile|whatsapp|member|rider|participant/.test(h));
   let nameCol = -1, firstCol = -1, lastCol = -1, phoneCol = -1;
   if (hasHeader) {
     firstCol = find(/^first\s*name|^first$|^given/);

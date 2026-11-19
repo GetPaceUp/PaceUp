@@ -213,7 +213,8 @@ export const migrations = [
     name: "roster_guest_rsvps_and_categories",
     up(db) {
       if (!hasColumn(db, "rides", "category")) {
-        db.exec("ALTER TABLE rides ADD COLUMN category TEXT NOT NULL DEFAULT 'cycling' CHECK (category IN ('cycling', 'running', 'hiking', 'triathlon', 'other'))");
+        db.exec("ALTER TABLE rides ADD COLUMN category TEXT NOT NULL DEFAULT 'other' CHECK (category IN ('cycling', 'running', 'hiking', 'swimming', 'triathlon', 'other'))");
+        db.exec("UPDATE rides SET category = 'cycling'"); // everything before categories was a bike ride (pilot club)
       }
       // RSVPs no longer require an account: a row belongs either to a club member
       // (user_id) or to a guest who typed a name. device_hash identifies the phone

@@ -12,13 +12,14 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
 const MONTH_RE = "(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?";
 
 const CATEGORY_WORDS = [
-  ["triathlon", /\b(triathlon|tri\b|brick|swim(?:ming)?)/i],
+  ["triathlon", /\b(triathlon|tri\b|brick|duathlon|aquathlon)/i],
+  ["swimming", /\b(swim(?:s|ming)?|pool|open[ -]water|laps)\b/i],
   ["hiking", /\b(hik(?:e|ing)|trek(?:king)?)/i],
   ["running", /\b(run(?:s|ning)?|jog(?:ging)?|marathon|parkrun)\b/i],
   ["cycling", /\b(ride|rides|riding|cycl(?:e|ing)|bike|biking|spin|gravel|mtb)\b/i],
   ["other", /\b(walk(?:ing)?|yoga|meet-?up|workout)\b/i]
 ];
-export const CATEGORY_LABEL = { cycling: "Cycling Ride", running: "Run", hiking: "Hike", triathlon: "Triathlon Session", other: "Activity" };
+export const CATEGORY_LABEL = { cycling: "Ride", running: "Run", hiking: "Hike", swimming: "Swim", triathlon: "Triathlon", other: "Activity" };
 
 // ---------------------------------------------------------------- time zone helpers
 
@@ -187,7 +188,7 @@ export function resolveAmPm(text, ambiguousTime) {
 }
 
 export function defaultTitle(draft) {
-  const label = CATEGORY_LABEL[draft.category || "cycling"];
+  const label = CATEGORY_LABEL[draft.category || "other"];
   if (!draft.date) return label;
   const weekday = new Date(`${draft.date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
   return `${weekday} ${label}`;

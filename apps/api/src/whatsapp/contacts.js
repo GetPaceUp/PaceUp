@@ -29,7 +29,7 @@ export function usableName(raw) {
  * Records what WhatsApp told us about people. contacts: [{ phone, lid, saved_name, push_name }],
  * any field may be missing. Rows for the same person (number and lid learned separately) are merged.
  */
-export function recordContacts(clubId, contacts, { inGroup = null } = {}) {
+export function recordContacts(clubId, contacts, { inGroup = null, groupOnly = false } = {}) {
   let named = 0;
   db.transaction(() => {
     const byPhone = db.prepare("SELECT * FROM whatsapp_contacts WHERE club_id = ? AND phone = ?");
@@ -45,6 +45,8 @@ export function recordContacts(clubId, contacts, { inGroup = null } = {}) {
           .run(b.lid, b.saved_name, b.push_name, b.in_group, a.id);
       }
       const row = a || b;
+      // The club phone may be someone's personal phone: never store people outside the club group.
+      if (groupOnly && !(row && row.in_group)) continue;
       const saved = usableName(c.saved_name), push = usableName(c.push_name);
       if (saved || push) named++;
       if (row) {

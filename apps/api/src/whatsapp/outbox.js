@@ -1,10 +1,10 @@
-// WhatsApp outbox: ride events are written here in the same transaction as the
+// WhatsApp outbox: activity events are written here in the same transaction as the
 // change that caused them, and a separate worker process delivers them. Nothing
 // in the request path ever talks to WhatsApp, so RSVPs work while it is down.
 import { randomUUID } from "node:crypto";
 import { db } from "../db.js";
 
-export const LIST_INTERVAL_MS = 2 * 60 * 1000;   // at most one rider-list post per ride per 2 min
+export const LIST_INTERVAL_MS = 2 * 60 * 1000;   // at most one participant-list post per activity per 2 min
 export const FIRST_LIST_DELAY_MS = 20 * 1000;    // let the first few taps of a burst gather
 export const HOURLY_CAP = 20;                    // posts per club number per rolling hour
 export const MAX_ATTEMPTS = 8;
@@ -38,7 +38,7 @@ export function enqueueRideEvent(ride, kind) {
 }
 
 /**
- * Called on every RSVP change. Coalesces: if a list post for this ride is already
+ * Called on every RSVP change. Coalesces: if a list post for this activity is already
  * waiting, it will pick up this change when it is sent; otherwise schedule one
  * no sooner than 2 minutes after the previous list post for the ride.
  */

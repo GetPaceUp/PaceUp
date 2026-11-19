@@ -16,8 +16,8 @@ export function shortName(name) {
 }
 
 const KIND = {
-  cycling: ["🚴", "ride"], running: ["🏃", "run"], hiking: ["🥾", "hike"],
-  triathlon: ["🏊", "session"], other: ["📍", "activity"]
+  cycling: ["🚴", "ride"], running: ["🏃", "run"], hiking: ["🥾", "hike"], swimming: ["🏊", "swim"],
+  triathlon: ["🏅", "triathlon"], other: ["📍", "activity"]
 };
 export const emoji = (ride) => (KIND[ride.category] || KIND.other)[0];
 export const noun = (ride) => (KIND[ride.category] || KIND.other)[1];

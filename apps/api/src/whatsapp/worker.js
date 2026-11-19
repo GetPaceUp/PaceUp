@@ -66,7 +66,14 @@ export class WhatsAppWorker {
         },
         onMessage: (msg) => this.onMessage(clubId, msg),
         onContacts: (list) => {
-          try { if (recordContacts(clubId, list)) entry.rosterDirty = true; }
+          // Names are kept in memory until we know who is in the club group; only group members are stored.
+          entry.names ||= new Map();
+          for (const c of list) {
+            if (!c.saved_name && !c.push_name) continue;
+            for (const k of [c.phone, c.lid].filter(Boolean)) entry.names.set(k, { ...entry.names.get(k), ...c });
+          }
+          if (entry.names.size > 50000) entry.names = new Map([...entry.names].slice(-25000));
+          try { if (recordContacts(clubId, list, { groupOnly: true })) entry.rosterDirty = true; }
           catch (error) { this.log.warn?.(`[whatsapp] could not record contacts for ${clubId}: ${error.message}`); }
         },
         // WhatsApp told us the number's groups changed: refetch on the next tick.
@@ -114,7 +121,8 @@ export class WhatsAppWorker {
       if (asked || entry.rosterGroup !== conn.group_jid || Date.now() - (entry.rosterAt || 0) > ROSTER_REFRESH_MS) {
         entry.rosterAt = Date.now();
         entry.rosterGroup = conn.group_jid;
-        setGroupParticipants(conn.club_id, await entry.session.groupParticipants(conn.group_jid));
+        const members = await entry.session.groupParticipants(conn.group_jid);
+        setGroupParticipants(conn.club_id, members.map((m) => ({ ...(entry.names?.get(m.phone) || entry.names?.get(m.lid) || {}), ...m })));
         entry.rosterDirty = true;
       }
       if (entry.rosterDirty) {

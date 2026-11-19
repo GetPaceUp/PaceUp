@@ -18,7 +18,7 @@ const CODE_TTL_MS = 15 * 60 * 1000;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
 const hashCode = (code) => createHash("sha256").update(`wa-link:${code.toUpperCase()}`).digest("hex");
 
-const EXAMPLE = "Create a cycling ride this Sunday at 6 AM from Tulip Chowk, 40 km";
+const EXAMPLE = "Create a run this Sunday at 6 AM from Tulip Chowk, 10 km";
 const YES = /^\s*(yes|y|yep|yeah|yup|ok|okay|confirm|publish|publish it|go|go ahead|haan|ha|👍|✅)\s*[.!]*\s*$/i;
 const NO = /^\s*(no|n|nope|cancel|stop|discard|delete|scrap it|forget it|❌)\s*[.!]*\s*$/i;
 const HELP = /^\s*(help|\?|hi|hello|hey|menu|start)\s*[.!]*\s*$/i;
@@ -122,7 +122,7 @@ const helpText = (clubName) =>
 
 function publishDraft(clubId, userId, draft) {
   const ride = createRide(clubId, userId, {
-    title: draft.title || defaultTitle(draft), category: draft.category || "cycling",
+    title: draft.title || defaultTitle(draft), category: draft.category || "other",
     starts_at: startsAt(draft).toISOString(), meeting_point: draft.location,
     distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null, status: "published"
   }, { actorType: "whatsapp" });
@@ -150,12 +150,15 @@ function publishDraft(clubId, userId, draft) {
 export function handleIncoming(clubId, msg) {
   const text = String(msg.text || "").trim().slice(0, 1000);
   if (!text || !msg.from) return null;
+  // Only messages meant for PaceUp are looked at further (the club phone may also be someone's own phone).
+  const link = text.match(/^\s*link\s+([A-Za-z0-9]{6})\s*$/i);
+  const admin = link ? null : senderAdmin(clubId, msg.from, msg.fromAlt);
+  if (!link && !admin) return null; // members and strangers get no bot replies
   if (msg.id) {
     const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_inbound (club_id, message_id, created_at) VALUES (?, ?, ?)").run(clubId, msg.id, iso()).changes;
     if (!fresh) return null;
   }
 
-  const link = text.match(/^\s*link\s+([A-Za-z0-9]{6})\s*$/i);
   if (link) {
     const userId = linkSender(clubId, link[1], msg.from, msg.fromAlt);
     if (!userId) return "That code didn't work. Codes expire after 15 minutes. Get a new one in PaceUp under WhatsApp, then send it again.";
@@ -163,8 +166,6 @@ export function handleIncoming(clubId, msg) {
     return `✅ Linked. You can now create ${club.name} activities by messaging this number.\n\nTry: "${EXAMPLE}"`;
   }
 
-  const admin = senderAdmin(clubId, msg.from, msg.fromAlt);
-  if (!admin) return null; // members and strangers get no bot replies
 
   const { userId, clubName } = admin;
   let draft = loadDraft(clubId, userId);

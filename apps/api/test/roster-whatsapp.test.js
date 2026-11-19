@@ -33,7 +33,7 @@ test("connecting and choosing the group pulls its members; WhatsApp names fill t
     { phone: "919876500004" }, { lid: "123456789@lid" }
   ];
   session.scan(); await settle();
-  // WhatsApp shares a saved contact name and someone's own name from a group message.
+  // WhatsApp shares (before PaceUp knows the group, so names wait in memory) a saved contact name and someone's own name from a group message.
   session.contacts([{ phone: "919876500001", saved_name: "Amit Daga" }, { lid: "123456789@lid", push_name: "🚴 Kavya" }, { phone: "919999999999", saved_name: "Not In Group" }]);
   const groups = (await call("GET", `/api/clubs/${club.clubId}/whatsapp`, { cookie: club.cookie })).json().whatsapp.groups;
   await call("PUT", `/api/clubs/${club.clubId}/whatsapp/group`, { cookie: club.cookie, payload: { jid: groups[0].jid } });
@@ -44,6 +44,7 @@ test("connecting and choosing the group pulls its members; WhatsApp names fill t
   assert.equal(r.whatsapp.group_members, 5);
   assert.equal(r.whatsapp.syncing, false);
   assert.deepEqual(r.unnamed.people.map((p) => p.phone), ["919876500002", "919876500003", "919876500004"]);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919999999999'").get().n, 0, "people outside the group are never stored");
 });
 
 test("a phone-book export names group members and discards everyone else", async () => {

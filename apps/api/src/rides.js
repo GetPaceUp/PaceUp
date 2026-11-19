@@ -12,7 +12,7 @@ const nowIso = () => new Date().toISOString();
 const ADMIN_ROLES = ["owner", "admin"];
 const isAdmin = (membership) => Boolean(membership && ADMIN_ROLES.includes(membership.role));
 const newShareCode = () => randomBytes(9).toString("base64url"); // 12 chars, 72 bits
-export const CATEGORIES = ["cycling", "running", "hiking", "triathlon", "other"];
+export const CATEGORIES = ["cycling", "running", "hiking", "swimming", "triathlon", "other"];
 /** An activity counts as past (the "completed" state) this long after it starts. */
 const PAST_AFTER_MS = 12 * 60 * 60 * 1000;
 
@@ -86,7 +86,7 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
   const started = new Date(ride.starts_at).getTime() <= Date.now();
   const view = {
     id: ride.id, code: ride.share_code, club: { id: ride.club_id, name: ride.club_name },
-    title: ride.title, category: ride.category || "cycling", starts_at: ride.starts_at, meeting_point: ride.meeting_point,
+    title: ride.title, category: ride.category || "other", starts_at: ride.starts_at, meeting_point: ride.meeting_point,
     map_url: ride.map_url, distance_km: ride.distance_km, pace: ride.pace, notes: ride.notes,
     status: ride.status, capacity: ride.capacity, going_count: list.length,
     is_full: ride.capacity != null && list.length >= ride.capacity,
@@ -134,7 +134,7 @@ export function createRide(clubId, userId, input, { actorType = "user" } = {}) {
       organiser_id: userId, created_by: userId, created_at: now, updated_at: now
     };
     for (const key of EDITABLE) ride[key] = input[key] ?? null;
-    ride.category = CATEGORIES.includes(input.category) ? input.category : "cycling";
+    ride.category = CATEGORIES.includes(input.category) ? input.category : "other";
     db.prepare(`
       INSERT INTO rides (id, club_id, share_code, title, category, starts_at, meeting_point, map_url, distance_km, pace, notes, capacity, status, organiser_id, created_by, created_at, updated_at)
       VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @distance_km, @pace, @notes, @capacity, @status, @organiser_id, @created_by, @created_at, @updated_at)

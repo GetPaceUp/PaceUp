@@ -64,7 +64,7 @@ export function WhatsAppPanel({ clubId }) {
   return (
     <section className="admin-panel wa-panel">
       <h3>WhatsApp</h3>
-      <p className="panel-copy">Post new rides and the updated rider list to your club's WhatsApp group automatically.</p>
+      <p className="panel-copy">Post new activities and the updated list of who's going to your club's WhatsApp group automatically.</p>
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
       {wa.last_error && !connected && <p className="error">{wa.last_error}</p>}
 
@@ -82,7 +82,7 @@ export function WhatsAppPanel({ clubId }) {
       {starting && <button type="button" className="text-button" onClick={() => act("/disconnect")}>Cancel</button>}
 
       {connected && <>
-        <label className="field-label" htmlFor="wa-group">Post rides in</label>
+        <label className="field-label" htmlFor="wa-group">Post activities in</label>
         {wa.groups.length
           ? <select id="wa-group" value={wa.group?.jid || ""} disabled={busy} onChange={(e) => e.target.value && act("/group", "PUT", { jid: e.target.value })}>
               <option value="">Choose a group…</option>
@@ -91,9 +91,9 @@ export function WhatsAppPanel({ clubId }) {
           : <p className="panel-copy">This number isn't in any groups yet. Add it to your club group in WhatsApp, then press Refresh groups.</p>}
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group missing? Refresh groups"}</button>
         {wa.group && <>
-          <Toggle id="wa-new" label="New ride published" hint="Ride details and the RSVP link" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />
-          <Toggle id="wa-list" label="Rider list after RSVPs" hint="One updated list per ride, at most every 2 minutes" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />
-          <Toggle id="wa-changes" label="Ride changed or cancelled" hint="New time, place or cancellation" checked={wa.settings.post_changes} onChange={(v) => act("/settings", "PATCH", { post_changes: v })} />
+          <Toggle id="wa-new" label="New activity published" hint="Details and the link to join" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />
+          <Toggle id="wa-list" label="Who's going, after people join" hint="One updated list per activity, at most every 2 minutes" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />
+          <Toggle id="wa-changes" label="Activity changed or cancelled" hint="New time, place or cancellation" checked={wa.settings.post_changes} onChange={(v) => act("/settings", "PATCH", { post_changes: v })} />
           <Toggle id="wa-quiet" label="Quiet hours 10 PM – 5 AM" hint="Held messages go out at 5 AM" checked={wa.settings.quiet_hours} onChange={(v) => act("/settings", "PATCH", { quiet_hours: v })} />
           <dl className="wa-stats">
             <div><dt>Last message</dt><dd>{ago(wa.stats.last_sent_at)}</dd></div>
