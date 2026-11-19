@@ -16,6 +16,15 @@ export const fakeAdapter = {
         sent.push({ clubId, jid, text, at: Date.now() });
       },
       async listGroups() { return this.groups; },
+      addResults: {},     // phone -> "200" | "403" | "409" | Error, for tests
+      added: [],
+      async addToGroup(groupJid, phone) {
+        const r = this.addResults[phone] ?? "200";
+        if (r instanceof Error) throw r;
+        if (r === "200") this.added.push({ groupJid, phone });
+        return { status: r };
+      },
+      async groupInviteLink(groupJid) { return `https://chat.whatsapp.com/fake-${groupJid}`; },
       participants: [],   // [{ phone, lid }] of the club group
       groupMembers: {},   // other groups' members, by jid
       async groupParticipants(jid) { return this.groupMembers[jid] || this.participants; },

@@ -127,3 +127,4 @@ label.check input { width: auto; margin: 0; }
 .member-row .confirm-row{flex-basis:100%;background:#fdf1ee;border-radius:8px;padding:10px 12px}.small-button.danger{background:#a83327;color:#fff}.club-name-view{align-items:center}.club-name-text{display:block;font-size:18px;padding:6px 0}
 .club-name-view .field-grow{text-align:left}
 .members-card{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}.back-link{display:block;margin-bottom:8px;padding-left:0;text-align:left}
+.group-add-pick{display:grid;gap:6px}.check-label{display:flex;gap:8px;align-items:center;font-weight:600}.check-label input{width:18px;height:18px}

@@ -142,10 +142,28 @@ export function RosterPanel({ clubId, onBack }) {
   const sync = () => run(async () => { await api(`${base}/sync`, { method: "POST" }); await load(); });
   const [added, setAdded] = useState(null); // { ok, text, existing }
   const [adding, setAdding] = useState(false);
+  const [toGroup, setToGroup] = useState(true);
+  const [groupJid, setGroupJid] = useState("");
+  const [groupAdd, setGroupAdd] = useState(null); // status of the WhatsApp group add
+  const groups = data?.whatsapp?.groups || [];
+  const pickedGroup = groupJid || data?.whatsapp?.add_group || groups[0]?.jid || "";
+  // Follow the WhatsApp add until the club number has done it (it waits between adds to stay safe).
+  useEffect(() => {
+    if (!groupAdd || groupAdd.status !== "pending") return;
+    let tries = 0;
+    const t = setInterval(async () => {
+      tries++;
+      try { const d = await api(`${base}/group-adds/${groupAdd.id}`); setGroupAdd(d.group_add); if (d.group_add.status !== "pending") clearInterval(t); } catch { /* keep the last status */ }
+      if (tries > 60) clearInterval(t);
+    }, 3000);
+    return () => clearInterval(t);
+  }, [groupAdd?.id, groupAdd?.status]);
   async function add(e) {
-    e.preventDefault(); setAdding(true); setAdded(null);
+    e.preventDefault(); setAdding(true); setAdded(null); setGroupAdd(null);
     try {
-      const r = await api(base, { method: "POST", body: JSON.stringify({ name, phone }) });
+      const wa_group_jid = groups.length && toGroup ? pickedGroup : null;
+      const r = await api(base, { method: "POST", body: JSON.stringify({ name, phone, wa_group_jid }) });
+      setGroupAdd(r.group_add || null);
       setAdded({ ok: true, text: `✓ Added ${r.person?.name || name.trim()}${r.person?.phone ? ` (${phoneText(r.person.phone)})` : ""}.` });
       setName(""); setPhone("+91 "); setQ(""); await load("");
     } catch (err) {
@@ -192,10 +210,16 @@ export function RosterPanel({ clubId, onBack }) {
           <label htmlFor="roster-add">Add someone</label>
           <input id="roster-add" value={name} onChange={(e) => { setName(e.target.value); setAdded(null); }} placeholder="Full name" minLength={2} maxLength={80} autoCapitalize="words" required />
           <input id="roster-add-phone" aria-label="Mobile number" type="tel" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setAdded(null); }} placeholder="+91 98765 43210" maxLength={20} pattern="[+0-9 ()-]{10,20}" required />
+          {groups.length > 0 && <div className="group-add-pick">
+            <label className="check-label"><input type="checkbox" checked={toGroup} onChange={(e) => setToGroup(e.target.checked)} /> Also add to the WhatsApp group</label>
+            {toGroup && groups.length > 1 && <select value={pickedGroup} onChange={(e) => setGroupJid(e.target.value)} aria-label="WhatsApp group">{groups.map((g) => <option key={g.jid} value={g.jid}>{g.name}</option>)}</select>}
+            {toGroup && groups.length === 1 && <small className="panel-copy">{groups[0].name}</small>}
+          </div>}
           <button type="submit" disabled={busy || adding}>{adding ? "Adding…" : "Add"}</button>
           {added && (added.ok
             ? <p className="success-note" role="status">{added.text}</p>
             : <p className="error" role="alert">{added.text}{added.existing && <> <button type="button" className="text-button" onClick={() => showExisting(added.existing)}>Show {added.existing.name}</button></>}</p>)}
+          {groupAdd && <GroupAddStatus g={groupAdd} />}
         </form>
         {(data.total > 8 || q) && <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${data.total} names`} aria-label="Search the member list" />}
         <div className="roster-list">
@@ -222,4 +246,13 @@ export function MembersCard({ clubId, onOpen }) {
       <button type="button" className="secondary-button" onClick={onOpen}>Open member list</button>
     </section>
   );
+}
+
+/** What happened with the WhatsApp group add, in plain words. */
+function GroupAddStatus({ g }) {
+  if (g.status === "pending") return <p className="panel-copy" role="status">Adding to {g.group} on WhatsApp… {g.ahead ? `${g.ahead} ahead in the queue. ` : ""}The club number waits between adds to keep it safe, so this can take a minute or two.</p>;
+  if (g.status === "added") return <p className="success-note" role="status">✓ Added to {g.group} on WhatsApp.</p>;
+  if (g.status === "already") return <p className="success-note" role="status">Already in {g.group} on WhatsApp.</p>;
+  if (g.status === "invited") return <p className="success-note" role="status">Invite link to {g.group} sent on WhatsApp. {g.detail}</p>;
+  return <p className="error" role="alert">Not added to {g.group}: {g.detail}</p>;
 }

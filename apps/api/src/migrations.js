@@ -445,6 +445,30 @@ export const migrations = [
         db.prepare("UPDATE whatsapp_connections SET allowed_groups_json = ? WHERE club_id = ?").run(JSON.stringify([...jids]), c.club_id);
       }
     }
+  },
+  {
+    id: 19,
+    name: "whatsapp_group_adds",
+    up(db) {
+      // An admin adding someone to the member list can also add them to one of the club's WhatsApp
+      // groups. The worker does it slowly (to keep the number safe) and records what happened.
+      db.exec(`
+        CREATE TABLE whatsapp_group_adds (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          phone TEXT NOT NULL,
+          name TEXT,
+          group_jid TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'added', 'invited', 'already', 'failed')),
+          detail TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          done_at TEXT
+        );
+        CREATE INDEX idx_group_adds_pending ON whatsapp_group_adds(status, created_at);
+      `);
+    }
   }
 ];
 
