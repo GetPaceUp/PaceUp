@@ -52,3 +52,11 @@ Schema changes live in `apps/api/src/migrations.js` as numbered, forward-only st
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+### WhatsApp posting
+
+Each club links its own dedicated WhatsApp number from the club admin page (QR code, like WhatsApp Web) and picks one group. New rides, the updated rider list after RSVPs, and changes or cancellations are posted to that group.
+
+- Ride and RSVP changes are written to an `outbox` table in the same transaction; the separate worker (`npm run worker --workspace @paceup/api`, systemd unit in `deploy/`) delivers them. RSVPs never depend on WhatsApp being up.
+- Bursts coalesce: at most one rider-list post per ride every 2 minutes, a few seconds of jitter and a typing pause per post, and at most 20 posts per club number per hour. Nothing over a limit is dropped; it waits.
+- Everything WhatsApp-specific is behind `apps/api/src/whatsapp/adapter.js` (Baileys today), so the transport can be replaced without touching rides or RSVPs.

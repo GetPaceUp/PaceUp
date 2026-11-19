@@ -134,6 +134,50 @@ export const migrations = [
         CREATE INDEX idx_rsvps_ride_status ON ride_rsvps(ride_id, status);
       `);
     }
+  },
+  {
+    id: 7,
+    name: "whatsapp_connections_and_outbox",
+    up(db) {
+      db.exec(`
+        CREATE TABLE whatsapp_connections (
+          club_id TEXT PRIMARY KEY REFERENCES clubs(id) ON DELETE CASCADE,
+          desired TEXT NOT NULL DEFAULT 'off' CHECK (desired IN ('off', 'on', 'logout')),
+          status TEXT NOT NULL DEFAULT 'disconnected'
+            CHECK (status IN ('disconnected', 'pairing', 'connected', 'reconnecting', 'logged_out', 'error')),
+          qr TEXT,
+          qr_updated_at TEXT,
+          phone TEXT,
+          group_jid TEXT,
+          group_name TEXT,
+          groups_json TEXT,
+          post_new_ride INTEGER NOT NULL DEFAULT 1,
+          post_rider_list INTEGER NOT NULL DEFAULT 1,
+          post_changes INTEGER NOT NULL DEFAULT 1,
+          quiet_hours INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          last_seen_at TEXT,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE outbox (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          ride_id TEXT REFERENCES rides(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('ride_published', 'rider_list', 'ride_updated', 'ride_cancelled', 'test')),
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+          not_before TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          payload TEXT,
+          created_at TEXT NOT NULL,
+          sent_at TEXT
+        );
+        CREATE INDEX idx_outbox_due ON outbox(status, not_before);
+        CREATE INDEX idx_outbox_club_sent ON outbox(club_id, status, sent_at);
+        -- At most one pending rider-list post per ride: bursts of RSVPs coalesce into it.
+        CREATE UNIQUE INDEX idx_outbox_one_pending_list ON outbox(ride_id) WHERE kind = 'rider_list' AND status = 'pending';
+      `);
+    }
   }
 ];
 

@@ -1,0 +1,213 @@
+// WhatsApp worker: a separate long-running process (systemd unit paceup-whatsapp).
+// It keeps one linked-device session per club that asked to be connected, and
+// delivers that club's outbox to that club's group only.
+import "dotenv/config";
+import { join, dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { db } from "../db.js";
+import { loadAdapter } from "./adapter.js";
+import { HOURLY_CAP, MAX_ATTEMPTS } from "./outbox.js";
+import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
+
+const iso = (ms) => new Date(ms).toISOString();
+const PAIRING_TIMEOUT_MS = 5 * 60 * 1000;
+const QUIET_START = 22, QUIET_END = 5;
+
+function defaultDataDir() {
+  if (process.env.WHATSAPP_DATA_DIR) return process.env.WHATSAPP_DATA_DIR;
+  const url = process.env.DATABASE_URL || "file:./data/paceup.sqlite";
+  const path = url.startsWith("file:") ? url.slice(5) : url;
+  return join(dirname(resolve(path)), "whatsapp");
+}
+
+function localHour(ms) {
+  return Number(new Date(ms).toLocaleString("en-GB", { timeZone: process.env.PACEUP_TIMEZONE || "Asia/Kolkata", hour: "2-digit", hourCycle: "h23" }));
+}
+
+export class WhatsAppWorker {
+  constructor({ adapter, dataDir = defaultDataDir(), log = console, sendGapMs = [4000, 9000] } = {}) {
+    this.adapter = adapter;
+    this.dataDir = dataDir;
+    this.log = log;
+    this.sendGapMs = sendGapMs;
+    this.sessions = new Map();      // clubId -> { session, open, startedAt, retryAt, retries }
+    this.nextSendAt = new Map();    // clubId -> ms (spacing between posts of one number)
+    this.busy = false;
+  }
+
+  setConn(clubId, fields) {
+    const keys = Object.keys(fields);
+    db.prepare(`UPDATE whatsapp_connections SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @updated_at WHERE club_id = @club_id`)
+      .run({ ...fields, updated_at: iso(Date.now()), club_id: clubId });
+  }
+
+  authDir(clubId) {
+    if (!/^[0-9a-f-]{36}$/i.test(clubId)) throw new Error("bad club id");
+    return join(this.dataDir, clubId);
+  }
+
+  async startSession(clubId) {
+    const entry = { open: false, startedAt: Date.now(), retries: this.sessions.get(clubId)?.retries || 0 };
+    this.sessions.set(clubId, entry);
+    try {
+      entry.session = await this.adapter.connect(clubId, {
+        authDir: this.authDir(clubId),
+        onQr: (qr) => this.setConn(clubId, { status: "pairing", qr, qr_updated_at: iso(Date.now()), last_error: null }),
+        onOpen: async ({ phone }) => {
+          entry.open = true; entry.retries = 0;
+          this.setConn(clubId, { status: "connected", phone, qr: null, last_error: null, last_seen_at: iso(Date.now()) });
+          this.log.info?.(`[whatsapp] club ${clubId} connected`);
+          await this.refreshGroups(clubId);
+        },
+        onClose: ({ loggedOut, restartRequired, error }) => {
+          entry.open = false;
+          this.sessions.delete(clubId);
+          if (loggedOut) {
+            this.log.warn?.(`[whatsapp] club ${clubId} was unlinked from the phone`);
+            entry.session?.logout?.().catch?.(() => {});
+            this.setConn(clubId, { status: "logged_out", desired: "off", phone: null, qr: null, groups_json: null, last_error: "The phone unlinked PaceUp. Connect again to resume posting." });
+            return;
+          }
+          const retries = restartRequired ? 0 : entry.retries + 1;
+          const wait = restartRequired ? 500 : Math.min(5 * 60 * 1000, 2000 * 2 ** Math.min(retries, 8));
+          this.sessions.set(clubId, { open: false, retryAt: Date.now() + wait, retries, placeholder: true });
+          this.setConn(clubId, { status: "reconnecting", last_error: error || null });
+        }
+      });
+    } catch (error) {
+      this.sessions.set(clubId, { open: false, retryAt: Date.now() + 30000, retries: entry.retries + 1, placeholder: true });
+      this.setConn(clubId, { status: "error", last_error: String(error.message || error) });
+    }
+  }
+
+  async refreshGroups(clubId) {
+    const entry = this.sessions.get(clubId);
+    if (!entry?.open) return;
+    try {
+      const groups = await entry.session.listGroups();
+      this.setConn(clubId, { groups_json: JSON.stringify(groups) });
+      entry.groupsAt = Date.now();
+    } catch (error) { this.log.warn?.(`[whatsapp] could not list groups for ${clubId}: ${error.message}`); }
+  }
+
+  /** Bring live sessions in line with what each club asked for. */
+  async reconcile() {
+    const conns = db.prepare("SELECT * FROM whatsapp_connections").all();
+    const wanted = new Set();
+    for (const c of conns) {
+      const entry = this.sessions.get(c.club_id);
+      if (c.desired === "logout") {
+        if (entry?.session) await entry.session.logout().catch(() => {});
+        else {
+          // Not running: open the stored link just long enough to remove it.
+          const { rmSync } = await import("node:fs");
+          rmSync(this.authDir(c.club_id), { recursive: true, force: true });
+        }
+        this.sessions.delete(c.club_id);
+        this.setConn(c.club_id, { desired: "off", status: "disconnected", phone: null, qr: null, groups_json: null, group_jid: null, group_name: null, last_error: null });
+        continue;
+      }
+      if (c.desired !== "on") continue;
+      wanted.add(c.club_id);
+      if (!entry || (entry.placeholder && Date.now() >= entry.retryAt)) await this.startSession(c.club_id);
+      else if (!entry.open && c.status === "pairing" && c.qr_updated_at && Date.now() - entry.startedAt > PAIRING_TIMEOUT_MS) {
+        entry.session?.end();
+        this.sessions.delete(c.club_id);
+        this.setConn(c.club_id, { desired: "off", status: "disconnected", qr: null, last_error: "The QR code expired before it was scanned. Press Connect to try again." });
+      } else if (entry.open) {
+        this.setConn(c.club_id, { last_seen_at: iso(Date.now()) });
+        if (!entry.groupsAt || Date.now() - entry.groupsAt > 10 * 60 * 1000) await this.refreshGroups(c.club_id);
+      }
+    }
+    for (const [clubId, entry] of this.sessions) {
+      if (!wanted.has(clubId)) { entry.session?.end(); this.sessions.delete(clubId); }
+    }
+  }
+
+  buildText(item) {
+    if (item.kind === "test") {
+      const club = db.prepare("SELECT name FROM clubs WHERE id = ?").get(item.club_id);
+      return { text: testText(club?.name || "Your club") };
+    }
+    const ride = db.prepare(`SELECT r.*, u.name AS organiser_name FROM rides r LEFT JOIN users u ON u.id = r.organiser_id WHERE r.id = ?`).get(item.ride_id);
+    if (!ride) return { skip: "ride deleted" };
+    if (item.kind === "ride_cancelled") return { text: rideCancelledText(ride) };
+    if (ride.status !== "published") return { skip: `ride is ${ride.status}` };
+    if (new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "ride already started" };
+    if (item.kind === "ride_published") return { text: ridePublishedText(ride) };
+    if (item.kind === "ride_updated") return { text: rideUpdatedText(ride) };
+    const riders = db.prepare(`SELECT u.id, u.name FROM ride_rsvps rs INNER JOIN users u ON u.id = rs.user_id
+      WHERE rs.ride_id = ? AND rs.status = 'going' ORDER BY rs.updated_at`).all(ride.id);
+    const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent' ORDER BY sent_at DESC LIMIT 1").get(ride.id);
+    const previous = prevRow?.payload ? JSON.parse(prevRow.payload).riders : null;
+    if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id)) return { skip: "list unchanged since last post" };
+    return { text: riderListText(ride, riders, previous), payload: JSON.stringify({ riders }) };
+  }
+
+  /** Send whatever is due, one post per club per pass, within each club's limits. */
+  async deliver() {
+    const now = Date.now();
+    const due = db.prepare("SELECT * FROM outbox WHERE status = 'pending' AND not_before <= ? ORDER BY not_before LIMIT 50").all(iso(now));
+    const handled = new Set();
+    for (const item of due) {
+      if (handled.has(item.club_id)) continue;
+      const conn = db.prepare("SELECT * FROM whatsapp_connections WHERE club_id = ?").get(item.club_id);
+      const entry = this.sessions.get(item.club_id);
+      if (!conn || conn.desired !== "on" || !conn.group_jid) { this.finish(item, "skipped", "WhatsApp posting is not set up for this club"); continue; }
+      if (!entry?.open) continue; // stays queued until the club is connected again
+      const settingOff = { ride_published: !conn.post_new_ride, rider_list: !conn.post_rider_list, ride_updated: !conn.post_changes, ride_cancelled: !conn.post_changes }[item.kind];
+      if (settingOff) { this.finish(item, "skipped", "turned off in club settings"); continue; }
+      if (conn.quiet_hours && item.kind !== "test") {
+        const h = localHour(now);
+        if (h >= QUIET_START || h < QUIET_END) { this.postpone(item, now + 15 * 60 * 1000); continue; }
+      }
+      const hourAgo = iso(now - 60 * 60 * 1000);
+      const recent = db.prepare("SELECT sent_at FROM outbox WHERE club_id = ? AND status = 'sent' AND sent_at >= ? ORDER BY sent_at").all(item.club_id, hourAgo);
+      if (recent.length >= HOURLY_CAP) { this.postpone(item, new Date(recent[0].sent_at).getTime() + 60 * 60 * 1000 + 5000); continue; }
+      if ((this.nextSendAt.get(item.club_id) || 0) > now) continue;
+
+      handled.add(item.club_id);
+      const built = this.buildText(item);
+      if (built.skip) { this.finish(item, "skipped", built.skip); handled.delete(item.club_id); continue; }
+      try {
+        await entry.session.sendText(conn.group_jid, built.text);
+        db.prepare("UPDATE outbox SET status = 'sent', sent_at = ?, attempts = attempts + 1, payload = ?, last_error = NULL WHERE id = ?").run(iso(Date.now()), built.payload ?? null, item.id);
+        const [lo, hi] = this.sendGapMs;
+        this.nextSendAt.set(item.club_id, Date.now() + lo + Math.random() * (hi - lo));
+      } catch (error) {
+        const attempts = item.attempts + 1;
+        if (attempts >= MAX_ATTEMPTS) this.finish(item, "failed", error.message, attempts);
+        else db.prepare("UPDATE outbox SET attempts = ?, last_error = ?, not_before = ? WHERE id = ?")
+          .run(attempts, String(error.message).slice(0, 500), iso(Date.now() + Math.min(30 * 60 * 1000, 30000 * 2 ** (attempts - 1))), item.id);
+      }
+    }
+  }
+
+  finish(item, status, reason, attempts = item.attempts) {
+    db.prepare("UPDATE outbox SET status = ?, last_error = ?, attempts = ? WHERE id = ?").run(status, reason ? String(reason).slice(0, 500) : null, attempts, item.id);
+  }
+  postpone(item, ms) { db.prepare("UPDATE outbox SET not_before = ? WHERE id = ?").run(iso(ms), item.id); }
+
+  async tick() {
+    if (this.busy) return;
+    this.busy = true;
+    try { await this.reconcile(); await this.deliver(); }
+    catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
+    finally { this.busy = false; }
+  }
+
+  stop() { for (const entry of this.sessions.values()) entry.session?.end(); this.sessions.clear(); }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  const adapter = await loadAdapter();
+  const worker = new WhatsAppWorker({ adapter });
+  console.log(`[whatsapp] worker started (${adapter.name}), sessions in ${worker.dataDir}`);
+  // Reset statuses left over from a previous run; sessions reconnect on the first tick.
+  db.prepare("UPDATE whatsapp_connections SET status = CASE WHEN desired = 'on' THEN 'reconnecting' ELSE 'disconnected' END, qr = NULL").run();
+  const timer = setInterval(() => worker.tick(), 3000);
+  worker.tick();
+  const shutdown = () => { clearInterval(timer); worker.stop(); db.close(); process.exit(0); };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}

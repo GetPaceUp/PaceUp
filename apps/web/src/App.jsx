@@ -1,5 +1,6 @@
 import SuperAdmin from "./SuperAdmin.jsx";
 import { ClubRides, RidePage } from "./Rides.jsx";
+import { WhatsAppPanel } from "./WhatsApp.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "", clubName: "" };
@@ -185,6 +186,7 @@ export default function App() {
                 <section className="admin-panel"><h3>Invite someone</h3><p className="panel-copy">Create a secure invitation link for a club admin or member.</p><form className="stack-form" onSubmit={sendInvite}><label htmlFor="invite-email">Email address</label><input id="invite-email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="person@example.com" required /><label htmlFor="invite-role">Role</label><select id="invite-role" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}><option value="member">Member</option><option value="admin">Club admin</option></select><button type="submit">Create invite link</button></form>{inviteLink && <div className="invite-result"><p>Invitation created. Copy and share this link:</p><input readOnly value={inviteLink} onFocus={(e) => e.target.select()} /><button type="button" className="secondary-button" onClick={() => navigator.clipboard?.writeText(inviteLink)}>Copy link</button><small>Valid for 7 days. Email delivery isn't connected yet.</small></div>}</section>
                 <section className="admin-panel"><h3>Members <span className="count">{members.length}</span></h3>{members.map((member) => <div className="member-row" key={member.id}><div className="member-avatar">{member.name.slice(0,1).toUpperCase()}</div><div className="member-info"><strong>{member.name}</strong><small>{member.email}</small></div><span className="role-tag">{member.role}</span></div>)}{invitations.filter((invite) => !invite.accepted_at).length > 0 && <><h4>Pending invitations</h4>{invitations.filter((invite) => !invite.accepted_at).map((invite) => <div className="pending-row" key={invite.id}>{invite.email}<span>{invite.role}</span></div>)}</>}</section>
               </div>
+              <WhatsAppPanel clubId={selectedClub} />
             </>}
           </section>
           {error && <p className="error" role="alert">{error}</p>}

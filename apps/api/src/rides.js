@@ -1,6 +1,7 @@
 // Rides and RSVPs: club admins post rides, club members RSVP with one tap.
 import { randomUUID, randomBytes } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
+import { enqueueRideEvent, enqueueRiderList } from "./whatsapp/outbox.js";
 
 const nowIso = () => new Date().toISOString();
 const ADMIN_ROLES = ["owner", "admin"];
@@ -72,6 +73,9 @@ export function listClubRides(clubId, userId, { includePast = false } = {}) {
 }
 
 export function createRide(clubId, userId, input) {
+  return db.transaction(() => insertRide(clubId, userId, input)).immediate();
+}
+function insertRide(clubId, userId, input) {
   const now = nowIso();
   const ride = {
     id: randomUUID(), club_id: clubId, share_code: newShareCode(), status: input.status === "published" ? "published" : "draft",
@@ -82,6 +86,7 @@ export function createRide(clubId, userId, input) {
     INSERT INTO rides (id, club_id, share_code, title, starts_at, meeting_point, map_url, distance_km, pace, notes, capacity, status, organiser_id, created_by, created_at, updated_at)
     VALUES (@id, @club_id, @share_code, @title, @starts_at, @meeting_point, @map_url, @distance_km, @pace, @notes, @capacity, @status, @organiser_id, @created_by, @created_at, @updated_at)
   `).run(ride);
+  if (ride.status === "published") enqueueRideEvent(ride, "ride_published");
   return getRideRow("id", ride.id);
 }
 
@@ -104,7 +109,16 @@ export function updateRide(clubId, rideId, input) {
       db.prepare(`UPDATE rides SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @updated_at WHERE id = @id`)
         .run({ ...changes, updated_at: nowIso(), id: rideId });
     }
-    return getRideRow("id", rideId);
+    const updated = getRideRow("id", rideId);
+    if (changes.status === "published" && ride.status === "draft") enqueueRideEvent(updated, "ride_published");
+    else if (changes.status === "cancelled" && ride.status === "published") enqueueRideEvent(updated, "ride_cancelled");
+    else if (ride.status === "published" && updated.status === "published") {
+      if (("starts_at" in changes && changes.starts_at !== ride.starts_at) || ("meeting_point" in changes && changes.meeting_point !== ride.meeting_point)) {
+        enqueueRideEvent(updated, "ride_updated");
+      }
+      if ("capacity" in changes && changes.capacity !== ride.capacity) enqueueRiderList(updated);
+    }
+    return updated;
   }).immediate();
 }
 
@@ -130,12 +144,15 @@ export function setRsvp(code, userId, status) {
     if (status === "going" && existing?.status !== "going") {
       if (ride.capacity != null && goingCount(ride.id) >= ride.capacity) throw new DomainError(409, "This ride is full.");
     }
+    let changed = false;
     if (existing) {
-      if (existing.status !== status) db.prepare("UPDATE ride_rsvps SET status = ?, updated_at = ? WHERE id = ?").run(status, now, existing.id);
+      if (existing.status !== status) { db.prepare("UPDATE ride_rsvps SET status = ?, updated_at = ? WHERE id = ?").run(status, now, existing.id); changed = true; }
     } else if (status === "going") {
       db.prepare("INSERT INTO ride_rsvps (id, ride_id, user_id, status, created_at, updated_at) VALUES (?, ?, ?, 'going', ?, ?)")
         .run(randomUUID(), ride.id, userId, now, now);
+      changed = true;
     }
+    if (changed) enqueueRiderList(ride);
     return rideView(ride, userId);
   }).immediate();
 }
