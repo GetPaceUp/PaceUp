@@ -14,7 +14,7 @@ The first application foundation is underway:
 - Club-scoped administration, member listing and invitation links.
 - Local development setup using npm workspaces.
 
-This is an early development build. Automated tests are being added as the API is separated into an injectable application for repeatable verification. Email delivery is not connected; club invitations are shared as one-time links.
+This is an early development build. The API includes an automated integration test for account registration, club-scoped administration, invitation acceptance and permission boundaries. Email delivery is not connected; club invitations are shared as one-time links.
 
 ## Run locally
 
@@ -26,7 +26,7 @@ Requirements: Node.js 20 or newer and npm.
 4. Start the API and web app with `npm run dev`.
 5. Open http://localhost:5173.
 
-The API runs on http://127.0.0.1:3001. Its health endpoint is http://127.0.0.1:3001/health.
+The API runs on http://127.0.0.1:3001. Its health endpoint is http://127.0.0.1:3001/health. Run API tests with `npm test --workspace @paceup/api` and build the web app with `npm run build`.
 
 SQLite data is stored in `data/paceup.sqlite` by default.
 
