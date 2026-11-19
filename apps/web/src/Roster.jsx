@@ -19,6 +19,7 @@ function NameRow({ label, sub, initial = "", action, onSave, onRemove, busy }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(initial);
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
   async function save(e) {
     e.preventDefault(); setError("");
     try { await onSave(value); setEditing(false); } catch (err) { setError(err.message); }
@@ -35,7 +36,12 @@ function NameRow({ label, sub, initial = "", action, onSave, onRemove, busy }) {
           </form>
         : <><div className="member-info"><strong>{label}</strong><small>{sub}</small></div>
             <button type="button" className="text-button" onClick={() => { setValue(initial); setEditing(true); }}>{action}</button>
-            {onRemove && <button type="button" className="text-button remove" disabled={busy} aria-label={`Remove ${label}`} onClick={onRemove}>✕</button>}</>}
+            {onRemove && <button type="button" className="text-button remove" disabled={busy} aria-label={`Remove ${label}`} onClick={() => setConfirming(true)}>✕</button>}</>}
+      {confirming && <div className="confirm-row" role="alertdialog" aria-label={`Remove ${label}?`}>
+        <span>Remove <b>{label}</b> from the list?</span>
+        <button type="button" className="small-button danger" disabled={busy} onClick={async () => { setConfirming(false); await onRemove(); }}>Remove</button>
+        <button type="button" className="text-button" onClick={() => setConfirming(false)}>Keep</button>
+      </div>}
     </div>
   );
 }

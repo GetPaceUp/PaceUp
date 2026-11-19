@@ -124,3 +124,5 @@ label.check input { width: auto; margin: 0; }
 .cleanup-list s { color: #8a8a80; font-size: 0.85em; overflow-wrap: anywhere; }
 .cleanup-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .platform-club-row{grid-template-columns:1.5fr 1fr .6fr .7fr}.platform-club-row button{padding:8px 10px;font-size:11px}.platform-groups{padding:12px 4px 18px;border-bottom:1px solid #edf0eb}.platform-groups-search{width:100%;margin:6px 0}
+.member-row .confirm-row{flex-basis:100%;background:#fdf1ee;border-radius:8px;padding:10px 12px}.small-button.danger{background:#a83327;color:#fff}.club-name-view{align-items:center}.club-name-text{display:block;font-size:18px;padding:6px 0}
+.club-name-view .field-grow{text-align:left}
