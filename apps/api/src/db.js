@@ -65,7 +65,9 @@ applyOwnerBootstrap();
 // ---------------------------------------------------------------- users and clubs
 
 const insertUser = db.prepare("INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)");
-const selectSafeUser = db.prepare("SELECT id, name, email FROM users WHERE id = ?");
+export const PHONE_EMAIL_DOMAIN = "phone.paceup.invalid";
+const SAFE_USER = `id, name, CASE WHEN email LIKE '%@${PHONE_EMAIL_DOMAIN}' THEN NULL ELSE email END AS email, phone`;
+const selectSafeUser = db.prepare(`SELECT ${SAFE_USER} FROM users WHERE id = ?`);
 
 const createAccountAndClub = db.transaction(({ user, club, membership }) => {
   insertUser.run(user.id, user.name, user.email, user.passwordHash);
@@ -98,7 +100,7 @@ export function updateClub(clubId, name, slug) {
 }
 export function listClubMembers(clubId) {
   return db.prepare(`
-    SELECT u.id, u.name, u.email, cm.role, cm.created_at AS joined_at
+    SELECT u.id, u.name, CASE WHEN u.email LIKE '%@${PHONE_EMAIL_DOMAIN}' THEN NULL ELSE u.email END AS email, u.phone, cm.role, cm.created_at AS joined_at
     FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id
     WHERE cm.club_id = ? ORDER BY CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.name
   `).all(clubId);
@@ -138,7 +140,9 @@ function claimInvitationAndJoin(tokenHash, userId) {
   const invitation = db.prepare("SELECT * FROM club_invitations WHERE token_hash = ?").get(tokenHash);
   if (!invitation) throw new DomainError(410, INVITE_GONE);
   const user = db.prepare("SELECT id, email FROM users WHERE id = ?").get(userId);
-  if (!user || user.email.toLowerCase() !== invitation.email.toLowerCase()) {
+  // Invites without an email go to whoever holds the link; phone-only accounts have no email to match.
+  const phoneOnly = user?.email.endsWith(`@${PHONE_EMAIL_DOMAIN}`);
+  if (!user || (invitation.email && !phoneOnly && user.email.toLowerCase() !== invitation.email.toLowerCase())) {
     throw new DomainError(403, "Sign in with the email address this invitation was sent to.");
   }
   const claimed = db.prepare(`
@@ -199,7 +203,7 @@ export function getPlatformOverview() {
   return {
     counts: { clubs: db.prepare("SELECT COUNT(*) AS count FROM clubs").get().count, users: db.prepare("SELECT COUNT(*) AS count FROM users").get().count, memberships: db.prepare("SELECT COUNT(*) AS count FROM club_memberships").get().count },
     clubs: db.prepare("SELECT c.id,c.name,c.slug,c.created_at,COUNT(cm.user_id) AS member_count FROM clubs c LEFT JOIN club_memberships cm ON cm.club_id=c.id GROUP BY c.id ORDER BY c.created_at DESC").all(),
-    users: db.prepare("SELECT u.id,u.name,u.email,u.platform_role,u.created_at,COUNT(cm.club_id) AS club_count FROM users u LEFT JOIN club_memberships cm ON cm.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC").all()
+    users: db.prepare(`SELECT u.id,u.name,CASE WHEN u.email LIKE '%@${PHONE_EMAIL_DOMAIN}' THEN NULL ELSE u.email END AS email,u.phone,u.platform_role,u.created_at,COUNT(cm.club_id) AS club_count FROM users u LEFT JOIN club_memberships cm ON cm.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC`).all()
   };
 }
 
@@ -218,6 +222,6 @@ const setPlatformRoleTx = db.transaction(({ actorUserId, targetUserId, role, ip 
     db.prepare("UPDATE users SET platform_role = ? WHERE id = ?").run(role, targetUserId);
     audit({ actorUserId, action: role === "super_admin" ? "platform_role.promote" : "platform_role.demote", targetUserId, oldValue: target.platform_role, newValue: role, ip });
   }
-  return db.prepare("SELECT id,name,email,platform_role FROM users WHERE id = ?").get(targetUserId);
+  return db.prepare(`SELECT ${SAFE_USER}, platform_role FROM users WHERE id = ?`).get(targetUserId);
 });
 export function changePlatformRole(input) { return setPlatformRoleTx.immediate(input); }

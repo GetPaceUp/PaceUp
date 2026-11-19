@@ -7,11 +7,15 @@ import { pathToFileURL } from "node:url";
 import { db } from "../db.js";
 import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS } from "./outbox.js";
+import { participants } from "../rides.js";
+import { handleIncoming } from "./conversation.js";
+import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
 const PAIRING_TIMEOUT_MS = 5 * 60 * 1000;
 const GROUPS_REFRESH_MS = 2 * 60 * 1000;
+const ROSTER_REFRESH_MS = 30 * 60 * 1000;
 const QUIET_START = 22, QUIET_END = 5;
 
 function defaultDataDir() {
@@ -60,6 +64,18 @@ export class WhatsAppWorker {
           this.log.info?.(`[whatsapp] club ${clubId} connected`);
           await this.refreshGroups(clubId);
         },
+        onMessage: (msg) => this.onMessage(clubId, msg),
+        onContacts: (list) => {
+          // Names are kept in memory until we know who is in the club group; only group members are stored.
+          entry.names ||= new Map();
+          for (const c of list) {
+            if (!c.saved_name && !c.push_name) continue;
+            for (const k of [c.phone, c.lid].filter(Boolean)) entry.names.set(k, { ...entry.names.get(k), ...c });
+          }
+          if (entry.names.size > 50000) entry.names = new Map([...entry.names].slice(-25000));
+          try { if (recordContacts(clubId, list, { groupOnly: true })) entry.rosterDirty = true; }
+          catch (error) { this.log.warn?.(`[whatsapp] could not record contacts for ${clubId}: ${error.message}`); }
+        },
         // WhatsApp told us the number's groups changed: refetch on the next tick.
         onGroupsChanged: () => { entry.groupsAt = 0; },
         onClose: ({ loggedOut, restartRequired, error }) => {
@@ -81,6 +97,40 @@ export class WhatsAppWorker {
       this.sessions.set(clubId, { open: false, retryAt: Date.now() + 30000, retries: entry.retries + 1, placeholder: true });
       this.setConn(clubId, { status: "error", last_error: String(error.message || error) });
     }
+  }
+
+  /** An admin chatting with the club number to create an activity. Replies go straight back to them. */
+  async onMessage(clubId, msg) {
+    let reply;
+    try { reply = handleIncoming(clubId, msg); }
+    catch (error) {
+      this.log.error?.(`[whatsapp] could not handle a message for ${clubId}: ${error.stack || error}`);
+      reply = "Sorry, something went wrong on our side. Nothing was published. Please try again in a minute.";
+    }
+    if (!reply) return;
+    const entry = this.sessions.get(clubId);
+    try { await entry?.session?.sendText(msg.from, reply); }
+    catch (error) { this.log.warn?.(`[whatsapp] could not reply to an admin for ${clubId}: ${error.message}`); }
+  }
+
+  /** Keeps the roster filled from the club group: participant list every 30 min or on request, new names as they arrive. */
+  async syncRoster(conn, entry) {
+    if (!conn.group_jid) return;
+    const asked = conn.roster_sync_wanted_at && new Date(conn.roster_sync_wanted_at).getTime() > (entry.rosterAt || 0);
+    try {
+      if (asked || entry.rosterGroup !== conn.group_jid || Date.now() - (entry.rosterAt || 0) > ROSTER_REFRESH_MS) {
+        entry.rosterAt = Date.now();
+        entry.rosterGroup = conn.group_jid;
+        const members = await entry.session.groupParticipants(conn.group_jid);
+        setGroupParticipants(conn.club_id, members.map((m) => ({ ...(entry.names?.get(m.phone) || entry.names?.get(m.lid) || {}), ...m })));
+        entry.rosterDirty = true;
+      }
+      if (entry.rosterDirty) {
+        entry.rosterDirty = false;
+        syncRosterFromGroup(conn.club_id);
+        this.setConn(conn.club_id, { roster_synced_at: iso(Date.now()) });
+      }
+    } catch (error) { this.log.warn?.(`[whatsapp] roster sync failed for ${conn.club_id}: ${error.message}`); }
   }
 
   async refreshGroups(clubId) {
@@ -121,6 +171,7 @@ export class WhatsAppWorker {
         this.setConn(c.club_id, { last_seen_at: iso(Date.now()) });
         const asked = c.groups_wanted_at && new Date(c.groups_wanted_at).getTime() > (entry.groupsAt || 0);
         if (asked || !entry.groupsAt || Date.now() - entry.groupsAt > GROUPS_REFRESH_MS) await this.refreshGroups(c.club_id);
+        await this.syncRoster(c, entry);
       }
     }
     for (const [clubId, entry] of this.sessions) {
@@ -140,8 +191,8 @@ export class WhatsAppWorker {
     if (new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "ride already started" };
     if (item.kind === "ride_published") return { text: ridePublishedText(ride) };
     if (item.kind === "ride_updated") return { text: rideUpdatedText(ride) };
-    const riders = db.prepare(`SELECT u.id, u.name FROM ride_rsvps rs INNER JOIN users u ON u.id = rs.user_id
-      WHERE rs.ride_id = ? AND rs.status = 'going' ORDER BY rs.updated_at`).all(ride.id);
+    // Stable key per person for the "new"/"dropped out" diff: user id, roster id, or the RSVP id for a guest.
+    const riders = participants(ride.id).map((p) => ({ id: p.user_id || p.roster_id || p.id, user_id: p.user_id, name: p.name }));
     const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent' ORDER BY sent_at DESC LIMIT 1").get(ride.id);
     const previous = prevRow?.payload ? JSON.parse(prevRow.payload).riders : null;
     if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id)) return { skip: "list unchanged since last post" };
@@ -187,6 +238,22 @@ export class WhatsAppWorker {
     }
   }
 
+  /** Sign-in codes and other one-to-one messages: sent at once, never held for quiet hours or caps. */
+  async deliverDirect() {
+    const now = iso(Date.now());
+    db.prepare("UPDATE whatsapp_direct SET status = 'failed', last_error = COALESCE(last_error, 'expired before sending') WHERE status = 'pending' AND expires_at <= ?").run(now);
+    for (const msg of db.prepare("SELECT * FROM whatsapp_direct WHERE status = 'pending' ORDER BY created_at LIMIT 20").all()) {
+      const entry = this.sessions.get(msg.club_id);
+      if (!entry?.open) continue; // waits (until it expires) for the number to reconnect
+      try {
+        await entry.session.sendText(`${msg.to_phone}@s.whatsapp.net`, msg.text);
+        db.prepare("UPDATE whatsapp_direct SET status = 'sent', sent_at = ?, attempts = attempts + 1 WHERE id = ?").run(iso(Date.now()), msg.id);
+      } catch (error) {
+        db.prepare("UPDATE whatsapp_direct SET attempts = attempts + 1, last_error = ?, status = CASE WHEN attempts + 1 >= 3 THEN 'failed' ELSE status END WHERE id = ?").run(String(error.message).slice(0, 300), msg.id);
+      }
+    }
+  }
+
   finish(item, status, reason, attempts = item.attempts) {
     db.prepare("UPDATE outbox SET status = ?, last_error = ?, attempts = ? WHERE id = ?").run(status, reason ? String(reason).slice(0, 500) : null, attempts, item.id);
   }
@@ -195,7 +262,7 @@ export class WhatsAppWorker {
   async tick() {
     if (this.busy) return;
     this.busy = true;
-    try { await this.reconcile(); await this.deliver(); }
+    try { await this.reconcile(); await this.deliverDirect(); await this.deliver(); }
     catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
     finally { this.busy = false; }
   }

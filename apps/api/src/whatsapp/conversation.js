@@ -1,0 +1,208 @@
+// Creating activities by chatting with the club's WhatsApp number.
+//
+// Only club admins who linked their own WhatsApp (by sending a one-time code
+// from it) are answered; everyone else is ignored. Each admin has at most one
+// draft. Every message is read for details and merged into the draft; PaceUp
+// asks for whatever is missing and publishes only after an explicit YES.
+import { randomUUID, createHash, randomInt } from "node:crypto";
+import { db, getClubMembership } from "../db.js";
+import { createRide } from "../rides.js";
+import { parseActivity, resolveAmPm, defaultTitle, zonedToUtc } from "./compose.js";
+import { rideLink, whenText } from "./messages.js";
+import { getConnection } from "./outbox.js";
+
+const TZ = () => process.env.PACEUP_TIMEZONE || "Asia/Kolkata";
+const iso = (ms = Date.now()) => new Date(ms).toISOString();
+const DRAFT_TTL_MS = 6 * 60 * 60 * 1000;
+const CODE_TTL_MS = 15 * 60 * 1000;
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
+const hashCode = (code) => createHash("sha256").update(`wa-link:${code.toUpperCase()}`).digest("hex");
+
+const EXAMPLE = "Create a run this Sunday at 6 AM from Tulip Chowk, 10 km";
+const YES = /^\s*(yes|y|yep|yeah|yup|ok|okay|confirm|publish|publish it|go|go ahead|haan|ha|👍|✅)\s*[.!]*\s*$/i;
+const NO = /^\s*(no|n|nope|cancel|stop|discard|delete|scrap it|forget it|❌)\s*[.!]*\s*$/i;
+const HELP = /^\s*(help|\?|hi|hello|hey|menu|start)\s*[.!]*\s*$/i;
+const NEW = /^\s*(new|start over|restart|reset)\s*[.!]*\s*$/i;
+
+// ---------------------------------------------------------------- admin linking
+
+/** Issues a one-time code the admin sends from their own WhatsApp to the club number. */
+export function createLinkCode(clubId, userId) {
+  const code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join("");
+  const now = iso();
+  db.prepare(`
+    INSERT INTO whatsapp_admins (id, club_id, user_id, code_hash, code_expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT (club_id, user_id) DO UPDATE SET code_hash = excluded.code_hash, code_expires_at = excluded.code_expires_at
+  `).run(randomUUID(), clubId, userId, hashCode(code), iso(Date.now() + CODE_TTL_MS), now);
+  return { code, expires_at: iso(Date.now() + CODE_TTL_MS) };
+}
+
+export function listLinkedAdmins(clubId) {
+  return db.prepare(`
+    SELECT wa.user_id, u.name, wa.linked_at FROM whatsapp_admins wa INNER JOIN users u ON u.id = wa.user_id
+    INNER JOIN club_memberships cm ON cm.club_id = wa.club_id AND cm.user_id = wa.user_id AND cm.role IN ('owner', 'admin')
+    WHERE wa.club_id = ? AND wa.linked_at IS NOT NULL ORDER BY u.name
+  `).all(clubId);
+}
+
+export function unlinkAdmin(clubId, userId) {
+  db.prepare("DELETE FROM whatsapp_admins WHERE club_id = ? AND user_id = ?").run(clubId, userId);
+  db.prepare("DELETE FROM whatsapp_drafts WHERE club_id = ? AND user_id = ?").run(clubId, userId);
+}
+
+function linkSender(clubId, code, from, fromAlt) {
+  const row = db.prepare("SELECT * FROM whatsapp_admins WHERE club_id = ? AND code_hash = ? AND code_expires_at > ?").get(clubId, hashCode(code), iso());
+  if (!row) return null;
+  return db.transaction(() => {
+    // One WhatsApp account belongs to one admin per club.
+    db.prepare("UPDATE whatsapp_admins SET jid = NULL, jid_alt = NULL, linked_at = NULL WHERE club_id = ? AND id != ? AND (jid IN (?, ?) OR jid_alt IN (?, ?))")
+      .run(clubId, row.id, from, fromAlt || from, from, fromAlt || from);
+    db.prepare("UPDATE whatsapp_admins SET jid = ?, jid_alt = ?, linked_at = ?, code_hash = NULL, code_expires_at = NULL WHERE id = ?").run(from, fromAlt || null, iso(), row.id);
+    return row.user_id;
+  }).immediate();
+}
+
+/** The linked admin who sent this message, if they are still an admin of the club. */
+function senderAdmin(clubId, from, fromAlt) {
+  const ids = [from, fromAlt].filter(Boolean);
+  const row = db.prepare(`SELECT user_id FROM whatsapp_admins WHERE club_id = ? AND linked_at IS NOT NULL AND (jid IN (${ids.map(() => "?").join(",")}) OR jid_alt IN (${ids.map(() => "?").join(",")}))`)
+    .get(clubId, ...ids, ...ids);
+  if (!row) return null;
+  const membership = getClubMembership(clubId, row.user_id);
+  if (!membership || !["owner", "admin"].includes(membership.role)) return null;
+  return { userId: row.user_id, clubName: membership.name };
+}
+
+// ---------------------------------------------------------------- drafts
+
+function loadDraft(clubId, userId) {
+  const row = db.prepare("SELECT draft, updated_at FROM whatsapp_drafts WHERE club_id = ? AND user_id = ?").get(clubId, userId);
+  if (!row || Date.now() - new Date(row.updated_at).getTime() > DRAFT_TTL_MS) return null;
+  return JSON.parse(row.draft);
+}
+function saveDraft(clubId, userId, draft) {
+  db.prepare(`INSERT INTO whatsapp_drafts (club_id, user_id, draft, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT (club_id, user_id) DO UPDATE SET draft = excluded.draft, updated_at = excluded.updated_at`).run(clubId, userId, JSON.stringify(draft), iso());
+}
+const dropDraft = (clubId, userId) => db.prepare("DELETE FROM whatsapp_drafts WHERE club_id = ? AND user_id = ?").run(clubId, userId);
+
+const startsAt = (draft) => (draft.date && draft.time ? zonedToUtc(draft.date, draft.time, TZ()) : null);
+const timeText = (time) => new Date(`2000-01-01T${time}:00Z`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+const dateText = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+
+function summary(draft) {
+  const lines = [`*${draft.title || defaultTitle(draft)}*`];
+  if (draft.date) lines.push(`📅 ${dateText(draft.date)}`);
+  if (draft.time) lines.push(`⏰ ${timeText(draft.time)}`);
+  if (draft.location) lines.push(`📍 ${draft.location}`);
+  if (draft.distance_km) lines.push(`📏 ${draft.distance_km} km`);
+  if (draft.capacity) lines.push(`👥 ${draft.capacity} spots`);
+  if (draft.notes) lines.push(`📝 ${draft.notes}`);
+  return lines.join("\n");
+}
+
+/** What to ask next, or null when the draft is complete and in the future. */
+function nextQuestion(draft) {
+  if (!draft.date) return "Which day? (e.g. Sunday, tomorrow or 23 Nov)";
+  if (draft.time_ambiguous && !draft.time) return `Is ${draft.time_ambiguous} in the morning or evening? Reply *AM* or *PM*.`;
+  if (!draft.time) return "What time does it start? (e.g. 6 AM)";
+  if (!draft.location) return "Where does it start? (e.g. from Tulip Chowk)";
+  if (startsAt(draft).getTime() <= Date.now()) return "That date and time has already passed. Send a new day or time.";
+  return null;
+}
+
+function draftReply(draft, lead) {
+  const question = nextQuestion(draft);
+  if (question) return `${lead}\n\n${summary(draft)}\n\n${question}\n\nReply *CANCEL* to discard.`;
+  return `I have the following activity ready:\n\n${summary(draft)}\n\nShould I publish it? Reply *YES* to publish, or send a change (e.g. "time 6:30 AM", "change location to Hebbal flyover"). Reply *CANCEL* to discard.`;
+}
+
+const helpText = (clubName) =>
+  `Hi! I can create ${clubName} activities for you. Send the details in one message, for example:\n\n"${EXAMPLE}"\n\nI'll ask for anything missing and check with you before publishing.`;
+
+function publishDraft(clubId, userId, draft) {
+  const ride = createRide(clubId, userId, {
+    title: draft.title || defaultTitle(draft), category: draft.category || "other",
+    starts_at: startsAt(draft).toISOString(), meeting_point: draft.location,
+    distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null, status: "published"
+  }, { actorType: "whatsapp" });
+  dropDraft(clubId, userId);
+  const conn = getConnection(clubId);
+  const autoPost = conn?.desired === "on" && conn.group_jid && conn.post_new_ride;
+  return [
+    "✅ Your activity is published.",
+    "",
+    `*${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`,
+    "",
+    `Activity link: ${rideLink(ride)}`,
+    "",
+    autoPost ? `I'll post it in ${conn.group_name || "the club group"} in a moment. You can also forward the link.` : "You can share this link with your group."
+  ].join("\n");
+}
+
+// ---------------------------------------------------------------- entry point
+
+/**
+ * Handles one incoming direct message to a club's number. Returns the reply text,
+ * or null to stay silent. Each message id is handled at most once.
+ * msg: { id, from, fromAlt?, text }
+ */
+export function handleIncoming(clubId, msg) {
+  const text = String(msg.text || "").trim().slice(0, 1000);
+  if (!text || !msg.from) return null;
+  // Only messages meant for PaceUp are looked at further (the club phone may also be someone's own phone).
+  const link = text.match(/^\s*link\s+([A-Za-z0-9]{6})\s*$/i);
+  const admin = link ? null : senderAdmin(clubId, msg.from, msg.fromAlt);
+  if (!link && !admin) return null; // members and strangers get no bot replies
+  if (msg.id) {
+    const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_inbound (club_id, message_id, created_at) VALUES (?, ?, ?)").run(clubId, msg.id, iso()).changes;
+    if (!fresh) return null;
+  }
+
+  if (link) {
+    const userId = linkSender(clubId, link[1], msg.from, msg.fromAlt);
+    if (!userId) return "That code didn't work. Codes expire after 15 minutes. Get a new one in PaceUp under WhatsApp, then send it again.";
+    const club = db.prepare("SELECT name FROM clubs WHERE id = ?").get(clubId);
+    return `✅ Linked. You can now create ${club.name} activities by messaging this number.\n\nTry: "${EXAMPLE}"`;
+  }
+
+
+  const { userId, clubName } = admin;
+  let draft = loadDraft(clubId, userId);
+
+  if (HELP.test(text)) return draft ? draftReply(draft, "We're working on this activity:") : helpText(clubName);
+  if (NO.test(text)) {
+    if (!draft) return "Nothing to cancel. Send new activity details whenever you're ready.";
+    dropDraft(clubId, userId);
+    return "Discarded. Nothing was published.";
+  }
+  if (YES.test(text)) {
+    if (!draft) return `There's nothing waiting to publish. ${helpText(clubName)}`;
+    const question = nextQuestion(draft);
+    if (question) return `Not yet, one detail is missing.\n\n${summary(draft)}\n\n${question}`;
+    return publishDraft(clubId, userId, draft);
+  }
+  if (NEW.test(text)) { dropDraft(clubId, userId); return `Starting over. ${helpText(clubName)}`; }
+
+  const tz = TZ();
+  const found = parseActivity(text, { tz });
+  if (draft?.time_ambiguous && !draft.time && !found.time) {
+    const resolved = resolveAmPm(text, draft.time_ambiguous);
+    if (resolved) { found.time = resolved; delete draft.time_ambiguous; }
+  }
+  const learned = Object.keys(found).filter((k) => k !== "category" || !draft);
+  if (!draft && !learned.some((k) => k !== "category") && !/\b(create|new|add|post|schedule|plan|organi[sz]e)\b/i.test(text)) {
+    return helpText(clubName);
+  }
+  if (draft && !learned.length) {
+    return `Sorry, I didn't catch a change there. Here's the activity so far:\n\n${summary(draft)}\n\n${nextQuestion(draft) || "Reply *YES* to publish, or *CANCEL* to discard."}`;
+  }
+
+  const isNew = !draft;
+  if (draft?.category) delete found.category; // the sport is set by the first message
+  draft = { ...(draft || {}), ...found };
+  if (found.time) delete draft.time_ambiguous;
+  if (found.time_ambiguous) delete draft.time;
+  saveDraft(clubId, userId, draft);
+  return draftReply(draft, isNew ? "Got it. Here's what I have so far:" : "Updated:");
+}

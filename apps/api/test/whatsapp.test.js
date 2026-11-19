@@ -52,7 +52,7 @@ test("pairing: connect shows a QR, scanning connects and lists the number's grou
 });
 
 test("a published ride is posted to the club's group, through the club's own session", async () => {
-  const res = await call("POST", `/api/clubs/${a.clubId}/rides`, { cookie: a.cookie, payload: { title: "Nandi Hills long ride", starts_at: inDays(3), meeting_point: "Hebbal flyover", distance_km: 62, capacity: 20, status: "published" } });
+  const res = await call("POST", `/api/clubs/${a.clubId}/rides`, { cookie: a.cookie, payload: { title: "Nandi Hills long ride", category: "cycling", starts_at: inDays(3), meeting_point: "Hebbal flyover", distance_km: 62, capacity: 20, status: "published" } });
   ({ code: rideCode, id: rideId } = res.json().ride);
   assert.equal(pending(a.clubId).length, 1);
   makeDue(); await worker.tick();
