@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -92,7 +93,7 @@ export function findInvitation(tokenHash) {
   `).get(tokenHash);
 }
 const acceptInviteTransaction = db.transaction(({ invitation, userId }) => {
-  db.prepare("INSERT INTO club_memberships (id, club_id, user_id, role) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), invitation.club_id, userId, invitation.role);
+  db.prepare("INSERT INTO club_memberships (id, club_id, user_id, role) VALUES (?, ?, ?, ?)").run(randomUUID(), invitation.club_id, userId, invitation.role);
   db.prepare("UPDATE club_invitations SET accepted_at = datetime('now') WHERE id = ?").run(invitation.id);
 });
 export function acceptClubInvitation(invitation, userId) { acceptInviteTransaction({ invitation, userId }); }
