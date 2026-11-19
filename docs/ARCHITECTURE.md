@@ -48,7 +48,7 @@ Business actions should produce domain events, for example:
 
 The notification module decides whether an event warrants a message, who should receive it, and through which enabled channel. Provider adapters handle channel-specific delivery.
 
-This separation allows Ride Buzz to evolve without coupling RSVP processing to WhatsApp APIs. Delivery should be asynchronous where practical, with retries and idempotency to prevent duplicate messages.
+This separation allows community momentum updates to evolve without coupling RSVP processing to WhatsApp APIs. Delivery should be asynchronous where practical, with retries and idempotency to prevent duplicate messages.
 
 ## 5. API and interface
 
