@@ -1,7 +1,7 @@
 import SuperAdmin from "./SuperAdmin.jsx";
 import { ClubRides, RidePage } from "./Rides.jsx";
 import { WhatsAppPanel } from "./WhatsApp.jsx";
-import { RosterPanel } from "./Roster.jsx";
+import { RosterPanel, MembersCard } from "./Roster.jsx";
 import { PhoneAuth, AddPhone, phoneText } from "./Auth.jsx";
 import { PeoplePanel } from "./People.jsx";
 import { ResetPage } from "./PasswordReset.jsx";
@@ -23,6 +23,14 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [selectedClub, setSelectedClub] = useState("");
+  // The member list has its own page (#members) so the dashboard stays short.
+  const [page, setPage] = useState(() => (window.location.hash === "#members" ? "members" : "home"));
+  useEffect(() => {
+    const onHash = () => { setPage(window.location.hash === "#members" ? "members" : "home"); window.scrollTo(0, 0); };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const openPage = (name) => { window.location.hash = name === "members" ? "members" : ""; };
   const [clubName, setClubName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [members, setMembers] = useState([]);
@@ -188,16 +196,20 @@ export default function App() {
               {editingName
                 ? <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required autoFocus /></div><button type="submit">Save</button><button type="button" className="secondary-button" onClick={() => { setClubName(clubs.find((club) => club.id === selectedClub)?.name || ""); setEditingName(false); setError(""); }}>Cancel</button></form>
                 : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div><button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button></div>}
-              <div className="admin-grid">
-                <PeoplePanel clubId={selectedClub} members={members} me={user.id} onChange={() => loadClubData(selectedClub)} />
-              </div>
-              <RosterPanel clubId={selectedClub} />
-              <WhatsAppPanel clubId={selectedClub} />
+              {page === "members"
+                ? <RosterPanel clubId={selectedClub} onBack={() => openPage("home")} />
+                : <>
+                  <div className="admin-grid">
+                    <PeoplePanel clubId={selectedClub} members={members} me={user.id} onChange={() => loadClubData(selectedClub)} />
+                  </div>
+                  <MembersCard clubId={selectedClub} onOpen={() => openPage("members")} />
+                  <WhatsAppPanel clubId={selectedClub} />
+                </>}
             </>}
           </section>
           {error && <p className="error" role="alert">{error}</p>}
           {notice && <p className="success-note" role="status">{notice}</p>}
-          {clubs.find((club) => club.id === selectedClub) && <ClubRides club={clubs.find((club) => club.id === selectedClub)} />}
+          {page !== "members" && clubs.find((club) => club.id === selectedClub) && <ClubRides club={clubs.find((club) => club.id === selectedClub)} />}
         </section>
       )}
       <footer><span>PACEUP</span><span>Built for every kind of active community.</span></footer>
