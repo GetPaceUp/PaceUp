@@ -171,18 +171,47 @@ export function importDirectory(csvText) {
 
 const PUBLIC = "d.id, d.name, d.city, d.activity";
 
+/** The activity types the Create club dropdown offers. Directory text maps onto these; anything else is "Other". */
+export const ACTIVITY_TYPES = ["Cycling", "Running", "Trekking", "Triathlon", "Swimming", "Walking", "Multi-sport"];
+const ACTIVITY_RULES = [
+  ["Cycling", /cycl|bik|bicycl|\bride|riding|\bmtb\b|randonn|brevet|velo/],
+  ["Running", /\brun|runn|marath|jog|\bultra/],
+  ["Trekking", /trek|hik|mountaineer|climb/],
+  ["Swimming", /swim/],
+  ["Walking", /walk/]
+];
+/** "Hiking, Trekking" → "Trekking"; "Running, Cycling" → "Multi-sport"; "" → null; "Yoga" → "Other". */
+export function activityType(raw) {
+  const s = String(raw || "").toLowerCase().trim();
+  if (!s) return null;
+  if (/triath|duath|aquath|ironman/.test(s)) return "Triathlon";
+  if (/multi|adventure sport/.test(s)) return "Multi-sport";
+  const hits = ACTIVITY_RULES.filter(([, re]) => re.test(s)).map(([t]) => t);
+  return hits.length > 1 ? "Multi-sport" : hits[0] || "Other";
+}
+/** The dropdown: every type the directory uses, most clubs first, then the rest. */
+export function activityOptions() {
+  const counts = {};
+  for (const { activity, n } of db.prepare("SELECT activity, COUNT(*) AS n FROM club_directory WHERE activity IS NOT NULL GROUP BY activity").all()) {
+    const t = activityType(activity);
+    if (t && t !== "Other") counts[t] = (counts[t] || 0) + n;
+  }
+  return [...ACTIVITY_TYPES].sort((a, b) => (counts[b] || 0) - (counts[a] || 0) || ACTIVITY_TYPES.indexOf(a) - ACTIVITY_TYPES.indexOf(b))
+    .map((name) => ({ name, clubs: counts[name] || 0 }));
+}
+
 /** Club names as someone types: clubs on PaceUp first, then the directory. Only public fields. */
 export function suggestClubs(q, limit = 8) {
   const key = clubKey(q);
   if (key.length < 2) return [];
   const like = `%${key}%`, prefix = `${key}%`;
   const onPaceup = db.prepare(`SELECT c.id AS club_id, c.name, c.city, c.activity FROM clubs c ORDER BY c.name`).all()
-    .filter((c) => clubKey(c.name).includes(key)).slice(0, 3).map((c) => ({ ...c, on_paceup: true }));
+    .filter((c) => clubKey(c.name).includes(key)).slice(0, 3).map((c) => ({ ...c, activity_type: activityType(c.activity), on_paceup: true }));
   const taken = new Set(onPaceup.map((c) => c.club_id));
   const dir = db.prepare(`SELECT ${PUBLIC}, d.club_id FROM club_directory d WHERE d.hidden = 0 AND d.name_key LIKE ?
     ORDER BY (d.name_key LIKE ?) DESC, length(d.name_key), d.name LIMIT ?`).all(like, prefix, limit)
     .filter((d) => !d.club_id || !taken.has(d.club_id))
-    .map((d) => ({ directory_id: d.id, club_id: d.club_id || null, name: d.name, city: d.city, activity: d.activity, on_paceup: Boolean(d.club_id) }));
+    .map((d) => ({ directory_id: d.id, club_id: d.club_id || null, name: d.name, city: d.city, activity: d.activity, activity_type: activityType(d.activity), on_paceup: Boolean(d.club_id) }));
   return [...onPaceup, ...dir].slice(0, limit);
 }
 
@@ -243,6 +272,7 @@ export function registerDirectoryRoutes(app, { requirePlatformAdmin }) {
   const pre = [app.authenticate, requirePlatformAdmin];
   app.get("/api/platform/directory/suggest", { preHandler: pre, schema: { querystring: { type: "object", properties: { q: { type: "string", maxLength: 80 } } } } },
     async (req) => ({ clubs: suggestClubs(req.query.q || "") }));
+  app.get("/api/platform/directory/activities", { preHandler: pre }, async () => ({ activities: activityOptions() }));
   app.get("/api/platform/directory", {
     preHandler: pre,
     schema: { querystring: { type: "object", properties: { q: { type: "string", maxLength: 80 }, status: { type: "string", maxLength: 20 }, offset: { type: "integer", minimum: 0, maximum: 100000 } } } }

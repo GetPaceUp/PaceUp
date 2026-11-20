@@ -53,7 +53,7 @@ test("directory import: everything kept, duplicates merged, names and cities tid
 test("autocomplete shows only name, city and activity; contacts and the directory are Super Admin only", async () => {
   const sug = (await call("GET", "/api/platform/directory/suggest?q=sunr", { cookie: boss.cookie })).json().clubs;
   assert.deepEqual(sug.map((c) => c.name), ["Sunrise Striders"]);
-  assert.deepEqual(Object.keys(sug[0]).sort(), ["activity", "city", "club_id", "directory_id", "name", "on_paceup"]);
+  assert.deepEqual(Object.keys(sug[0]).sort(), ["activity", "activity_type", "city", "club_id", "directory_id", "name", "on_paceup"]);
   const pilot = (await call("GET", "/api/platform/directory/suggest?q=pilot", { cookie: boss.cookie })).json().clubs;
   assert.equal(pilot[0].on_paceup, true);
   const other = await registerOwner("Other Owner", "other@example.com", "Other Club");
@@ -61,6 +61,20 @@ test("autocomplete shows only name, city and activity; contacts and the director
   assert.equal((await call("PATCH", `/api/platform/directory/${striders.id}`, { cookie: other.cookie, payload: { status: "contacted" } })).statusCode, 403);
   const upd = await call("PATCH", `/api/platform/directory/${striders.id}`, { cookie: boss.cookie, payload: { status: "contacted", notes: "Spoke to Priya" } });
   assert.equal(upd.json().entry.status, "contacted");
+});
+
+test("activity type: directory text maps onto the dropdown, picked clubs fill it in", async () => {
+  const { activityType } = await import("../src/directory.js");
+  const cases = { "Running": "Running", "Hiking, Trekking": "Trekking", "Cycling": "Cycling", "Road Biking": "Cycling", "Mountain Biking": "Cycling",
+    "Running, Cycling": "Multi-sport", "Triathlon, Running, Swimming": "Triathlon", "Open water swimming": "Swimming", "Multi-sport": "Multi-sport", "Yoga": "Other", "": null };
+  for (const [raw, want] of Object.entries(cases)) assert.equal(activityType(raw), want, raw);
+  const opts = (await call("GET", "/api/platform/directory/activities", { cookie: boss.cookie })).json().activities;
+  assert.deepEqual(opts.slice(0, 2), [{ name: "Running", clubs: 2 }, { name: "Trekking", clubs: 1 }]);
+  assert.ok(opts.some((o) => o.name === "Cycling" && o.clubs === 0), "core types are always offered");
+  const sug = (await call("GET", "/api/platform/directory/suggest?q=hill", { cookie: boss.cookie })).json().clubs;
+  assert.equal(sug[0].activity_type, "Trekking");
+  const other = await registerOwner("Third Owner", "third@example.com", "Third Club");
+  assert.equal((await call("GET", "/api/platform/directory/activities", { cookie: other.cookie })).statusCode, 403);
 });
 
 test("Super Admin creates a club from the directory and gets the owner's one-time link", async () => {
