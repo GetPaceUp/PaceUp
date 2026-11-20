@@ -18,14 +18,16 @@ function update(clubId, fields) {
 }
 const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${"x".repeat(Math.max(0, p.length - 6))}${p.slice(-4)}` : null);
 
-async function view(clubId) {
+async function view(clubId, userId) {
+  const isSuper = getPlatformRole(userId) === "super_admin";
   const c = getConnection(clubId) || { desired: "off", status: "disconnected" };
   const workerOnline = Boolean(c.last_seen_at && Date.now() - new Date(c.last_seen_at).getTime() < 60 * 1000);
   const qrFresh = c.status === "pairing" && c.qr && c.qr_updated_at && Date.now() - new Date(c.qr_updated_at).getTime() < 60 * 1000;
   return {
     whatsapp: {
       desired: c.desired, status: c.status, last_error: c.last_error || null,
-      qr: qrFresh ? await QRCode.toDataURL(c.qr, { margin: 1, width: 280 }) : null,
+      // The link code is only for whoever connects the number: the Super Admin.
+      qr: qrFresh && isSuper ? await QRCode.toDataURL(c.qr, { margin: 1, width: 280 }) : null,
       phone: maskPhone(c.phone),
       group: isClubGroup(c, c.group_jid) ? { jid: c.group_jid, name: c.group_name } : null,
       // Only the groups the Super Admin linked to this club, never everything on the phone.
@@ -35,7 +37,8 @@ async function view(clubId) {
       groups_refreshing: Boolean(c.groups_wanted_at && (!c.groups_updated_at || c.groups_wanted_at > c.groups_updated_at)),
       settings: { post_new_ride: Boolean(c.post_new_ride ?? 1), post_rider_list: Boolean(c.post_rider_list ?? 1), post_changes: Boolean(c.post_changes ?? 1), quiet_hours: Boolean(c.quiet_hours) },
       worker_online: c.status === "connected" ? workerOnline : null,
-      stats: outboxStats(clubId)
+      // Message counts are system information: Super Admin only (the API leaves them out for club admins).
+      ...(isSuper ? { stats: outboxStats(clubId) } : {})
     }
   };
 }
@@ -46,22 +49,23 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
   const base = "/api/clubs/:clubId/whatsapp";
 
   app.get(base, { schema: { params }, preHandler: pre }, async (req) => {
-    const v = await view(req.params.clubId);
+    const v = await view(req.params.clubId, req.user.sub);
     v.whatsapp.can_pick_groups = getPlatformRole(req.user.sub) === "super_admin"; // shows the Super Admin a link to the group picker
     return v;
   });
 
-  app.post(`${base}/connect`, { schema: { params }, preHandler: pre }, async (req) => {
+  // Linking and unlinking the club number is for the Super Admin only.
+  app.post(`${base}/connect`, { schema: { params }, preHandler: [app.authenticate, requirePlatformAdmin] }, async (req) => {
     ensureRow(req.params.clubId);
     update(req.params.clubId, { desired: "on", last_error: null, ...(getConnection(req.params.clubId).status === "connected" ? {} : { status: "disconnected", qr: null }) });
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
-  app.post(`${base}/disconnect`, { schema: { params }, preHandler: pre }, async (req) => {
+  app.post(`${base}/disconnect`, { schema: { params }, preHandler: [app.authenticate, requirePlatformAdmin] }, async (req) => {
     ensureRow(req.params.clubId);
     update(req.params.clubId, { desired: "logout" });
     db.prepare("UPDATE outbox SET status = 'skipped', last_error = 'club disconnected WhatsApp' WHERE club_id = ? AND status = 'pending'").run(req.params.clubId);
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
   app.put(`${base}/group`, {
@@ -71,7 +75,7 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
     const group = clubGroups(c).find((g) => g.jid === req.body.jid);
     if (!group) return reply.code(400).send({ error: "Pick one of your club's WhatsApp groups." });
     update(req.params.clubId, { group_jid: group.jid, group_name: group.name, roster_sync_wanted_at: iso(Date.now()) });
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
   // The member list is built from these groups, e.g. the master "Announcements" group that has everyone.
@@ -83,14 +87,14 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
     const jids = [...new Set(req.body.jids)];
     if (!jids.every((j) => known.has(j))) return reply.code(400).send({ error: "Pick from your club's WhatsApp groups." });
     update(req.params.clubId, { member_groups_json: JSON.stringify(jids), roster_sync_wanted_at: iso(Date.now()) });
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
   app.post(`${base}/groups/refresh`, { schema: { params }, preHandler: pre }, async (req, reply) => {
     const c = getConnection(req.params.clubId);
     if (!c || c.status !== "connected") return reply.code(409).send({ error: "Connect WhatsApp first." });
     update(req.params.clubId, { groups_wanted_at: iso(Date.now()) });
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
   app.patch(`${base}/settings`, {
@@ -98,14 +102,14 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
   }, async (req) => {
     ensureRow(req.params.clubId);
     update(req.params.clubId, Object.fromEntries(Object.entries(req.body).map(([k, v]) => [k, v ? 1 : 0])));
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
   app.post(`${base}/test`, { schema: { params }, preHandler: pre }, async (req, reply) => {
     const c = getConnection(req.params.clubId);
     if (!c || c.status !== "connected" || !isClubGroup(c, c.group_jid)) return reply.code(409).send({ error: "Connect WhatsApp and pick a group first." });
     enqueueTest(req.params.clubId);
-    return view(req.params.clubId);
+    return view(req.params.clubId, req.user.sub);
   });
 
   // Super Admin: sees every group on the linked number and decides which ones belong to the club.

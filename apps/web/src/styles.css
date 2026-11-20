@@ -147,3 +147,6 @@ label.check input { width: auto; margin: 0; }
 .club-name-view .club-name-text{padding:0;font:700 22px/1.25 Manrope,sans-serif;overflow-wrap:anywhere}
 @media(max-width:480px){.club-name-view{align-items:stretch;gap:12px;margin:12px 0 22px}.club-name-view .field-grow{flex:0 0 auto}}
 @media(min-width:481px){.club-name-view{align-items:center}.club-name-view button{white-space:nowrap}}
+.wa-section-label{margin:18px 0 0;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#7b877f}
+.wa-stats{margin-top:14px}
+.wa-panel .panel-copy a{color:#d36640;font-weight:700}

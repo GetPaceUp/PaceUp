@@ -87,6 +87,7 @@ export function WhatsAppPanel({ clubId }) {
   const [cls, label] = STATUS[wa.status] || STATUS.disconnected;
   const connected = wa.status === "connected";
   const starting = wa.desired === "on" && !connected;
+  const isSuper = Boolean(wa.can_pick_groups); // only the Super Admin links or unlinks the club number
 
   return (
     <section className="admin-panel wa-panel">
@@ -95,18 +96,21 @@ export function WhatsAppPanel({ clubId }) {
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
       {wa.last_error && !connected && <p className="error">{wa.last_error}</p>}
 
-      {wa.desired !== "on" && <>
-        <p className="panel-copy">Use a phone number only for the club. Don't link a personal number.</p>
-        <button type="button" disabled={busy} onClick={() => act("/connect")}>Connect WhatsApp</button>
-      </>}
+      {wa.desired !== "on" && (isSuper
+        ? <>
+            <p className="panel-copy">Use a phone number only for the club. Don't link a personal number.</p>
+            <button type="button" disabled={busy} onClick={() => act("/connect")}>Connect WhatsApp</button>
+          </>
+        : <p className="panel-copy">The PaceUp Super Admin connects the club's WhatsApp number. Ask them if it needs linking again.</p>)}
 
-      {starting && (wa.qr
+      {starting && !isSuper && <p className="panel-copy">The PaceUp Super Admin is linking the club's number.</p>}
+      {starting && isSuper && (wa.qr
         ? <div className="wa-pair">
             <img className="wa-qr" src={wa.qr} alt="WhatsApp link code. Scan it with the club phone." />
             <ol className="wa-howto"><li>Open WhatsApp on the <b>club's phone</b></li><li>Settings → <b>Linked devices</b> → Link a device</li><li>Point the phone at this code</li></ol>
           </div>
         : <p className="panel-copy">Preparing a code to scan…</p>)}
-      {starting && <button type="button" className="text-button" onClick={() => act("/disconnect")}>Cancel</button>}
+      {starting && isSuper && <button type="button" className="text-button" onClick={() => act("/disconnect")}>Cancel</button>}
 
       {connected && <>
         <p className="success-note">Admins can create activities by sending this number a WhatsApp message{wa.phone ? ` (${wa.phone})` : ""}, e.g. "Create a run Sunday 6 AM from Cubbon Park, 10 km". It recognises you by the mobile number on your PaceUp account.</p>
@@ -122,21 +126,22 @@ export function WhatsAppPanel({ clubId }) {
         {wa.groups.length > 1 && <MemberGroups wa={wa} busy={busy} onSave={(jids) => act("/member-groups", "PUT", { jids })} />}
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group name out of date? Refresh"}</button>
         {wa.group && <>
+          <p className="wa-section-label">Post to the group when…</p>
           <Toggle id="wa-new" label="New activity published" hint="Details and the link to join" checked={wa.settings.post_new_ride} onChange={(v) => act("/settings", "PATCH", { post_new_ride: v })} />
           <Toggle id="wa-list" label="Who's going, after people join" hint="One updated list per activity, at most every 30 seconds" checked={wa.settings.post_rider_list} onChange={(v) => act("/settings", "PATCH", { post_rider_list: v })} />
           <Toggle id="wa-changes" label="Activity changed or cancelled" hint="New time, place or cancellation" checked={wa.settings.post_changes} onChange={(v) => act("/settings", "PATCH", { post_changes: v })} />
           <Toggle id="wa-quiet" label="Quiet hours 10 PM – 5 AM" hint="Held messages go out at 5 AM" checked={wa.settings.quiet_hours} onChange={(v) => act("/settings", "PATCH", { quiet_hours: v })} />
-          <dl className="wa-stats">
+          {wa.stats && <dl className="wa-stats">
             <div><dt>Last message</dt><dd>{ago(wa.stats.last_sent_at)}</dd></div>
             <div><dt>Waiting to send</dt><dd>{wa.stats.pending}</dd></div>
             <div><dt>Sent in 24 h</dt><dd>{wa.stats.sent_24h}</dd></div>
-          </dl>
+          </dl>}
           <button type="button" className="secondary-button" disabled={busy} onClick={async () => { if (await act("/test")) setNotice("Test message queued. It should appear in the group within a minute."); }}>Send a test message</button>
         </>}
         {notice && <p className="success-note">{notice}</p>}
-        {confirmOff
+        {isSuper && (confirmOff
           ? <div className="confirm-row"><span>Unlink this number from PaceUp?</span><button type="button" disabled={busy} onClick={() => { setConfirmOff(false); act("/disconnect"); }}>Disconnect</button><button type="button" className="secondary-button" onClick={() => setConfirmOff(false)}>Keep</button></div>
-          : <button type="button" className="text-button wa-off" onClick={() => setConfirmOff(true)}>Disconnect this number</button>}
+          : <button type="button" className="text-button wa-off" onClick={() => setConfirmOff(true)}>Disconnect this number</button>)}
       </>}
       {error && <p className="error" role="alert">{error}</p>}
     </section>

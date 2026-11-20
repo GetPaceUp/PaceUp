@@ -27,7 +27,9 @@ test("connecting and choosing the group pulls its members; WhatsApp names fill t
   // A phone book can't be matched before the group is known.
   assert.equal((await call("POST", `/api/clubs/${club.clubId}/roster/import`, { cookie: club.cookie, payload: { filename: "c.vcf", data: b64("BEGIN:VCARD\nFN:X Y\nTEL:9876500001\nEND:VCARD\n") } })).statusCode, 409);
 
+  db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(club.user.id); // only the Super Admin links the number
   await call("POST", `/api/clubs/${club.clubId}/whatsapp/connect`, { cookie: club.cookie });
+  db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(club.user.id);
   await worker.tick();
   const session = fakeSessions.get(club.clubId);
   session.participants = [
