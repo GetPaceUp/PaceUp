@@ -29,16 +29,18 @@ getpaceup.com {
 	import paceup_app
 }
 
-# Current address. Keeps serving until the switch, then becomes a redirect.
-paceup.feetandpedals.com {
-	import paceup_app
-}
-
-# Other names: permanent redirect to the primary, keeping the path (old /r/<code> links keep working).
-www.getpaceup.com, getpaceup.in, www.getpaceup.in, getpaceup.info, www.getpaceup.info {
+# Every other name: permanent redirect to the primary, keeping the path, so links in old
+# WhatsApp posts (/r/<code>, invites, resets) keep working.
+paceup.folksonforks.com, www.getpaceup.com, getpaceup.in, www.getpaceup.in, getpaceup.info, www.getpaceup.info {
 	redir https://getpaceup.com{uri} permanent
 }
 
-paceup.folksonforks.com {
-	redir https://paceup.feetandpedals.com{uri} permanent
+# Old address: same redirect, except /health stays answerable here (deploy checks read it).
+paceup.feetandpedals.com {
+	handle /health {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle {
+		redir https://getpaceup.com{uri} permanent
+	}
 }
