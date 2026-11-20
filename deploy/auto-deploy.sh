@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Self-deploy for the PaceUp VM. A systemd timer runs this every minute. When main on GitHub has a
+# Self-deploy for the PaceUp VM. A systemd timer runs this every minute. When the `live` branch on GitHub (moved by CI only after every check passes) has a
 # new commit it: backs up the database, fast-forwards /opt/paceup, builds, restarts the services,
 # checks /health, and rolls the code back if the check fails. Either way it WhatsApps the Super Admin
-# the result from the club number. Merging a PR to main IS the deploy approval.
+# the result from the club number. Merging a PR to main, once CI is green, IS the deploy approval.
 #
 # Pause:   sudo touch /etc/paceup-deploy-paused      Resume: sudo rm /etc/paceup-deploy-paused
 # Log:     journalctl -u paceup-deploy -n 100
@@ -32,14 +32,14 @@ main() {
   exec 9>"$LOCK_FILE"; flock -n 9 || exit 0
   [ -e "$PAUSE_FILE" ] && exit 0
   cd "$APP" || exit 0
-  run git fetch -q origin main || { log "fetch failed, will retry"; exit 0; }
+  run git fetch -q origin live || { log "fetch failed, will retry"; exit 0; }
   local cur new short failed_file
-  cur=$(run git rev-parse HEAD); new=$(run git rev-parse origin/main)
+  cur=$(run git rev-parse HEAD); new=$(run git rev-parse origin/live)
   [ "$cur" = "$new" ] && exit 0
   short=${new:0:7}; failed_file="$STATE_DIR/deploy-last-failed-sha"
   [ -f "$failed_file" ] && [ "$(cat "$failed_file")" = "$new" ] && exit 0   # already failed once; wait for a newer commit
   if ! run git merge-base --is-ancestor "$cur" "$new"; then
-    echo "$new" > "$failed_file"; notify "⚠️ PaceUp: main ($short) is not a straight update of what is live, so I did not deploy it."; exit 0
+    echo "$new" > "$failed_file"; notify "⚠️ PaceUp: live ($short) is not a straight update of what is live, so I did not deploy it."; exit 0
   fi
   log "deploying $cur -> $new"
 

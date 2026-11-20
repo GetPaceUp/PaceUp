@@ -21,3 +21,15 @@ jobs:
       - run: npm audit --omit=dev --audit-level=high
       - run: npm test --workspace @paceup/api
       - run: npm run build
+
+  # Only a commit that passed every check above is promoted. The VM deploy agent follows `live`,
+  # never `main`, so a red commit can't reach production.
+  promote:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: git push origin HEAD:refs/heads/live --force-with-lease
