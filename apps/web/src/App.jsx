@@ -204,9 +204,9 @@ export default function App() {
             {clubs.length === 0 && <p className="panel-copy">You're not in a club yet. Ask your club admin for an invite link. If your number is on a club's member list, sign in with it and you'll join automatically.</p>}
             {clubs.length > 0 && !["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <p className="panel-copy">You are a member of this club. Club administration is available to its admins.</p>}
             {clubs.length > 0 && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <>
-              {editingName
+              {editingName && isSuper
                 ? <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required autoFocus /></div><button type="submit">Save</button><button type="button" className="secondary-button" onClick={() => { setClubName(clubs.find((club) => club.id === selectedClub)?.name || ""); setEditingName(false); setError(""); }}>Cancel</button></form>
-                : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div><button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button></div>}
+                : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div>{isSuper && <button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button>}</div>}
               {page === "members"
                 ? <RosterPanel clubId={selectedClub} onBack={() => openPage("home")} />
                 : <>

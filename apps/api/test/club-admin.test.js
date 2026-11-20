@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { useTempDatabase, sessionCookie, makeClient } from "./helpers.js";
 
+process.env.PACEUP_SUPERADMIN_EMAIL = "boss@example.com";
 const { tempDir } = useTempDatabase();
 const { buildApp } = await import("../src/server.js");
 const { db } = await import("../src/db.js");
@@ -15,8 +16,12 @@ test("club admins can manage their club and invite a member without crossing ten
 
   assert.equal((await call("GET", `/api/clubs/${clubId}/members`)).statusCode, 401);
 
-  const renamed = await call("PATCH", `/api/clubs/${clubId}`, { cookie: ownerCookie, payload: { name: "First Club Community" } });
-  assert.equal(renamed.statusCode, 200);
+  // Only the Super Admin renames clubs; the club's own owner and admins can't.
+  const ownRename = await call("PATCH", `/api/clubs/${clubId}`, { cookie: ownerCookie, payload: { name: "First Club Community" } });
+  assert.equal(ownRename.statusCode, 403);
+  const boss = await registerOwner("Boss", "boss@example.com", "Boss Club");
+  const renamed = await call("PATCH", `/api/clubs/${clubId}`, { cookie: boss.cookie, payload: { name: "First Club Community" } });
+  assert.equal(renamed.statusCode, 200, "the Super Admin can rename a club they don't belong to");
   assert.equal(renamed.json().club.name, "First Club Community");
 
   const token = await invite(ownerCookie, clubId, "member@example.com");
@@ -38,7 +43,7 @@ test("club admins can manage their club and invite a member without crossing ten
   assert.equal(members.json().members.length, 2);
 
   const forbiddenRename = await call("PATCH", `/api/clubs/${clubId}`, { cookie: memberCookie, payload: { name: "Attempted Takeover" } });
-  assert.equal(forbiddenRename.statusCode, 404);
+  assert.equal(forbiddenRename.statusCode, 403);
 });
 
 test("invitation role defaults to member, never admin", async () => {
@@ -63,8 +68,10 @@ test("users cannot read or change another club's data", async () => {
     ["PATCH", `/api/clubs/${a.clubId}`, { name: "Hijacked" }],
     ["POST", `/api/clubs/${a.clubId}/invitations`, { email: "spy@example.com", role: "admin" }]
   ]) {
-    assert.equal((await call(method, url, { cookie: b.cookie, payload })).statusCode, 404, `owner of B: ${method} ${url}`);
-    assert.equal((await call(method, url, { cookie: memberCookie, payload })).statusCode, 404, `plain member of A: ${method} ${url}`);
+    // Renaming is Super Admin only, so everyone else gets the same 403 whether or not the club exists.
+    const expected = method === "PATCH" && url === `/api/clubs/${a.clubId}` ? 403 : 404;
+    assert.equal((await call(method, url, { cookie: b.cookie, payload })).statusCode, expected, `owner of B: ${method} ${url}`);
+    assert.equal((await call(method, url, { cookie: memberCookie, payload })).statusCode, expected, `plain member of A: ${method} ${url}`);
   }
   // B's members list does not include anyone from A.
   const bMembers = (await call("GET", `/api/clubs/${b.clubId}/members`, { cookie: b.cookie })).json().members;
@@ -115,9 +122,11 @@ test("signing out ends the session server-side", async () => {
 
 test("cross-site writes are refused, same-site writes allowed", async () => {
   const owner = await registerOwner("Origin Owner", "origin@example.com", "Origin Club");
-  const evil = await call("PATCH", `/api/clubs/${owner.clubId}`, { cookie: owner.cookie, payload: { name: "Pwned" }, headers: { origin: "https://evil.example" } });
+  const boss = await call("POST", "/api/auth/login", { payload: { email: "boss@example.com", password: "strong-password-123" } });
+  const bossCookie = sessionCookie(boss);
+  const evil = await call("PATCH", `/api/clubs/${owner.clubId}`, { cookie: bossCookie, payload: { name: "Pwned" }, headers: { origin: "https://evil.example" } });
   assert.equal(evil.statusCode, 403);
-  const ok = await call("PATCH", `/api/clubs/${owner.clubId}`, { cookie: owner.cookie, payload: { name: "Origin Club 2" }, headers: { origin: "http://localhost:5173" } });
+  const ok = await call("PATCH", `/api/clubs/${owner.clubId}`, { cookie: bossCookie, payload: { name: "Origin Club 2" }, headers: { origin: "http://localhost:5173" } });
   assert.equal(ok.statusCode, 200);
 });
 
