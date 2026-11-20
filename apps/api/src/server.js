@@ -9,7 +9,7 @@ import rateLimit from "@fastify/rate-limit";
 import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { codeVersion } from "./version.js";
 import { registerRideRoutes } from "./rides.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
@@ -24,15 +24,11 @@ import {
   createClubInvitation, findInvitation, acceptInvitation, registerWithInvitation,
   getPlatformRole, getClubById, getPlatformOverview, changePlatformRole, listPlatformAudit,
   createSession, getActiveSession, applyOwnerBootstrap, revokeSession, revokeAllSessions, purgeExpiredSessions,
-  DomainError
+  DomainError, db
 } from "./db.js";
 
 const isProduction = process.env.NODE_ENV === "production";
-// The commit this server was started from, so a deploy can be confirmed over HTTPS (/health).
-const deployedVersion = (() => {
-  try { return execFileSync("git", ["rev-parse", "--short=7", "HEAD"], { cwd: fileURLToPath(new URL("../../..", import.meta.url)), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null; }
-  catch { return null; }
-})();
+const deployedVersion = codeVersion;
 const appSecret = process.env.APP_SECRET;
 if (isProduction && (!appSecret || appSecret.length < 32)) {
   throw new Error("APP_SECRET must be set to at least 32 characters in production.");
@@ -157,7 +153,13 @@ export async function buildApp(options = {}) {
     } catch { /* visitor */ }
   }
 
-  app.get("/health", async () => ({ status: "ok", name: "paceup-api", version: deployedVersion }));
+  // worker_version: the commit the WhatsApp worker is running (it checks in every few seconds), so a deploy
+  // can confirm the worker restarted on the new code too, not just the API.
+  app.get("/health", async () => {
+    const w = db.prepare("SELECT version, seen_at FROM service_status WHERE name = 'whatsapp-worker'").get();
+    return { status: "ok", name: "paceup-api", version: deployedVersion,
+      ...(w ? { worker_version: w.version, worker_seen_s: Math.round((Date.now() - new Date(w.seen_at).getTime()) / 1000) } : {}) };
+  });
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
   registerRosterRoutes(app, { requireClubRole });
   registerTemplateRoutes(app, { requireClubRole });

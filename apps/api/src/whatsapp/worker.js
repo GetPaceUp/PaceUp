@@ -5,6 +5,7 @@ import "dotenv/config";
 import { join, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { db } from "../db.js";
+import { codeVersion } from "../version.js";
 import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS, PAIRING_TIMEOUT_MS, memberGroups, clubGroups, isClubGroup } from "./outbox.js";
 import { participants } from "../rides.js";
@@ -302,9 +303,18 @@ export class WhatsAppWorker {
   async tick() {
     if (this.busy) return;
     this.busy = true;
-    try { await this.reconcile(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
+    try { this.checkIn(); await this.reconcile(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
     catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
     finally { this.busy = false; }
+  }
+
+  /** Tells /health which code this worker runs and that it is alive (at most every 10 seconds). */
+  checkIn() {
+    if (this.checkedIn && Date.now() - this.checkedIn < 10000) return;
+    this.checkedIn = Date.now();
+    db.prepare(`INSERT INTO service_status (name, version, started_at, seen_at) VALUES ('whatsapp-worker', @v, @now, @now)
+      ON CONFLICT(name) DO UPDATE SET version = @v, seen_at = @now, started_at = CASE WHEN version = @v THEN started_at ELSE @now END`)
+      .run({ v: codeVersion || "unknown", now: new Date().toISOString() });
   }
 
   stop() { for (const entry of this.sessions.values()) entry.session?.end(); this.sessions.clear(); }

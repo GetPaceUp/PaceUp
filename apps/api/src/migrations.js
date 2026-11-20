@@ -581,6 +581,14 @@ export const migrations = [
       }
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS club_memberships_one_owner ON club_memberships(club_id) WHERE role = 'owner'");
     }
+  },
+  {
+    id: 23,
+    name: "service_status",
+    up(db) {
+      // Each background service (the WhatsApp worker) records the commit it runs, for /health and the deploy check.
+      db.exec("CREATE TABLE service_status (name TEXT PRIMARY KEY, version TEXT NOT NULL, started_at TEXT NOT NULL, seen_at TEXT NOT NULL)");
+    }
   }
 ];
 
