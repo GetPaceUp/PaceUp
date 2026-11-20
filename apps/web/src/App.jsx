@@ -5,7 +5,7 @@ import { RosterPanel, MembersCard } from "./Roster.jsx";
 import { PhoneAuth, AddPhone, ForgotPassword, phoneText } from "./Auth.jsx";
 import { PeoplePanel } from "./People.jsx";
 import { ResetPage } from "./PasswordReset.jsx";
-import { StartPage } from "./Start.jsx";
+import { StartPage, SignupPage } from "./Start.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "" };
@@ -18,6 +18,7 @@ export default function App() {
   if (resetMatch) return <ResetPage token={resetMatch[1]} />;
   const startMatch = window.location.pathname.match(/^\/start\/([A-Za-z0-9_-]{20,100})$/);
   if (startMatch) return <StartPage token={startMatch[1]} />;
+  if (/^\/start\/?$/.test(window.location.pathname)) return <SignupPage />;
   const [user, setUser] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [mode, setMode] = useState("login");
@@ -57,7 +58,9 @@ export default function App() {
         const data = await response.json();
         setUser(data.user);
         setClubs(data.clubs);
-        if (data.clubs.length) setSelectedClub(data.clubs[0].id);
+        // Just set up a club at /start: open that club.
+        const wanted = new URLSearchParams(window.location.search).get("club");
+        if (data.clubs.length) setSelectedClub(data.clubs.find((c) => c.id === wanted)?.id || data.clubs[0].id);
       }
     } catch {
       setError("Can't reach PaceUp. Check that the development server is running.");
@@ -69,6 +72,8 @@ export default function App() {
   function returnToNext() {
     const next = new URLSearchParams(window.location.search).get("next");
     if (next && /^\/r\/[A-Za-z0-9_-]{6,16}(\?absent)?$/.test(next)) { window.location.href = next; return true; }
+    // Signed in from the club set-up page: back to it.
+    if (next && /^\/start(\?club=[A-Za-z0-9-]{1,64})?$/.test(next)) { window.location.href = next; return true; }
     return false;
   }
   useEffect(() => {

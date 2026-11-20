@@ -13,6 +13,7 @@ import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
 import { markClubLive } from "../directory.js";
+import { signupLinked } from "../signup.js";
 import { queueNoShowNudges } from "../no-shows.js";
 import { regularsText } from "../regulars.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
@@ -84,6 +85,7 @@ export class WhatsAppWorker {
           entry.open = true; entry.retries = 0;
           this.setConn(clubId, { status: "connected", phone, qr: null, pairing_code: null, pairing_phone: null, last_error: null, last_seen_at: iso(Date.now()) });
           markClubLive(clubId);
+          signupLinked(clubId);
           this.log.info?.(`[whatsapp] club ${clubId} connected`);
           await this.refreshGroups(clubId);
         },

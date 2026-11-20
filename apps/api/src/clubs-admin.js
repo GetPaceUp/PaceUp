@@ -2,7 +2,7 @@
 // club's first admin by mobile number. Club admins add more admins the same way.
 // Nobody creates a club while signing up.
 import { randomUUID, randomBytes, createHash } from "node:crypto";
-import { db, DomainError, PHONE_EMAIL_DOMAIN, getUserById, getClubMembership, getPlatformRole, audit } from "./db.js";
+import { db, DomainError, PHONE_EMAIL_DOMAIN, getUserById, getClubMembership, getPlatformRole, revokeAllSessions, audit } from "./db.js";
 import { cleanName, cleanPhone } from "./roster.js";
 import { cleanCity, linkDirectoryToClub, clubKey } from "./directory.js";
 
@@ -17,10 +17,22 @@ function uniqueSlug(name) {
   return `${base}-${randomUUID().slice(0, 6)}`;
 }
 
+/**
+ * A number someone typed at /start (not yet proved) is now being added to a club by its admin,
+ * or the real owner of the number signed in: whoever typed it loses their sign-in, so they can't
+ * see clubs meant for the number's owner.
+ */
+export function distrustUnverified(phone) {
+  const u = db.prepare("SELECT id FROM users WHERE phone = ? AND signup_unverified = 1").get(phone);
+  if (!u) return;
+  revokeAllSessions(u.id);
+  db.prepare("UPDATE users SET signup_unverified = 0 WHERE id = ?").run(u.id);
+}
+
 /** The account that owns this number, created (phone-only, no password) if there is none. */
 export function findOrCreatePhoneUser(phone, name) {
   const existing = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
-  if (existing) return existing.id;
+  if (existing) { distrustUnverified(phone); return existing.id; }
   const clean = cleanName(name);
   if (clean.length < 2) throw new DomainError(400, "This number isn't on PaceUp yet. Enter the person's name too.");
   const id = randomUUID();

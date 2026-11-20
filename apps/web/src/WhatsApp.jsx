@@ -181,6 +181,7 @@ export function WhatsAppPanel({ clubId }) {
       <h3>WhatsApp</h3>
       <p className="panel-copy">Post new activities and the updated list of who's going to your club's WhatsApp group automatically.</p>
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
+      {wa.signup_pending && !connected && <p className="success-note">Last step: link your club's WhatsApp number. Your club is held for you until {new Date(wa.signup_release_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}. If it isn't linked by then, it's released.</p>}
       {wa.last_error && !connected && <p className="error">{codeExpired ? "That link code expired before it was used. Get a new one below." : wa.last_error}</p>}
 
       {wa.desired !== "on" && (manager

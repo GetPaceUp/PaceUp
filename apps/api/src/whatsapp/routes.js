@@ -20,6 +20,13 @@ function update(clubId, fields) {
 }
 const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${"x".repeat(Math.max(0, p.length - 6))}${p.slice(-4)}` : null);
 
+function signupView(clubId, manager) {
+  const c = db.prepare("SELECT signup_status, signup_at, number_owner_id FROM clubs WHERE id = ?").get(clubId);
+  if (c?.signup_status !== "pending") return {};
+  const ownerPhone = manager ? db.prepare("SELECT phone FROM users WHERE id = ?").get(c.number_owner_id)?.phone : null;
+  return { signup_pending: true, signup_release_at: new Date(new Date(c.signup_at).getTime() + 24 * 3600 * 1000).toISOString(), owner_phone: ownerPhone ? `+${ownerPhone}` : null };
+}
+
 async function view(clubId, userId) {
   const manager = isClubOwner(clubId, userId); // the Club Owner, or the PaceUp Admin
   const owner = db.prepare("SELECT u.id, u.name FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = ? AND cm.role = 'owner'").get(clubId);
@@ -36,6 +43,8 @@ async function view(clubId, userId) {
       pairing_expires_at: manager && c.status === "pairing" && c.pairing_code && c.qr_updated_at
         ? new Date(new Date(c.qr_updated_at).getTime() + PAIRING_TIMEOUT_MS).toISOString() : null,
       can_manage_number: manager,
+      // A club that signed up at /start is held until its number is linked.
+      ...signupView(clubId, manager),
       club_owner: owner ? { name: owner.name, is_you: owner.id === userId } : null,
       phone: maskPhone(c.phone),
       group: isClubGroup(c, c.group_jid) ? { jid: c.group_jid, name: c.group_name } : null,

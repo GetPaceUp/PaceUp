@@ -101,7 +101,11 @@ export function verifyLogin({ phone, code, name, inviteToken, hashToken }) {
   const signingUp = !existing && cleanName;
   // A sign-up uses the code up only once the account exists, so a taken club name can be fixed and retried.
   checkCode(phone, code, "login", { consume: Boolean(existing) });
-  if (existing) return { user: getUserById(existing.id) };
+  if (existing) {
+    // The code proved the number: an account first made at /start is now verified.
+    db.prepare("UPDATE users SET signup_unverified = 0 WHERE id = ?").run(existing.id);
+    return { user: getUserById(existing.id) };
+  }
   if (!signingUp) return { needs_signup: true, name_hint: rosterNameFor(phone) };
   if (cleanName.length < 2 || cleanName.length > 80) throw new DomainError(400, "Enter your name (2–80 characters).");
   const user = { id: randomUUID(), name: cleanName, email: placeholderEmail(phone), passwordHash: "!" };
