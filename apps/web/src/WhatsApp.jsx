@@ -125,10 +125,10 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
   const [phone, setPhone] = useState(lastPhone ? prettyPhone(lastPhone) : "+91 ");
   return (
     <div className="wa-connect">
-      <p className="wa-warn">Use a number kept only for the club, ideally a WhatsApp Business number. Not a personal number. One number can serve only one club.</p>
+      <p className="wa-warn">Use the club's own number, not your personal one.</p>
       <div className="seg" role="tablist" aria-label="How to link">
-        <button type="button" role="tab" aria-selected={how === "code"} className={how === "code" ? "on" : ""} onClick={() => setHow("code")}>Club phone is this phone</button>
-        <button type="button" role="tab" aria-selected={how === "qr"} className={how === "qr" ? "on" : ""} onClick={() => setHow("qr")}>Scan a QR code</button>
+        <button type="button" role="tab" aria-selected={how === "code"} className={how === "code" ? "on" : ""} onClick={() => setHow("code")}>On this phone</button>
+        <button type="button" role="tab" aria-selected={how === "qr"} className={how === "qr" ? "on" : ""} onClick={() => setHow("qr")}>Scan QR</button>
       </div>
       {how === "code"
         ? <form className="stack-form" onSubmit={(e) => { e.preventDefault(); onConnect({ phone }); }}>
@@ -136,9 +136,40 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
             <input id="wa-num" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" pattern="[+0-9 \(\)\-]{10,20}" required />
             <button type="submit" disabled={busy}>{expired ? "Get a new code" : "Get a link code"}</button>
           </form>
-        : <><p className="panel-copy">A QR code appears here. Scan it with the club phone.</p><button type="button" disabled={busy} onClick={() => onConnect({})}>Show QR code</button></>}
+        : <><p className="panel-copy">Scan it with the club phone.</p><button type="button" disabled={busy} onClick={() => onConnect({})}>Show QR code</button></>}
     </div>
   );
+}
+
+/** First visit after /start: one friendly step, no warnings. */
+function SignupWelcome({ wa, busy, act, onLater, onOther }) {
+  const starting = wa.desired === "on";
+  if (!starting) return <div className="wa-welcome">
+    <p className="wa-welcome-emoji" aria-hidden="true">🎉</p>
+    <h3 className="wa-welcome-title">You're in!</h3>
+    <p className="wa-welcome-lead">Connect your club's WhatsApp and your activities post themselves, with the going list kept up to date.</p>
+    <button type="button" className="primary-button wa-welcome-btn" disabled={busy} onClick={() => wa.owner_phone ? act("/connect", "POST", { phone: wa.owner_phone }) : onOther()}>Connect WhatsApp</button>
+    <p className="wa-welcome-small">Takes a minute. Unlink anytime.</p>
+    <button type="button" className="text-button wa-welcome-later" onClick={onLater}>Do this later</button>
+  </div>;
+  return <div className="wa-welcome">
+    {wa.pairing_phone
+      ? <>
+          <h3 className="wa-welcome-title">Type this code in WhatsApp</h3>
+          {wa.pairing_code
+            ? <div className="wa-welcome-card">
+                <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
+                <ol className="wa-steps"><li>WhatsApp › Settings › <b>Linked devices</b></li><li><b>Link a device</b> › <b>Link with phone number</b></li><li>Type the code</li></ol>
+              </div>
+            : <p className="wa-welcome-small">Getting your code…</p>}
+          <p className="wa-welcome-small">For {prettyPhone(wa.pairing_phone)} · <button type="button" className="text-button" disabled={busy} onClick={async () => { if (await act("/disconnect")) onOther(); }}>Other number</button> · <button type="button" className="text-button" disabled={busy} onClick={() => act("/connect", "POST", {})}>Scan QR</button></p>
+        </>
+      : <>
+          <h3 className="wa-welcome-title">Scan with the club phone</h3>
+          {wa.qr ? <div className="wa-welcome-card"><img className="wa-qr" src={wa.qr} alt="WhatsApp link code" /><ol className="wa-steps"><li>WhatsApp › Settings › <b>Linked devices</b></li><li><b>Link a device</b>, then point at this code</li></ol></div> : <p className="wa-welcome-small">Getting your code…</p>}
+        </>}
+    <button type="button" className="text-button wa-welcome-later" disabled={busy} onClick={() => act("/disconnect")}>Cancel</button>
+  </div>;
 }
 
 export function WhatsAppPanel({ clubId }) {
@@ -147,6 +178,7 @@ export function WhatsAppPanel({ clubId }) {
   const [busy, setBusy] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
   const [notice, setNotice] = useState("");
+  const [later, setLater] = useState(false);
   const base = `/api/clubs/${clubId}/whatsapp`;
   const timer = useRef();
 
@@ -176,12 +208,29 @@ export function WhatsAppPanel({ clubId }) {
   const manager = Boolean(wa.can_manage_number); // the club owner, or the PaceUp Admin
   const owner = wa.club_owner;
 
+  if (wa.signup_pending && !connected && manager && !later) return (
+    <section className="admin-panel wa-panel" id="connect">
+      <SignupWelcome wa={wa} busy={busy} act={act} onLater={() => setLater(true)} onOther={() => setLater(true)} />
+      {error && <p className="error" role="alert">{error}</p>}
+    </section>
+  );
+  const justLinked = connected && manager && !wa.groups_linked && new URLSearchParams(window.location.search).has("welcome");
+  if (justLinked) return (
+    <section className="admin-panel wa-panel" id="connect">
+      <div className="wa-welcome">
+        <p className="wa-welcome-emoji" aria-hidden="true">✅</p>
+        <h3 className="wa-welcome-title">Connected!</h3>
+        <p className="wa-welcome-lead">Last bit: tick the WhatsApp group your club posts in.</p>
+        <GroupPicker url={`${base}/all-groups`} onSaved={load} />
+      </div>
+    </section>
+  );
+
   return (
     <section className="admin-panel wa-panel" id="connect">
       <h3>WhatsApp</h3>
-      <p className="panel-copy">Post new activities and the updated list of who's going to your club's WhatsApp group automatically.</p>
+      <p className="panel-copy">{wa.signup_pending && !connected ? "Last step: link your club's WhatsApp." : "Posts your activities and who's going to your WhatsApp group."}</p>
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
-      {wa.signup_pending && !connected && <p className="success-note">Last step: link your club's WhatsApp number. Your club is held for you until {new Date(wa.signup_release_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}. If it isn't linked by then, it's released.</p>}
       {wa.last_error && !connected && <p className="error">{codeExpired ? "That link code expired before it was used. Get a new one below." : wa.last_error}</p>}
 
       {wa.desired !== "on" && (manager

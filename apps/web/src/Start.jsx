@@ -61,11 +61,6 @@ const ACTIVITIES = ["Cycling", "Running", "Trekking", "Triathlon", "Swimming", "
 const call = (url, body) => fetch(url, { method: body ? "POST" : "GET", credentials: "include", headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined })
   .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(d.error || "Something went wrong."), { status: r.status, data: d }); return d; });
 
-function Steps({ at }) {
-  const steps = ["Pick your club", "Your name and mobile", "Link WhatsApp, pick your groups"];
-  return <ul className="su-steps">{steps.map((s, i) => <li key={s} className={i < at ? "ok" : i === at ? "on" : ""}><span>{i < at ? "✓" : i + 1}</span>{s}</li>)}</ul>;
-}
-
 function Picked({ club, onChange }) {
   return <div className="su-picked"><span className="su-av">{club.name[0]?.toUpperCase()}</span><span><b>{club.name}</b><small>{[club.city, club.activity_type || club.activity].filter(Boolean).join(" · ")}</small></span><button type="button" className="text-button" onClick={onChange}>Change</button></div>;
 }
@@ -139,7 +134,7 @@ export function SignupPage() {
     {nc.activity === "Other" && <input aria-label="Which activity?" placeholder="Which activity?" value={nc.other} onChange={(e) => setNc({ ...nc, other: e.target.value })} maxLength={60} />}
   </>;
   const phoneField = <>
-    <label htmlFor="su-phone">Your mobile number</label>
+    <label htmlFor="su-phone">Your WhatsApp number</label>
     <input id="su-phone" type="tel" inputMode="tel" autoComplete="tel" value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} pattern="[+0-9 \(\)\-]{10,20}" required />
   </>;
   const whoFields = me
@@ -158,10 +153,9 @@ export function SignupPage() {
       <section className="start-page su-page">
         {step === 0 && <>
           <span className="su-free">Absolutely free, for life</span>
-          <h1 className="start-title">Set up PaceUp for your club</h1>
-          <p className="hero-copy">Post activities to your WhatsApp group in seconds. Members tap "I'm in", no app. The "who's going" list updates itself.</p>
+          <h1 className="start-title">Hi! Let's get your club on PaceUp 👋</h1>
           <section className="workspace su-card">
-            <label htmlFor="su-q">Your club's name</label>
+            <label htmlFor="su-q">What's your club called?</label>
             <input id="su-q" role="combobox" aria-expanded={sug.length > 0} aria-controls="su-sug" aria-autocomplete="list" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={keys} placeholder="Start typing…" autoFocus />
             {sug.length > 0 && <ul id="su-sug" role="listbox" className="su-sug">
               {sug.map((c, i) => <li key={c.club_id || c.directory_id} role="option" aria-selected={i === active} className={i === active ? "on" : ""} onMouseDown={(e) => { e.preventDefault(); pick(c); }}>
@@ -169,18 +163,17 @@ export function SignupPage() {
                 {c.on_paceup && <span className="su-tag">{c.pending ? "BEING SET UP" : "ON PACEUP"}</span>}
               </li>)}
             </ul>}
-            <button type="button" className="text-button su-add" onClick={() => { setAdding(true); setError(""); }}>{q.trim().length >= 2 && !sug.length ? `Not listed? + Add "${q.trim()}"` : "Not listed? + Add my club"}</button>
+            <button type="button" className="text-button su-add" onClick={() => { setAdding(true); setError(""); }}>{q.trim().length >= 2 && !sug.length ? `Not here? Add "${q.trim()}"` : "Not here? Add it"}</button>
           </section>
         </>}
 
         {step === 1 && club && !club.on_paceup && <>
-          <h1 className="start-title su-small">Almost there</h1>
           <Picked club={club} onChange={reset} />
+          <h1 className="start-title su-small">Nice! And you are?</h1>
           <form className="workspace su-card" onSubmit={submit}>
             {!club.city && <><label htmlFor="su-city">City</label><input id="su-city" value={nc.city} onChange={(e) => setNc({ ...nc, city: e.target.value })} maxLength={80} required /></>}
             {!club.activity && activityFields}
             {whoFields}
-            <p className="panel-copy">Next you link your club's WhatsApp number. PaceUp posts only this club's activities from it.</p>
             {error && <p className="error" role="alert">{error}{hasAccount && <> {signInLink}</>}</p>}
             <button className="primary-button" type="submit" disabled={saving}>{saving ? "Setting up…" : "Continue"}</button>
           </form>
@@ -203,21 +196,19 @@ export function SignupPage() {
 
         {step === 1 && club?.on_paceup && <>
           <Picked club={club} onChange={reset} />
+          {!asked && !club.pending && <><h1 className="start-title su-small">Good news, they're already here 🙌</h1><p className="hero-copy">Want to help run it? We'll ask the owner.</p></>}
           {asked
-            ? <section className="workspace su-card"><b className="su-h">Request sent</b><p className="panel-copy">We've let the club's owner know. You'll get a WhatsApp message once you're added.</p></section>
+            ? <section className="workspace su-card"><b className="su-h">Done! 👍</b><p className="panel-copy">We've asked the owner.</p></section>
             : club.pending
-              ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone started setting it up a short while ago. If they don't finish within 24 hours, it's free for you to set up. Check back tomorrow.</p></section>
+              ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone else is on it. Check back tomorrow.</p></section>
               : <form className="workspace su-card" onSubmit={askAccess}>
-                  <b className="su-h">{club.name} is already on PaceUp</b>
-                  <p className="panel-copy">Ask to be added as an admin and we'll let the club's owner know.</p>
                   {whoFields}
                   {error && <p className="error" role="alert">{error}</p>}
-                  <button className="primary-button" type="submit" disabled={saving}>{saving ? "Sending…" : "Ask to be an admin"}</button>
+                  <button className="primary-button" type="submit" disabled={saving}>{saving ? "Sending…" : "Ask to join as admin"}</button>
                 </form>}
         </>}
 
-        {!(step === 1 && club?.on_paceup) && <Steps at={step} />}
-        <p className="su-foot">{step === 0 && <>About 2 minutes · {me ? <>Signed in as {me.name}</> : <>Already on PaceUp? {signInLink}</>}<br /></>}🔒 Your club's data stays private. Never shared.<br /><br />PACEUP <em className="endorse">by Feet and Pedals</em></p>
+        <p className="su-foot">{step === 0 && <>{me ? <>Signed in as {me.name}</> : <>Already on PaceUp? {signInLink}</>}<br /><br /></>}PACEUP <em className="endorse">by Feet and Pedals</em></p>
       </section>
     </main>
   );
