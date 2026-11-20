@@ -88,8 +88,11 @@ test("names imported before the tidy-up get a preview, and only ticked ones chan
   assert.equal(byName["Aneesh Saraiya Cycling Sector 65"].suggested, "Aneesh Saraiya");
   assert.equal(byName["Ankit Manocha Cycling Nirvana"].suggested, "Ankit Manocha");
   assert.ok(!preview.some((p) => p.name === "Priya Sharma"), "clean names aren't listed");
-  const res = (await call("POST", base, { cookie: club.cookie, payload: { ids: [byName["Aneesh Saraiya Cycling Sector 65"].id, byName["Kavya Cycling"].id] } })).json();
-  assert.deepEqual(res, { applied: 1, skipped: ["Kavya"] });
+  assert.ok(!byName["Kavya Cycling"], "a name whose tidy version is already taken isn't offered, so the banner can't get stuck");
+  const res = (await call("POST", base, { cookie: club.cookie, payload: { ids: [byName["Aneesh Saraiya Cycling Sector 65"].id] } })).json();
+  assert.deepEqual(res, { applied: 1, skipped: [] });
+  const left = (await call("GET", base, { cookie: club.cookie })).json().people;
+  assert.deepEqual(left.map((p) => p.name), ["Ankit Manocha Cycling Nirvana"], "after tidying, only the unticked one is still offered");
   const row = db.prepare("SELECT name, contact_name FROM club_roster WHERE phone = '919910678100'").get();
   assert.deepEqual(row, { name: "Aneesh Saraiya", contact_name: "Aneesh Saraiya Cycling Sector 65" });
   assert.equal(db.prepare("SELECT name FROM club_roster WHERE phone = '918762544321'").get().name, "Ankit Manocha Cycling Nirvana", "unticked stays as it was");

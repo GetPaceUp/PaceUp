@@ -365,11 +365,19 @@ export function removeRosterPerson(clubId, id) {
   if (!changes) throw new DomainError(404, "Not found.");
 }
 
-/** Names imported from a phone book or WhatsApp that still carry tags, with the tidy version. */
+/**
+ * Names from WhatsApp (or an old upload) that still carry tags, with the tidy version.
+ * Only names that can actually be tidied: if the tidy name is already someone else's,
+ * or two names would tidy to the same one, they're left out (names stay unique).
+ */
 export function cleanupSuggestions(clubId) {
-  return db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND source IN ('upload', 'whatsapp') AND self_added = 0 ORDER BY name_key").all(clubId)
+  const taken = new Set(db.prepare("SELECT name_key FROM club_roster WHERE club_id = ?").all(clubId).map((r) => r.name_key));
+  const people = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND source IN ('upload', 'whatsapp') AND self_added = 0 ORDER BY name_key").all(clubId)
     .map((p) => ({ ...p, suggested: tidyContactName(p.name) }))
-    .filter((p) => p.suggested !== p.name);
+    .filter((p) => p.suggested !== p.name && (nameKey(p.suggested) === nameKey(p.name) || !taken.has(nameKey(p.suggested))));
+  const seen = new Map();
+  for (const p of people) seen.set(nameKey(p.suggested), (seen.get(nameKey(p.suggested)) || 0) + 1);
+  return people.filter((p) => seen.get(nameKey(p.suggested)) === 1);
 }
 
 /** Applies the tidy names the admin ticked. The original stays in contact_name. */

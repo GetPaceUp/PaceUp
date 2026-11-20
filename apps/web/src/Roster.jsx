@@ -39,7 +39,7 @@ function NameRow({ label, sub, initial = "", action, onSave, onRemove, busy }) {
   );
 }
 
-/** Phone-book names often carry tags ("Aneesh Saraiya Cycling Sector 65"). Preview the tidy names and apply the ticked ones. */
+/** WhatsApp contact names often carry tags ("Aneesh Saraiya Cycling Sector 65"). Preview the tidy names and apply the ticked ones. */
 function NameCleanup({ base, onApplied }) {
   const [people, setPeople] = useState([]);
   const [open, setOpen] = useState(false);
@@ -62,7 +62,7 @@ function NameCleanup({ base, onApplied }) {
   }
   return (
     <div className="cleanup-box">
-      <p><b>✨ {people.length} {people.length === 1 ? "name has" : "names have"} extra words from your phone book</b>, like "{people[0].name}". Members would see "{people[0].suggested}" instead.</p>
+      <p><b>✨ {people.length} {people.length === 1 ? "name has" : "names have"} extra words after the name</b>, like "{people[0].name}". Members would see "{people[0].suggested}" instead.</p>
       {!open
         ? <button type="button" className="secondary-button small-button" onClick={() => setOpen(true)}>Review and tidy</button>
         : <>
