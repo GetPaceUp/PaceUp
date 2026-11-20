@@ -68,7 +68,7 @@ export default function App() {
   // After signing in from a ride link, go back to that ride.
   function returnToNext() {
     const next = new URLSearchParams(window.location.search).get("next");
-    if (next && /^\/r\/[A-Za-z0-9_-]{6,16}$/.test(next)) { window.location.href = next; return true; }
+    if (next && /^\/r\/[A-Za-z0-9_-]{6,16}(\?absent)?$/.test(next)) { window.location.href = next; return true; }
     return false;
   }
   useEffect(() => {

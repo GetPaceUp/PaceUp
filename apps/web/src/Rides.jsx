@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { NoShowMarker, NoShowBadge } from "./NoShows.jsx";
 
 export const api = async (url, options = {}) => {
   const response = await fetch(url, {
@@ -276,6 +277,8 @@ export function ClubRides({ club }) {
             </a>
             {ride.status === "draft" ? (admin && tab === "upcoming" ? <button type="button" className="secondary-button small-button" onClick={() => publish(ride)}>Publish</button> : <span className="pill">Draft</span>)
               : ride.status === "cancelled" ? <span className="pill">Cancelled</span>
+              : ride.can_mark ? <a className="pill pill-mark" href={`/r/${ride.code}?absent`}>Mark no-shows</a>
+              : ride.no_show_count ? <span className="pill">{ride.going_count - ride.no_show_count} came · {ride.no_show_count} no-show</span>
               : tab === "past" ? <span className="pill">{ride.going_count} went</span>
               : ride.capacity && ride.going_count >= ride.capacity ? <span className="pill">Full</span>
               : <span className={ride.my_rsvp ? "pill pill-go" : "pill"}>{ride.going_count} going</span>}
@@ -382,7 +385,7 @@ function PeopleList({ ride, people, busy, onRemove, start = 1 }) {
       {people.map(([p, n], i) => (
         <li key={p.id || `${i}-${p.name}`} className={p.is_you ? "you" : ""}>
           <span className="num">{n}</span>
-          <span className="who">{p.name}{p.is_you && <em> (you)</em>}{ride.viewer.admin && p.kind === "guest" && <small className="tag">guest</small>}</span>
+          <span className="who">{p.name}{p.is_you && <em> (you)</em>}{ride.viewer.admin && p.kind === "guest" && <small className="tag">guest</small>}{ride.viewer.admin && (p.no_show ? <small className="tag tag-out">no-show</small> : <NoShowBadge count={p.no_shows} />)}</span>
           {ride.viewer.admin && onRemove && !ride.started && (confirm === p.id
             ? <span className="confirm-inline"><button type="button" className="small-button" disabled={busy} onClick={() => { setConfirm(null); onRemove(p); }}>Remove</button><button type="button" className="text-button" onClick={() => setConfirm(null)}>Keep</button></span>
             : <button type="button" className="text-button remove" aria-label={`Remove ${p.name}`} onClick={() => setConfirm(p.id)}>✕</button>)}
@@ -394,7 +397,8 @@ function PeopleList({ ride, people, busy, onRemove, start = 1 }) {
 
 const HISTORY = {
   created_published: "Created and published", created_draft: "Saved as draft", published: "Published", unpublished: "Unpublished",
-  cancelled: "Cancelled", edited: "Edited", participant_removed: "Removed a participant"
+  cancelled: "Cancelled", edited: "Edited", participant_removed: "Removed a participant",
+  marked_no_show: "Marked a no-show", unmarked_no_show: "Undid a no-show"
 };
 function History({ items }) {
   if (!items?.length) return null;
@@ -515,7 +519,11 @@ export function RidePage({ code }) {
 
       <div className="going-head"><span>Going</span><strong>{ride.going_count}{ride.capacity ? ` / ${ride.capacity}` : ""}</strong></div>
       {pct !== null && <div className="meter"><i style={{ width: `${pct}%` }} /></div>}
-      <Participants ride={ride} busy={busy} onRemove={removeParticipant} />
+      {ride.viewer.admin && ride.absent?.open
+        ? <NoShowMarker ride={ride} onChange={setRide} />
+        : <Participants ride={ride} busy={busy} onRemove={removeParticipant} />}
+      {!ride.viewer.admin && ride.started && new URLSearchParams(window.location.search).has("absent") &&
+        <p className="panel-copy"><a href={`/?next=${encodeURIComponent(`/r/${code}?absent`)}`}>Sign in as a club admin</a> to mark who didn't turn up.</p>}
 
       {ride.viewer.admin && ride.status !== "cancelled" && <div className="admin-tools">
         <h3>Admin tools</h3>

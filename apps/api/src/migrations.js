@@ -603,6 +603,24 @@ export const migrations = [
         ALTER TABLE ride_rsvps ADD COLUMN join_point INTEGER NOT NULL DEFAULT 1;
       `);
     }
+  },
+  {
+    id: 25,
+    name: "no_shows",
+    up(db) {
+      // After an activity, admins tap who didn't turn up. Everyone else on the going list counts as present.
+      // absent_nudge_at: when the Lead was sent the one WhatsApp reminder to mark no-shows.
+      db.exec(`
+        ALTER TABLE ride_rsvps ADD COLUMN no_show INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ride_rsvps ADD COLUMN no_show_by TEXT REFERENCES users(id) ON DELETE SET NULL;
+        ALTER TABLE ride_rsvps ADD COLUMN no_show_at TEXT;
+        ALTER TABLE rides ADD COLUMN absent_nudge_at TEXT;
+        CREATE INDEX idx_rsvps_no_show ON ride_rsvps(ride_id) WHERE no_show = 1;
+      `);
+      // Activities that already started don't get a reminder when this ships.
+      const now = new Date().toISOString();
+      db.prepare("UPDATE rides SET absent_nudge_at = ? WHERE starts_at <= ?").run(now, now);
+    }
   }
 ];
 

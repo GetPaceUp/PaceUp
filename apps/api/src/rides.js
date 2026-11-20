@@ -7,6 +7,7 @@ import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList, clubGroups } from "./whatsapp/outbox.js";
 import { suggestNames, cleanName, cleanPhone, nameKey } from "./roster.js";
+import { absentWindow, noShowIds, noShowCounts, setNoShow, ABSENT_LOCK_MS } from "./no-shows.js";
 
 const nowIso = () => new Date().toISOString();
 const ADMIN_ROLES = ["owner", "admin"];
@@ -115,6 +116,9 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
   const list = participants(ride.id);
   const mine = findMyRsvp(ride, { userId, member: Boolean(membership), deviceHash });
   const started = new Date(ride.starts_at).getTime() <= Date.now();
+  // Admins only: who was marked as a no-show here, and each person's no-shows over the last 90 days.
+  const marked = admin ? noShowIds(ride.id) : null;
+  const counts = admin ? noShowCounts(ride.club_id) : null;
   const view = {
     id: ride.id, code: ride.share_code, club: { id: ride.club_id, name: ride.club_name },
     title: ride.title, category: ride.category || "other", starts_at: ride.starts_at, meeting_point: ride.meeting_point,
@@ -125,7 +129,7 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
     started, past: new Date(ride.starts_at).getTime() < Date.now() - PAST_AFTER_MS,
     organiser: ride.organiser_id ? { name: admin ? ride.organiser_name : shortName(ride.organiser_name) } : null,
     participants: list.map((p) => ({
-      ...(admin ? { id: p.id, kind: p.user_id ? "member" : p.roster_id ? "roster" : "guest" } : {}),
+      ...(admin ? { id: p.id, kind: p.user_id ? "member" : p.roster_id ? "roster" : "guest", no_show: marked.has(p.id), no_shows: counts.get(p.user_id || p.roster_id) || 0 } : {}),
       name: p.name,
       join_point: ride.meeting_point_2 ? p.join_point : 1,
       is_you: Boolean(mine && mine.id === p.id)
@@ -134,7 +138,10 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
     viewer: { signed_in: Boolean(userId), member: Boolean(membership), admin },
     ...(admin ? { wa_group_jid: ride.wa_group_jid || null } : {})
   };
-  if (admin) view.history = rideHistory(ride.id);
+  if (admin) {
+    view.history = rideHistory(ride.id);
+    view.absent = absentWindow(ride);
+  }
   return view;
 }
 
@@ -145,10 +152,15 @@ export function listClubRides(clubId, userId, { when = "upcoming" } = {}) {
   return db.prepare(`
     SELECT r.id, r.share_code AS code, r.title, r.category, r.starts_at, r.meeting_point, r.meeting_point_2, r.distance_km, r.status, r.capacity,
       (SELECT COUNT(*) FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.status = 'going') AS going_count,
-      (SELECT status FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.user_id = ?) AS my_rsvp
+      (SELECT status FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.user_id = ?) AS my_rsvp,
+      (SELECT COUNT(*) FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.status = 'going' AND rs.no_show = 1) AS no_show_count
     FROM rides r WHERE r.club_id = ? AND ${past ? "r.starts_at < ?" : "r.starts_at >= ?"} AND (r.status != 'draft' OR ?)
     ORDER BY r.starts_at ${past ? "DESC LIMIT 50" : ""}
-  `).all(userId, clubId, cutoff, admin ? 1 : 0).map((r) => ({ ...r, my_rsvp: r.my_rsvp === "going" ? "going" : null }));
+  `).all(userId, clubId, cutoff, admin ? 1 : 0).map(({ no_show_count, ...r }) => ({
+    ...r, my_rsvp: r.my_rsvp === "going" ? "going" : null,
+    // Admins only: no-shows, and whether the list can still be marked.
+    ...(admin && new Date(r.starts_at).getTime() <= Date.now() ? { no_show_count, can_mark: r.status === "published" && Date.now() < new Date(r.starts_at).getTime() + ABSENT_LOCK_MS } : {})
+  }));
 }
 
 /** Names for the RSVP box, from the club roster and signed-up members. */
@@ -440,6 +452,19 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     try {
       const ride = removeParticipant(request.params.clubId, request.params.rideId, request.params.rsvpId, request.user.sub);
       return { ride: rideView(ride, viewer(request)) };
+    } catch (error) { return domain(reply, error); }
+  });
+
+  app.put("/api/clubs/:clubId/rides/:rideId/participants/:rsvpId/no-show", {
+    schema: {
+      params: { type: "object", properties: { clubId: id, rideId: id, rsvpId: id }, required: ["clubId", "rideId", "rsvpId"] },
+      body: { type: "object", properties: { no_show: { type: "boolean" } }, required: ["no_show"] }
+    },
+    preHandler: [app.authenticate, requireClubRole(ADMIN_ROLES)]
+  }, async (request, reply) => {
+    try {
+      setNoShow(request.params.clubId, request.params.rideId, request.params.rsvpId, request.body.no_show, request.user.sub);
+      return { ride: rideView(getRideRow("id", request.params.rideId), viewer(request)) };
     } catch (error) { return domain(reply, error); }
   });
 
