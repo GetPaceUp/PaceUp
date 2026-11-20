@@ -32,6 +32,17 @@ function goingCount(rideId) {
   return db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ? AND status = 'going'").get(rideId).n;
 }
 
+/** The lead is on the going list by default once the activity is published (they can still drop out). */
+function addLead(ride) {
+  if (!ride.organiser_id) return;
+  if (db.prepare("SELECT 1 FROM ride_rsvps WHERE ride_id = ? AND user_id = ?").get(ride.id, ride.organiser_id)) return;
+  const name = db.prepare("SELECT name FROM users WHERE id = ?").get(ride.organiser_id)?.name;
+  if (!name) return;
+  const now = nowIso();
+  db.prepare("INSERT INTO ride_rsvps (id, ride_id, user_id, roster_id, participant_name, device_hash, status, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, NULL, 'going', ?, ?)")
+    .run(randomUUID(), ride.id, ride.organiser_id, name, now, now);
+}
+
 /** "Priya Sharma" -> "Priya S." for public lists. */
 export function shortName(name) {
   const parts = String(name || "").trim().split(/\s+/);
@@ -150,7 +161,7 @@ export function createRide(clubId, userId, input, { actorType = "user" } = {}) {
       VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @distance_km, @pace, @notes, @capacity, @wa_group_jid, @status, @organiser_id, @created_by, @created_at, @updated_at)
     `).run(ride);
     logActivity({ clubId, rideId: ride.id, actorType, actorId: userId, action: ride.status === "published" ? "created_published" : "created_draft" });
-    if (ride.status === "published") enqueueRideEvent(ride, "ride_published");
+    if (ride.status === "published") { addLead(ride); enqueueRideEvent(ride, "ride_published"); }
     return getRideRow("id", ride.id);
   }).immediate();
 }
@@ -161,12 +172,14 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     if (!ride) throw new DomainError(404, "Activity not found.");
     if (ride.status === "cancelled") throw new DomainError(409, "This activity was cancelled and can't be changed.");
     const going = goingCount(rideId);
+    // The lead alone on the list doesn't stop unpublishing.
+    const joined = db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ? AND status = 'going' AND (user_id IS NULL OR user_id != ?)").get(rideId, ride.organiser_id || "").n;
     const changes = {};
     if ("wa_group_jid" in input) input = { ...input, wa_group_jid: checkGroup(clubId, input.wa_group_jid) };
     for (const key of EDITABLE) if (key in input && input[key] !== ride[key]) changes[key] = input[key];
     if (input.status && input.status !== ride.status) {
-      if (input.status === "draft" && going > 0) {
-        throw new DomainError(409, `${going} ${going === 1 ? "person has" : "people have"} already joined. Cancel the activity instead of unpublishing it.`);
+      if (input.status === "draft" && joined > 0) {
+        throw new DomainError(409, `${joined} ${joined === 1 ? "person has" : "people have"} already joined. Cancel the activity instead of unpublishing it.`);
       }
       changes.status = input.status;
     }
@@ -183,7 +196,7 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     const action = changes.status === "published" ? "published" : changes.status === "draft" ? "unpublished" : changes.status === "cancelled" ? "cancelled" : "edited";
     logActivity({ clubId, rideId, actorId, action, metadata: fields.length ? { fields, ...(action === "cancelled" ? { going } : {}) } : (action === "cancelled" ? { going } : null) });
 
-    if (changes.status === "published") enqueueRideEvent(updated, "ride_published");
+    if (changes.status === "published") { addLead(updated); enqueueRideEvent(updated, "ride_published"); }
     else if (changes.status === "cancelled" && ride.status === "published") enqueueRideEvent(updated, "ride_cancelled");
     else if (ride.status === "published" && updated.status === "published") {
       if ("starts_at" in changes || "meeting_point" in changes) enqueueRideEvent(updated, "ride_updated");

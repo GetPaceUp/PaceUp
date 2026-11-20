@@ -35,27 +35,28 @@ function details(ride) {
   return [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
 }
 
-export function ridePublishedText(ride) {
-  const lines = [`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
+/** The full activity details. Every post carries all of them: people don't scroll up. */
+function body(ride) {
+  const lines = [whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
+  if (ride.map_url) lines.push(`🗺️ ${ride.map_url}`);
   if (details(ride)) lines.push(details(ride));
   // The club organises; the admin who created it leads.
   if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
   if (ride.organiser_name) lines.push(`Lead: ${shortName(ride.organiser_name)}`);
   if (ride.notes) lines.push("", ride.notes);
-  lines.push("", "Tap to say you're in 👇", rideLink(ride));
-  return lines.join("\n");
+  return lines;
 }
 
 /**
- * riders: [{id, name, user_id}] in RSVP order (id is the member's user id, or the
- * RSVP id for a guest); previous: the same shape from the last list post, or null.
+ * Who's going. riders: [{id, name, user_id}] in RSVP order (id is the member's user id, or the
+ * RSVP id for a guest); previous: the same shape from the last post, or null (no 🆕 marks).
  */
-export function riderListText(ride, riders, previous) {
+function going(ride, riders, previous) {
   const before = new Map((previous || []).map((r) => [r.id, r]));
   const now = new Set(riders.map((r) => r.id));
   const count = ride.capacity ? `${riders.length} / ${ride.capacity}` : `${riders.length}`;
-  const full = ride.capacity && riders.length >= ride.capacity;
-  const lines = [`${emoji(ride)} *${ride.title}* · ${whenText(ride.starts_at, { short: true })}`, `*${count} going*${full ? " · FULL" : ""}`, ""];
+  const full = Boolean(ride.capacity && riders.length >= ride.capacity);
+  const lines = [`*${count} going*${full ? " · FULL" : ""}`];
   riders.forEach((r, i) => {
     const tags = [r.user_id && r.user_id === ride.organiser_id ? "(lead)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
     lines.push(`${i + 1}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`);
@@ -63,12 +64,26 @@ export function riderListText(ride, riders, previous) {
   if (!riders.length) lines.push("No one yet.");
   const left = previous ? previous.filter((r) => !now.has(r.id)).map((r) => shortName(r.name)) : [];
   if (left.length) lines.push("", `Dropped out: ${left.join(", ")}`);
-  lines.push("", full ? "Spots open up if someone drops out 👇" : "Join or drop out 👇", rideLink(ride));
-  return lines.join("\n");
+  return { lines, full };
 }
 
-export function rideUpdatedText(ride) {
-  return [`✏️ *${cap(noun(ride))} updated: ${ride.title}*`, whenText(ride.starts_at), `📍 ${ride.meeting_point}`, "", rideLink(ride)].join("\n");
+function post(header, ride, riders, previous, cta) {
+  const list = going(ride, riders, previous);
+  return [header, ...body(ride), "", ...list.lines, "", list.full ? "Spots open up if someone drops out 👇" : cta, rideLink(ride)].join("\n");
+}
+
+export function ridePublishedText(ride, riders = []) {
+  return post(`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, ride, riders, null, "Tap to say you're in 👇");
+}
+
+/** After people join or drop out: the same full post, with the list marked 🆕 / Dropped out. */
+export function riderListText(ride, riders, previous) {
+  return post(`${emoji(ride)} *${ride.title}*`, ride, riders, previous, "Join or drop out 👇");
+}
+
+/** Time or place changed: the same full post, headed as a change. */
+export function rideUpdatedText(ride, riders = []) {
+  return post(`✏️ *${cap(noun(ride))} changed: ${ride.title}*`, ride, riders, null, "Join or drop out 👇");
 }
 
 export function rideCancelledText(ride) {
