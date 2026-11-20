@@ -92,7 +92,7 @@ function MemberGroups({ wa, busy, onSave }) {
   );
 }
 
-/** Which of the linked phone's groups belong to the club. The number owner and the Super Admin choose. */
+/** Which of the linked phone's groups belong to the club. The club owner and the PaceUp Admin choose. */
 export function GroupPicker({ url, onSaved }) {
   const [view, setView] = useState(null), [picked, setPicked] = useState(new Set()), [q, setQ] = useState("");
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState({});
@@ -173,8 +173,8 @@ export function WhatsAppPanel({ clubId }) {
   const codeExpired = wa.desired !== "on" && Boolean(wa.pairing_phone) && /expired/.test(wa.last_error || "");
   const connected = wa.status === "connected";
   const starting = wa.desired === "on" && !connected;
-  const manager = Boolean(wa.can_manage_number); // the club's number owner, or the Super Admin
-  const owner = wa.number_owner;
+  const manager = Boolean(wa.can_manage_number); // the club owner, or the PaceUp Admin
+  const owner = wa.club_owner;
 
   return (
     <section className="admin-panel wa-panel" id="connect">
@@ -185,7 +185,7 @@ export function WhatsAppPanel({ clubId }) {
 
       {wa.desired !== "on" && (manager
         ? <ConnectNumber key={codeExpired ? "again" : "new"} busy={busy} lastPhone={codeExpired ? wa.pairing_phone : null} expired={codeExpired} onConnect={(body) => act("/connect", "POST", body)} />
-        : <p className="panel-copy">{owner ? `${owner.name} looks after the club's WhatsApp number and links it.` : "The PaceUp team links the club's WhatsApp number."}</p>)}
+        : <p className="panel-copy">{owner ? `${owner.name}, the club owner, links the club's WhatsApp number.` : "The PaceUp team links the club's WhatsApp number."}</p>)}
 
       {starting && !manager && <p className="panel-copy">{owner ? `${owner.name} is linking the club's number.` : "The club's number is being linked."}</p>}
       {starting && manager && (wa.pairing_phone
@@ -212,7 +212,7 @@ export function WhatsAppPanel({ clubId }) {
             </select>
           : <p className="panel-copy">{wa.groups_linked ? "Your club's groups aren't on this number anymore." : "No WhatsApp groups are linked to your club yet."} {manager ? "Choose them below." : owner ? `${owner.name} chooses which groups belong to the club.` : "The PaceUp team chooses which groups belong to the club."}</p>}
         {manager && <details className="wa-groups-pick"><summary>Choose the club's groups</summary><GroupPicker url={`${base}/all-groups`} onSaved={load} /></details>}
-        {!manager && owner && <p className="panel-copy">{owner.name} linked this number. Only {owner.name} or the PaceUp team can change or disconnect it.</p>}
+        {!manager && owner && <p className="panel-copy">The club owner, {owner.name}, manages this number. Only they or the PaceUp team can change or disconnect it.</p>}
         {wa.group && <p className="panel-copy">You can pick a different group for any activity or template.</p>}
         {wa.groups.length > 1 && <MemberGroups wa={wa} busy={busy} onSave={(jids) => act("/member-groups", "PUT", { jids })} />}
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group name out of date? Refresh"}</button>

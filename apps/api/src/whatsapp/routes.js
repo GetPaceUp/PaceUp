@@ -3,8 +3,8 @@
 import QRCode from "qrcode";
 import { db } from "../db.js";
 import { getConnection, enqueueTest, outboxStats, memberGroups, knownGroups, clubGroups, allowedGroupIds, isClubGroup, PAIRING_TIMEOUT_MS } from "./outbox.js";
-import { audit, getPlatformRole } from "../db.js";
-import { canManageNumber } from "../clubs-admin.js";
+import { audit } from "../db.js";
+import { isClubOwner } from "../clubs-admin.js";
 import { cleanPhone } from "../roster.js";
 
 const ADMIN = ["owner", "admin"];
@@ -21,9 +21,8 @@ function update(clubId, fields) {
 const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${"x".repeat(Math.max(0, p.length - 6))}${p.slice(-4)}` : null);
 
 async function view(clubId, userId) {
-  const isSuper = getPlatformRole(userId) === "super_admin";
-  const manager = canManageNumber(clubId, userId);
-  const owner = db.prepare("SELECT u.id, u.name FROM clubs c INNER JOIN users u ON u.id = c.number_owner_id WHERE c.id = ?").get(clubId);
+  const manager = isClubOwner(clubId, userId); // the Club Owner, or the PaceUp Admin
+  const owner = db.prepare("SELECT u.id, u.name FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = ? AND cm.role = 'owner'").get(clubId);
   const c = getConnection(clubId) || { desired: "off", status: "disconnected" };
   const workerOnline = Boolean(c.last_seen_at && Date.now() - new Date(c.last_seen_at).getTime() < 60 * 1000);
   const qrFresh = c.status === "pairing" && c.qr && c.qr_updated_at && Date.now() - new Date(c.qr_updated_at).getTime() < 60 * 1000;
@@ -37,7 +36,7 @@ async function view(clubId, userId) {
       pairing_expires_at: manager && c.status === "pairing" && c.pairing_code && c.qr_updated_at
         ? new Date(new Date(c.qr_updated_at).getTime() + PAIRING_TIMEOUT_MS).toISOString() : null,
       can_manage_number: manager,
-      number_owner: owner ? { name: owner.name, is_you: owner.id === userId } : null,
+      club_owner: owner ? { name: owner.name, is_you: owner.id === userId } : null,
       phone: maskPhone(c.phone),
       group: isClubGroup(c, c.group_jid) ? { jid: c.group_jid, name: c.group_name } : null,
       // Only the groups the Super Admin linked to this club, never everything on the phone.
@@ -47,28 +46,25 @@ async function view(clubId, userId) {
       groups_refreshing: Boolean(c.groups_wanted_at && (!c.groups_updated_at || c.groups_wanted_at > c.groups_updated_at)),
       settings: { post_new_ride: Boolean(c.post_new_ride ?? 1), post_rider_list: Boolean(c.post_rider_list ?? 1), post_changes: Boolean(c.post_changes ?? 1), quiet_hours: Boolean(c.quiet_hours) },
       worker_online: c.status === "connected" ? workerOnline : null,
-      // Message counts are system information: Super Admin only (the API leaves them out for club admins).
-      ...(isSuper ? { stats: outboxStats(clubId) } : {})
+      // Message counts: the Club Owner and the PaceUp Admin (the API leaves them out for club admins).
+      ...(manager ? { stats: outboxStats(clubId) } : {})
     }
   };
 }
 
-export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAdmin }) {
+export function registerWhatsAppRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin }) {
   const params = { type: "object", properties: { clubId: { type: "string", pattern: "^[0-9a-fA-F-]{36}$" } }, required: ["clubId"] };
   const pre = [app.authenticate, requireClubRole(ADMIN)];
   const base = "/api/clubs/:clubId/whatsapp";
 
   app.get(base, { schema: { params }, preHandler: pre }, async (req) => {
     const v = await view(req.params.clubId, req.user.sub);
-    v.whatsapp.can_pick_groups = v.whatsapp.can_manage_number; // the number owner and the Super Admin choose the club's groups
+    v.whatsapp.can_pick_groups = v.whatsapp.can_manage_number; // the Club Owner and the PaceUp Admin choose the club's groups
     return v;
   });
 
-  // Linking and unlinking the club number: the Super Admin, or the club admin who owns the number.
-  async function requireNumberManager(req, reply) {
-    if (!canManageNumber(req.params.clubId, req.user.sub)) return reply.code(403).send({ error: "Only the person who looks after the club's WhatsApp number can do this." });
-  }
-  const managerPre = [app.authenticate, requireNumberManager];
+  // Linking and unlinking the club number, and choosing its groups: the Club Owner or the PaceUp Admin.
+  const managerPre = [app.authenticate, requireClubOwner];
   app.post(`${base}/connect`, {
     schema: { params, body: { type: ["object", "null"], properties: { phone: { type: "string", maxLength: 30 } } } }, preHandler: managerPre
   }, async (req, reply) => {
@@ -141,7 +137,7 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
     return view(req.params.clubId, req.user.sub);
   });
 
-  // Super Admin: sees every group on the linked number and decides which ones belong to the club.
+  // PaceUp Admin: sees every group on the linked number and decides which ones belong to the club.
   const platformBase = "/api/platform/clubs/:clubId/whatsapp-groups";
   const platformPre = [app.authenticate, requirePlatformAdmin];
   const platformView = (clubId) => {
@@ -157,7 +153,7 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
   const putSchema = { params, body: { type: "object", properties: { jids: { type: "array", maxItems: 30, items: { type: "string", maxLength: 100 } } }, required: ["jids"] } };
   app.get(platformBase, { schema: { params }, preHandler: platformPre }, async (req) => platformView(req.params.clubId));
   app.put(platformBase, { schema: putSchema, preHandler: platformPre }, (req, reply) => saveGroups(req, reply));
-  // The club's number owner picks the club's groups too: it's their phone.
+  // The Club Owner picks the club's groups too: it's their phone.
   app.get(`${base}/all-groups`, { schema: { params }, preHandler: managerPre }, async (req) => platformView(req.params.clubId));
   app.put(`${base}/all-groups`, { schema: putSchema, preHandler: managerPre }, (req, reply) => saveGroups(req, reply));
   async function saveGroups(req, reply) {

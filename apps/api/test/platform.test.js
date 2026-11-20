@@ -25,7 +25,7 @@ test("non-admins cannot reach any platform endpoint", async () => {
 
 test("promotion and demotion are audited, and the last Super Admin is protected", async () => {
   assert.equal((await role(alice.cookie, alice.user.id, "user")).statusCode, 400, "cannot remove own access");
-  assert.throws(() => changePlatformRole({ actorUserId: alice.user.id, targetUserId: alice.user.id, role: "user" }), /at least one Super Admin/);
+  assert.throws(() => changePlatformRole({ actorUserId: alice.user.id, targetUserId: alice.user.id, role: "user" }), /at least one PaceUp Admin/);
 
   const promoted = await role(alice.cookie, bob.user.id, "super_admin");
   assert.equal(promoted.statusCode, 200);
@@ -37,7 +37,7 @@ test("promotion and demotion are audited, and the last Super Admin is protected"
   assert.equal((await role(alice.cookie, bob.user.id, "user")).statusCode, 403);
   assert.equal((await call("GET", "/api/platform/overview", { cookie: alice.cookie })).statusCode, 403);
   // Bob is now the only one left and cannot be demoted by anyone.
-  assert.throws(() => changePlatformRole({ actorUserId: bob.user.id, targetUserId: bob.user.id, role: "user" }), /at least one Super Admin/);
+  assert.throws(() => changePlatformRole({ actorUserId: bob.user.id, targetUserId: bob.user.id, role: "user" }), /at least one PaceUp Admin/);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE platform_role = 'super_admin'").get().n, 1);
 
   const audit = (await call("GET", "/api/platform/audit", { cookie: bob.cookie })).json().entries;

@@ -22,7 +22,7 @@ import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount, createUser,
   getClubMembership, updateClub, listClubMembers, listClubInvitations,
   createClubInvitation, findInvitation, acceptInvitation, registerWithInvitation,
-  getPlatformRole, getPlatformOverview, changePlatformRole, listPlatformAudit,
+  getPlatformRole, getClubById, getPlatformOverview, changePlatformRole, listPlatformAudit,
   createSession, getActiveSession, applyOwnerBootstrap, revokeSession, revokeAllSessions, purgeExpiredSessions,
   DomainError
 } from "./db.js";
@@ -124,14 +124,28 @@ export async function buildApp(options = {}) {
       httpOnly: true, secure: isProduction, sameSite: "lax", path: "/", maxAge: SESSION_TTL_MS / 1000
     });
   }
+  // The PaceUp Admin can do everything in every club, as if they were its owner.
+  function clubAccess(clubId, userId) {
+    const membership = getClubMembership(clubId, userId);
+    if (membership?.role === "owner" || getPlatformRole(userId) !== "super_admin") return membership;
+    const club = getClubById(clubId);
+    return club ? { ...club, role: "owner", platform: true } : membership;
+  }
   function requireClubRole(roles) {
     return async (request, reply) => {
-      const membership = getClubMembership(request.params.clubId, request.user.sub);
+      const membership = clubAccess(request.params.clubId, request.user.sub);
       if (!membership || !roles.includes(membership.role)) {
         return reply.code(404).send({ error: "Club not found or you don't have permission to manage it." });
       }
       request.clubMembership = membership;
     };
+  }
+  /** Club Owner (or the PaceUp Admin): the club's name, number, groups, admins and stats. */
+  async function requireClubOwner(request, reply) {
+    const membership = clubAccess(request.params.clubId, request.user.sub);
+    if (!membership || !["owner", "admin"].includes(membership.role)) return reply.code(404).send({ error: "Club not found or you don't have permission to manage it." });
+    if (membership.role !== "owner") return reply.code(403).send({ error: "Only the club owner can do this." });
+    request.clubMembership = membership;
   }
 
   /** Identifies the signed-in user when there is one, without requiring it. */
@@ -148,7 +162,7 @@ export async function buildApp(options = {}) {
   registerRosterRoutes(app, { requireClubRole });
   registerTemplateRoutes(app, { requireClubRole });
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
-  registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAdmin, rateLimit: options.authRateLimit });
+  registerWhatsAppRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin, rateLimit: options.authRateLimit });
 
   // ---- password reset (one-time links shared by an admin; no email needed)
   const sendDomain = (reply, error) => {
@@ -189,13 +203,13 @@ export async function buildApp(options = {}) {
   });
 
   async function requirePlatformAdmin(request, reply) {
-    if (getPlatformRole(request.user.sub) !== "super_admin") return reply.code(403).send({ error: "Platform owner access required." });
+    if (getPlatformRole(request.user.sub) !== "super_admin") return reply.code(403).send({ error: "Only the PaceUp Admin can do this." });
   }
   app.get("/api/platform/overview", { preHandler: [app.authenticate, requirePlatformAdmin] }, async () => ({
     ...getPlatformOverview(),
     services: { api: "online", whatsapp: "not_configured", ssl: "managed_by_deployment" }
   }));
-  registerClubAdminRoutes(app, { requireClubRole, requirePlatformAdmin });
+  registerClubAdminRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin });
   registerDirectoryRoutes(app, { requirePlatformAdmin });
 
   // ---- a new club's owner signs in once with the link the Super Admin shared (the club has no number yet)
@@ -219,7 +233,7 @@ export async function buildApp(options = {}) {
       body: { type: "object", properties: { role: { type: "string", enum: ["user", "super_admin"] } }, required: ["role"] } }
   }, async (request, reply) => {
     const { role } = request.body;
-    if (request.params.userId === request.user.sub && role !== "super_admin") return reply.code(400).send({ error: "You cannot remove your own platform-owner access." });
+    if (request.params.userId === request.user.sub && role !== "super_admin") return reply.code(400).send({ error: "You cannot remove your own PaceUp Admin access." });
     try {
       return { user: changePlatformRole({ actorUserId: request.user.sub, targetUserId: request.params.userId, role, ip: request.ip }) };
     } catch (error) {
@@ -308,8 +322,8 @@ export async function buildApp(options = {}) {
   app.patch("/api/clubs/:clubId", {
     schema: { params: { type: "object", properties: { clubId: id }, required: ["clubId"] },
       body: { type: "object", properties: { name: str(200) }, required: ["name"] } },
-    // Only the Super Admin renames a club (it ties to the directory and the club's links); club admins can't.
-    preHandler: [app.authenticate, requirePlatformAdmin]
+    // The club owner (or the PaceUp Admin) renames the club; club admins can't.
+    preHandler: [app.authenticate, requireClubOwner]
   }, async (request, reply) => {
     const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
     const slug = makeSlug(name);
@@ -342,6 +356,7 @@ export async function buildApp(options = {}) {
   }, async (request, reply) => {
     const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
     const role = request.body.role;
+    if (role === "admin" && request.clubMembership.role !== "owner") return reply.code(403).send({ error: "Only the club owner can add or remove club admins." });
     // Email is optional: an invite link without one can be used by whoever receives it (e.g. on WhatsApp).
     if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254)) return reply.code(400).send({ error: "Enter a valid email address, or leave it empty." });
     const existing = email ? findUserByEmail(email) : null;

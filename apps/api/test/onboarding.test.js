@@ -110,7 +110,8 @@ test("the owner links the club's own number with a code; other admins can't; the
   const ravi = db.prepare("SELECT id FROM users WHERE phone = '919822022222'").get();
   const ownerView = (await wa(link.cookie)).json().whatsapp;
   assert.equal(ownerView.can_manage_number, true);
-  assert.deepEqual(ownerView.number_owner, { name: "Priya Kulkarni", is_you: true });
+  assert.deepEqual(ownerView.club_owner, { name: "Priya Kulkarni", is_you: true });
+  assert.ok(ownerView.stats, "the club owner sees message counts");
 
   assert.equal((await wa(link.cookie, "POST", "/connect", { phone: "+91 98220 12345" })).statusCode, 200);
   await worker.tick();
@@ -155,12 +156,14 @@ test("the owner links the club's own number with a code; other admins can't; the
   assert.equal((await wa(raviCookie, "POST", "/disconnect")).statusCode, 403);
   assert.equal((await wa(raviCookie, "GET", "/all-groups")).statusCode, 403);
 
-  // The Super Admin can hand the number to another admin.
-  const moved = await call("PUT", `/api/platform/clubs/${link.clubId}/number-owner`, { cookie: boss.cookie, payload: { userId: ravi.id } });
-  assert.equal(moved.json().number_owner_id, ravi.id);
+  assert.equal((await wa(raviCookie)).json().whatsapp.stats, undefined, "club admins don't see message counts");
+
+  // The PaceUp Admin (or the owner) can hand the club to another member; the old owner stays an admin.
+  const moved = await call("PUT", `/api/clubs/${link.clubId}/owner`, { cookie: boss.cookie, payload: { userId: ravi.id } });
+  assert.equal(moved.json().owner_id, ravi.id);
   assert.equal((await wa(raviCookie)).json().whatsapp.can_manage_number, true);
-  assert.equal((await wa(link.cookie, "POST", "/disconnect")).statusCode, 403, "Priya no longer owns the number");
-  assert.equal((await call("PUT", `/api/platform/clubs/${link.clubId}/number-owner`, { cookie: boss.cookie, payload: { userId: boss.user.id } })).statusCode, 400, "must be an admin of the club");
+  assert.equal((await wa(link.cookie, "POST", "/disconnect")).statusCode, 403, "Priya no longer owns the club");
+  assert.equal((await call("PUT", `/api/clubs/${link.clubId}/owner`, { cookie: boss.cookie, payload: { userId: boss.user.id } })).statusCode, 400, "the new owner must be in the club");
 });
 
 test("another club can't use a number already linked to a club", async () => {

@@ -26,7 +26,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [selectedClub, setSelectedClub] = useState("");
-  // Only the Super Admin gets a way into the Super Admin console from the dashboard.
+  // Only the PaceUp Admin gets a way into the PaceUp Admin console from the dashboard.
   const [isSuper, setIsSuper] = useState(false);
   useEffect(() => {
     if (!user?.id) { setIsSuper(false); return; }
@@ -194,7 +194,7 @@ export default function App() {
         <section className="dashboard">
           <div className="dashboard-head">
             <div><p className="eyebrow">YOUR PACEUP</p><h2>Welcome, {user.name.split(" ")[0]}</h2><p className="hero-copy">{user.phone ? phoneText(user.phone) : user.email}</p>{!user.phone && <AddPhone onAdded={(u) => setUser(u)} />}</div>
-            <div className="head-actions">{isSuper && <a className="secondary-button" href="/superadmin">Super Admin</a>}<button type="button" className="secondary-button" onClick={logout}>Sign out</button></div>
+            <div className="head-actions">{isSuper && <a className="secondary-button" href="/superadmin">PaceUp Admin</a>}<button type="button" className="secondary-button" onClick={logout}>Sign out</button></div>
           </div>
           {inviteToken && <section className="workspace invite-accept"><h3>You've been invited to a PaceUp club</h3><p>Accept the invitation using the account signed in above.</p><button onClick={acceptInvite}>Accept invitation</button></section>}
           <section className="workspace">
@@ -204,14 +204,14 @@ export default function App() {
             {clubs.length === 0 && <p className="panel-copy">You're not in a club yet. Ask your club admin for an invite link. If your number is on a club's member list, sign in with it and you'll join automatically.</p>}
             {clubs.length > 0 && !["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <p className="panel-copy">You are a member of this club. Club administration is available to its admins.</p>}
             {clubs.length > 0 && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <>
-              {editingName && isSuper
+              {editingName && (isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner")
                 ? <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required autoFocus /></div><button type="submit">Save</button><button type="button" className="secondary-button" onClick={() => { setClubName(clubs.find((club) => club.id === selectedClub)?.name || ""); setEditingName(false); setError(""); }}>Cancel</button></form>
-                : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div>{isSuper && <button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button>}</div>}
+                : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div>{(isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner") && <button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button>}</div>}
               {page === "members"
                 ? <RosterPanel clubId={selectedClub} onBack={() => openPage("home")} />
                 : <>
                   <div className="admin-grid">
-                    <PeoplePanel clubId={selectedClub} members={members} me={user.id} onChange={() => loadClubData(selectedClub)} />
+                    <PeoplePanel clubId={selectedClub} members={members} me={user.id} isOwner={isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner"} onChange={() => loadClubData(selectedClub)} />
                   </div>
                   <MembersCard clubId={selectedClub} onOpen={() => openPage("members")} />
                   <WhatsAppPanel clubId={selectedClub} />

@@ -6,14 +6,14 @@ export default function SuperAdmin() {
  async function load(){setLoading(true);setError("");try{const r=await fetch("/api/platform/overview",{credentials:"include"});if(r.status===401){window.location.href="/";return;}if(!r.ok)throw new Error((await r.json()).error||"Access denied");setData(await r.json());}catch(e){setError(e.message);}finally{setLoading(false);}}
  useEffect(()=>{load();},[]);
  async function role(id,value){setBusy(id);try{const r=await fetch("/api/platform/users/"+id+"/role",{method:"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:value})});if(!r.ok)throw new Error((await r.json()).error||"Update failed");await load();}catch(e){setError(e.message);}finally{setBusy("");}}
- return <main className="page-shell platform-shell"><nav className="topbar"><a className="wordmark" href="/"><span className="mark">P</span> paceup</a><span className="topbar-note">PLATFORM CONTROL</span></nav><section className="dashboard"><div className="dashboard-head"><div><p className="eyebrow">PACEUP OWNER CONSOLE</p><h2>Super Admin</h2><p className="hero-copy">Central platform administration.</p></div><a className="secondary-button" href="/">Club dashboard</a></div>
+ return <main className="page-shell platform-shell"><nav className="topbar"><a className="wordmark" href="/"><span className="mark">P</span> paceup</a><span className="topbar-note">PLATFORM CONTROL</span></nav><section className="dashboard"><div className="dashboard-head"><div><p className="eyebrow">PACEUP ADMIN CONSOLE</p><h2>PaceUp Admin</h2><p className="hero-copy">Central platform administration.</p></div><a className="secondary-button" href="/">Club dashboard</a></div>
  {loading&&<p className="empty-state">Loading…</p>}{error&&<p className="error">{error}</p>}
  {!loading&&!data&&!error&&<section className="workspace"><h3>Platform owner access required</h3><p className="panel-copy">Set PACEUP_SUPERADMIN_EMAIL to your registered account email in the production environment and restart the API.</p></section>}
  {data&&<><div className="platform-stats">{Object.entries(data.counts).map(([k,v])=><div className="workspace" key={k}><span>{k.toUpperCase()}</span><strong>{v}</strong></div>)}</div>
  <CreateClub onCreated={load} /><section className="workspace platform-section"><h2>All clubs</h2><div className="club-list">{data.clubs.map(c=><ClubRow key={c.id} club={c} onChange={load} />)}</div></section>
  <Directory />
- <section className="workspace platform-section"><h2>Users and platform roles</h2><div className="platform-table"><div className="platform-row platform-user-header"><span>User</span><span>Clubs</span><span>Role</span><span>Action</span></div>{data.users.map(u=><div className="platform-row platform-user-row" key={u.id}><span><strong>{u.name}</strong><small>{u.email || (u.phone ? "+" + u.phone : "")}</small></span><span>{u.club_count}<span className="platform-mobile-count"> club{u.club_count === 1 ? "" : "s"}</span></span><span>{u.platform_role === "super_admin" ? "Super Admin" : "User"}</span><span><button className="secondary-button" disabled={busy===u.id} onClick={()=>role(u.id,u.platform_role==="super_admin"?"user":"super_admin")}>{busy===u.id?"Saving…":u.platform_role==="super_admin"?"Remove owner":"Make owner"}</button><ResetLinkButton endpoint={"/api/platform/users/"+u.id+"/password-reset"} name={u.name} /></span></div>)}</div></section>
- <section className="workspace platform-section"><h2>System status</h2><p>API: Online</p><p>WhatsApp: connected per club, from each club's dashboard</p><p>SSL: Managed by deployment configuration</p><button className="secondary-button" onClick={load}>Refresh</button></section></>}</section><footer><span>PACEUP</span><span>Platform owner console</span></footer></main>;
+ <section className="workspace platform-section"><h2>Users and platform roles</h2><div className="platform-table"><div className="platform-row platform-user-header"><span>User</span><span>Clubs</span><span>Role</span><span>Action</span></div>{data.users.map(u=><div className="platform-row platform-user-row" key={u.id}><span><strong>{u.name}</strong><small>{u.email || (u.phone ? "+" + u.phone : "")}</small></span><span>{u.club_count}<span className="platform-mobile-count"> club{u.club_count === 1 ? "" : "s"}</span></span><span>{u.platform_role === "super_admin" ? "PaceUp Admin" : "User"}</span><span><button className="secondary-button" disabled={busy===u.id} onClick={()=>role(u.id,u.platform_role==="super_admin"?"user":"super_admin")}>{busy===u.id?"Saving…":u.platform_role==="super_admin"?"Remove PaceUp Admin":"Make PaceUp Admin"}</button><ResetLinkButton endpoint={"/api/platform/users/"+u.id+"/password-reset"} name={u.name} /></span></div>)}</div></section>
+ <section className="workspace platform-section"><h2>System status</h2><p>API: Online</p><p>WhatsApp: connected per club, from each club's dashboard</p><p>SSL: Managed by deployment configuration</p><button className="secondary-button" onClick={load}>Refresh</button></section></>}</section><footer><span>PACEUP</span><span>PaceUp Admin console</span></footer></main>;
 }
 const api = async (url, options = {}) => {
   const r = await fetch(url, { credentials: "include", ...options, headers: options.body ? { "Content-Type": "application/json" } : undefined });
@@ -32,7 +32,7 @@ function clubStage(c) {
   return ["off", "Number not linked"];
 }
 
-/** The owner's one-time sign-in link, shared by hand from the Super Admin's own WhatsApp. */
+/** The owner's one-time sign-in link, shared by hand from the PaceUp Admin's own WhatsApp. */
 function OwnerLinkCard({ link }) {
   const [copied, setCopied] = useState(false);
   const wa = `https://wa.me/${link.phone}?text=${encodeURIComponent(link.text)}`;
@@ -47,7 +47,7 @@ function OwnerLinkCard({ link }) {
   </div>;
 }
 
-/** One club: where it is in onboarding, its owner link, number owner and groups. */
+/** One club: where it is in onboarding, its owner link, club owner and groups. */
 function ClubRow({ club, onChange }) {
   const [open, setOpen] = useState("");
   const [link, setLink] = useState(null), [err, setErr] = useState("");
@@ -57,7 +57,7 @@ function ClubRow({ club, onChange }) {
   const openOwner = async () => { setOpen(open === "owner" ? "" : "owner"); setErr(""); try { setAdmins(await api(`/api/platform/clubs/${club.id}/admins`)); } catch (e) { setErr(e.message); } };
   const [newName, setNewName] = useState(club.name);
   const rename = async (e) => { e.preventDefault(); setErr(""); try { const r = await fetch(`/api/clubs/${club.id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newName }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || "Could not rename the club."); setOpen(""); onChange?.(); } catch (e2) { setErr(e2.message); } };
-  const setOwner = async (userId) => { try { setAdmins(await api(`/api/platform/clubs/${club.id}/number-owner`, { method: "PUT", body: JSON.stringify({ userId: userId || null }) })); onChange?.(); } catch (e) { setErr(e.message); } };
+  const setOwner = async (userId) => { if (!userId) return; try { setAdmins(await api(`/api/clubs/${club.id}/owner`, { method: "PUT", body: JSON.stringify({ userId }) })); onChange?.(); } catch (e) { setErr(e.message); } };
   return <div className="club-item">
     <div className="club-item-head">
       <div className="club-item-main"><strong>{club.name}</strong><small>{[club.city, club.activity, `${club.member_count} member${club.member_count === 1 ? "" : "s"}`, club.owner_name && `owner ${club.owner_name}`].filter(Boolean).join(" · ")}</small></div>
@@ -66,7 +66,7 @@ function ClubRow({ club, onChange }) {
     <div className="club-item-actions">
       <button type="button" className="secondary-button small-button" onClick={() => { setNewName(club.name); setOpen(open === "rename" ? "" : "rename"); }}>Rename</button>
       <button type="button" className="secondary-button small-button" onClick={() => setOpen(open === "groups" ? "" : "groups")}>{open === "groups" ? "Close groups" : "Groups"}</button>
-      <button type="button" className="secondary-button small-button" onClick={openOwner}>Number owner{club.number_owner_name ? `: ${club.number_owner_name}` : ""}</button>
+      <button type="button" className="secondary-button small-button" onClick={openOwner}>Club owner{club.owner_name ? `: ${club.owner_name}` : ""}</button>
       {club.wa_status !== "connected" && <button type="button" className="secondary-button small-button" onClick={newLink}>New owner link</button>}
     </div>
     {err && <p className="error" role="alert">{err}</p>}
@@ -77,12 +77,12 @@ function ClubRow({ club, onChange }) {
     {open === "groups" && <GroupPicker url={`/api/platform/clubs/${club.id}/whatsapp-groups`} />}
     {open === "link" && link && <OwnerLinkCard link={link} />}
     {open === "owner" && admins && <div className="platform-groups">
-      <label className="field-label" htmlFor={`no-${club.id}`}>Number owner</label>
-      <select id={`no-${club.id}`} value={admins.number_owner_id || ""} onChange={(e) => setOwner(e.target.value)}>
-        <option value="">Nobody (only you link the number)</option>
-        {admins.admins.map((a) => <option key={a.id} value={a.id}>{a.name}{a.role === "owner" ? " (club owner)" : ""}</option>)}
+      <label className="field-label" htmlFor={`no-${club.id}`}>Club owner</label>
+      <select id={`no-${club.id}`} value={admins.owner_id || ""} onChange={(e) => setOwner(e.target.value)}>
+        {!admins.owner_id && <option value="">Nobody yet</option>}
+        {admins.admins.map((a) => <option key={a.id} value={a.id}>{a.name}{a.role === "owner" ? " (owner)" : " (club admin)"}</option>)}
       </select>
-      <p className="panel-copy">The number owner links the club's WhatsApp number, picks its groups and can disconnect it. You always can too.</p>
+      <p className="panel-copy">One owner per club. The owner links the club's WhatsApp number, picks its groups, renames the club, sees message counts and makes club admins. The old owner stays on as a club admin. You can always do all of this too.</p>
     </div>}
   </div>;
 }
@@ -146,7 +146,7 @@ function CreateClub({ onCreated }) {
 
 const STATUS_LABEL = { prospect: "Prospect", contacted: "Contacted", pilot: "Pilot", live: "Live" };
 
-/** The club directory: imported from the Super Admin's file. Contacts are only ever shown here. */
+/** The club directory: imported from the PaceUp Admin's file. Contacts are only ever shown here. */
 function Directory() {
   const [q, setQ] = useState(""), [status, setStatus] = useState("");
   const [data, setData] = useState(null), [openId, setOpenId] = useState(""), [msg, setMsg] = useState({}), [busy, setBusy] = useState(false);

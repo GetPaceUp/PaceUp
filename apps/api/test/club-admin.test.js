@@ -16,13 +16,12 @@ test("club admins can manage their club and invite a member without crossing ten
 
   assert.equal((await call("GET", `/api/clubs/${clubId}/members`)).statusCode, 401);
 
-  // Only the Super Admin renames clubs; the club's own owner and admins can't.
-  const ownRename = await call("PATCH", `/api/clubs/${clubId}`, { cookie: ownerCookie, payload: { name: "First Club Community" } });
-  assert.equal(ownRename.statusCode, 403);
-  const boss = await registerOwner("Boss", "boss@example.com", "Boss Club");
-  const renamed = await call("PATCH", `/api/clubs/${clubId}`, { cookie: boss.cookie, payload: { name: "First Club Community" } });
-  assert.equal(renamed.statusCode, 200, "the Super Admin can rename a club they don't belong to");
+  // The Club Owner renames the club; so can the PaceUp Admin, even for a club they're not in.
+  const renamed = await call("PATCH", `/api/clubs/${clubId}`, { cookie: ownerCookie, payload: { name: "First Club Community" } });
+  assert.equal(renamed.statusCode, 200);
   assert.equal(renamed.json().club.name, "First Club Community");
+  const boss = await registerOwner("Boss", "boss@example.com", "Boss Club");
+  assert.equal((await call("PATCH", `/api/clubs/${clubId}`, { cookie: boss.cookie, payload: { name: "First Club Community" } })).statusCode, 200);
 
   const token = await invite(ownerCookie, clubId, "member@example.com");
 
@@ -43,7 +42,7 @@ test("club admins can manage their club and invite a member without crossing ten
   assert.equal(members.json().members.length, 2);
 
   const forbiddenRename = await call("PATCH", `/api/clubs/${clubId}`, { cookie: memberCookie, payload: { name: "Attempted Takeover" } });
-  assert.equal(forbiddenRename.statusCode, 403);
+  assert.equal(forbiddenRename.statusCode, 404);
 });
 
 test("invitation role defaults to member, never admin", async () => {
@@ -68,10 +67,8 @@ test("users cannot read or change another club's data", async () => {
     ["PATCH", `/api/clubs/${a.clubId}`, { name: "Hijacked" }],
     ["POST", `/api/clubs/${a.clubId}/invitations`, { email: "spy@example.com", role: "admin" }]
   ]) {
-    // Renaming is Super Admin only, so everyone else gets the same 403 whether or not the club exists.
-    const expected = method === "PATCH" && url === `/api/clubs/${a.clubId}` ? 403 : 404;
-    assert.equal((await call(method, url, { cookie: b.cookie, payload })).statusCode, expected, `owner of B: ${method} ${url}`);
-    assert.equal((await call(method, url, { cookie: memberCookie, payload })).statusCode, expected, `plain member of A: ${method} ${url}`);
+    assert.equal((await call(method, url, { cookie: b.cookie, payload })).statusCode, 404, `owner of B: ${method} ${url}`);
+    assert.equal((await call(method, url, { cookie: memberCookie, payload })).statusCode, 404, `plain member of A: ${method} ${url}`);
   }
   // B's members list does not include anyone from A.
   const bMembers = (await call("GET", `/api/clubs/${b.clubId}/members`, { cookie: b.cookie })).json().members;

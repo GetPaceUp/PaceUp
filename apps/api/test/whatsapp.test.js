@@ -25,8 +25,9 @@ async function joinAs(owner, name, email) {
 
 const a = await registerOwner("Priya Sharma", "priya@example.com", "Club A");
 const b = await registerOwner("Bala Owner", "bala@example.com", "Club B");
-// These clubs' numbers are linked by the Super Admin (like the pilot club); own-number clubs are in onboarding.test.js.
-db.prepare("UPDATE clubs SET number_owner_id = NULL").run();
+// Here Priya and Bala are club admins of clubs with no owner, so only the PaceUp Admin links the number;
+// owners linking their own number are in onboarding.test.js.
+db.prepare("UPDATE club_memberships SET role = 'admin' WHERE role = 'owner'").run();
 const riders = [await joinAs(a, "Arjun Rao", "arjun@example.com"), await joinAs(a, "Meera Iyer", "meera@example.com"), await joinAs(a, "Karthik Nair", "karthik@example.com")];
 const asSuper = async (club, fn) => { // only the Super Admin links or unlinks the number
   db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(club.user.id);
@@ -236,17 +237,34 @@ test("Super Admin unlinking a group takes it away from the club everywhere", asy
   await wa(a, "PUT", "/group", { jid: keep[0] });
 });
 
-test("club admins promote a member to admin and back", async () => {
+test("only the club owner makes and unmakes club admins; the owner can hand the club over", async () => {
   const members = (await call("GET", `/api/clubs/${a.clubId}/members`, { cookie: a.cookie })).json().members;
   const arjun = members.find((m) => m.name === "Arjun Rao");
   const set = (who, id, role) => call("PATCH", `/api/clubs/${a.clubId}/members/${id}/role`, { cookie: who.cookie, payload: { role } });
   assert.equal((await set(riders[1], arjun.id, "admin")).statusCode, 404, "members can't promote");
+  assert.equal((await set(a, arjun.id, "admin")).statusCode, 403, "a club admin can't make admins");
+  assert.equal((await call("POST", `/api/clubs/${a.clubId}/people`, { cookie: a.cookie, payload: { phone: "+91 90000 00001", name: "New Admin", role: "admin" } })).statusCode, 403);
+  // Priya becomes the club's owner.
+  db.prepare("UPDATE club_memberships SET role = 'owner' WHERE club_id = ? AND user_id = ?").run(a.clubId, a.user.id);
   assert.equal((await set(a, arjun.id, "admin")).json().member.role, "admin");
   assert.equal((await call("GET", `/api/clubs/${a.clubId}/whatsapp`, { cookie: riders[0].cookie })).statusCode, 200, "the new admin sees the club's WhatsApp");
   assert.equal((await call("GET", `/api/platform/clubs/${a.clubId}/whatsapp-groups`, { cookie: riders[0].cookie })).statusCode, 403, "but not every group on the phone");
-  const owner = members.find((m) => m.role === "owner");
-  assert.equal((await set(riders[0], owner.id, "member")).statusCode, 409, "the owner stays owner");
-  assert.equal((await set(a, arjun.id, "member")).json().member.role, "member");
+  const arjunWa = (await call("GET", `/api/clubs/${a.clubId}/whatsapp`, { cookie: riders[0].cookie })).json().whatsapp;
+  assert.equal(arjunWa.stats, undefined, "message counts are for the owner");
+  assert.ok((await wa(a)).json().whatsapp.stats, "the owner sees message counts");
+  assert.equal((await call("DELETE", `/api/clubs/${a.clubId}/members/${a.user.id}`, { cookie: riders[0].cookie })).statusCode, 409, "nobody removes the owner");
+  assert.equal((await call("PATCH", `/api/clubs/${a.clubId}`, { cookie: riders[0].cookie, payload: { name: "Arjun's Club" } })).statusCode, 403, "admins can't rename");
+  assert.equal((await call("PUT", `/api/clubs/${a.clubId}/owner`, { cookie: riders[0].cookie, payload: { userId: arjun.id } })).statusCode, 403, "admins can't take the club");
+
+  // The owner hands the club to Arjun and stays on as an admin; there is only ever one owner.
+  const handed = await call("PUT", `/api/clubs/${a.clubId}/owner`, { cookie: a.cookie, payload: { userId: arjun.id } });
+  assert.equal(handed.json().owner_id, arjun.id);
+  const roles = Object.fromEntries((await call("GET", `/api/clubs/${a.clubId}/members`, { cookie: riders[0].cookie })).json().members.map((m) => [m.name, m.role]));
+  assert.equal(roles["Arjun Rao"], "owner");
+  assert.equal(roles["Priya Sharma"], "admin");
+  assert.throws(() => db.prepare("UPDATE club_memberships SET role = 'owner' WHERE club_id = ? AND user_id = ?").run(a.clubId, a.user.id), /UNIQUE/);
+  // Back as it was for the tests below: Priya a plain admin, Arjun a member, no owner.
+  db.prepare("UPDATE club_memberships SET role = 'member' WHERE club_id = ? AND user_id = ?").run(a.clubId, arjun.id);
   assert.equal((await call("GET", `/api/clubs/${a.clubId}/whatsapp`, { cookie: riders[0].cookie })).statusCode, 404);
 });
 

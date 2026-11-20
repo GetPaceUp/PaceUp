@@ -21,7 +21,7 @@ function assertMayReset(actorId, targetId, clubId) {
   const target = getUserById(targetId);
   if (!target) throw new DomainError(404, "Member not found.");
   if (getPlatformRole(actorId) === "super_admin") return target;
-  if (!clubId) throw new DomainError(403, "Platform owner access required.");
+  if (!clubId) throw new DomainError(403, "Only the PaceUp Admin can do this.");
   const actor = getClubMembership(clubId, actorId);
   const member = getClubMembership(clubId, targetId);
   if (!actor || !["owner", "admin"].includes(actor.role) || !member) throw new DomainError(404, "Member not found.");
