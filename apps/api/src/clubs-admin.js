@@ -81,7 +81,7 @@ export function createOwnerLink(clubId, userId, actorId) {
   const first = user.name.split(" ")[0];
   const sender = (actorId && db.prepare("SELECT name FROM users WHERE id = ?").get(actorId)?.name?.split(" ")[0]) || "the PaceUp team";
   // The wording the Super Admin approved for the owner invite (sent by hand from their own WhatsApp).
-  const text = `Hi ${first} 👋\n\nI've set up *${club.name}* on *PaceUp*, a simple way to run your club's activities right from WhatsApp.\n\n✅ Post an activity to your group in seconds\n✅ Members tap "I'm in", no app or sign-up\n✅ Live "who's going" list, updated in your group automatically\n\nYour private setup link (works once, valid 7 days):\n${url}\n\nOpen it, confirm the last 4 digits of your mobile, then link your club's WhatsApp number. It takes about 2 minutes.\n\nQuestions? Just reply here.\n\n– ${sender}, PaceUp\n\n🔒 _Your club's member data stays private to your club. We never share it or use it for anything else._`;
+  const text = `Hi ${first} 👋\n\nI've set up *${club.name}* on *PaceUp*, a simple way to run your club's activities right from WhatsApp.\n\n✅ Post an activity to your group in seconds\n✅ Members tap "I'm in", no app or sign-up\n✅ Live "who's going" list, updated in your group automatically\n\nYour private setup link (works once, valid 7 days):\n${url}\n\nOpen it, confirm the last 4 digits of your mobile, then link your club's WhatsApp number. It takes about 2 minutes.\n\nQuestions? Just reply here.\n\n– ${sender}, PaceUp\n\n🔒 _Your club's data stays private. Never shared._`;
   return { url, text, phone: user.phone, name: user.name, expires_at: new Date(now + OWNER_LINK_TTL_MS).toISOString() };
 }
 
