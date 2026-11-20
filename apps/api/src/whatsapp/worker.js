@@ -61,6 +61,16 @@ export class WhatsAppWorker {
         authDir: this.authDir(clubId),
         onQr: (qr) => this.setConn(clubId, { status: "pairing", qr, qr_updated_at: iso(Date.now()), last_error: null }),
         onOpen: async ({ phone }) => {
+          // Each club sends from its own number only. A number already serving another club is refused
+          // at once: one ban would otherwise take down both clubs.
+          const taken = phone && db.prepare("SELECT c.name FROM whatsapp_connections wc INNER JOIN clubs c ON c.id = wc.club_id WHERE wc.phone = ? AND wc.club_id != ? AND wc.desired = 'on'").get(phone, clubId);
+          if (taken) {
+            this.log.warn?.(`[whatsapp] club ${clubId} tried to link a number already used by another club; unlinked`);
+            this.sessions.delete(clubId);
+            await entry.session?.logout?.().catch?.(() => {});
+            this.setConn(clubId, { desired: "off", status: "disconnected", phone: null, qr: null, groups_json: null, last_error: "This number is already linked to another club on PaceUp. Each club needs its own WhatsApp number." });
+            return;
+          }
           entry.open = true; entry.retries = 0;
           this.setConn(clubId, { status: "connected", phone, qr: null, last_error: null, last_seen_at: iso(Date.now()) });
           this.log.info?.(`[whatsapp] club ${clubId} connected`);

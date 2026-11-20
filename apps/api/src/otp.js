@@ -3,7 +3,7 @@
 // Existing email accounts keep working and can attach a phone the same way.
 import { randomUUID, randomInt, createHash, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { db, DomainError, PHONE_EMAIL_DOMAIN, registerWithInvitation, getUserById, listClubsForUser, getPlatformRole, revokeAllSessions, audit } from "./db.js";
+import { db, DomainError, PHONE_EMAIL_DOMAIN, registerWithInvitation, getUserById, listClubsForUser, getPlatformRole, revokeAllSessions, audit, findInvitation } from "./db.js";
 import { cleanPhone } from "./roster.js";
 import { joinClubsByPhone, rosterNameFor } from "./clubs-admin.js";
 
@@ -22,30 +22,39 @@ export function normalizePhone(raw) {
   return phone;
 }
 
-/** The connected WhatsApp number to send from: one of the person's own clubs if possible. */
-function senderClub(phone) {
+/**
+ * The connected WhatsApp number to send from. Every club sends from its own number only, so a
+ * code goes out from a club this person belongs to (a membership, the club's member list, or the
+ * invitation they're using), never from another club's number. None connected: no sender.
+ */
+function senderClub(phone, { userId = null, clubId = null } = {}) {
   return db.prepare(`
     SELECT wc.club_id FROM whatsapp_connections wc
-    WHERE wc.status = 'connected' AND wc.desired = 'on'
-    ORDER BY EXISTS (SELECT 1 FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = wc.club_id AND u.phone = ?) DESC,
-             wc.last_seen_at DESC
+    WHERE wc.status = 'connected' AND wc.desired = 'on' AND (
+      wc.club_id = @clubId
+      OR EXISTS (SELECT 1 FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = wc.club_id AND (u.phone = @phone OR u.id = @userId))
+      OR EXISTS (SELECT 1 FROM club_roster r WHERE r.club_id = wc.club_id AND r.phone = @phone)
+    )
+    ORDER BY (wc.club_id = @clubId) DESC, wc.last_seen_at DESC
     LIMIT 1
-  `).get(phone)?.club_id;
+  `).get({ phone, userId, clubId })?.club_id;
 }
 
 /**
  * deliver=false records the code and counts it against the limits but sends nothing. Password
  * reset uses it for numbers with no account, so the answer and the throttling look the same.
  */
-export function startCode(phone, { purpose = "login", userId = null, ip = null, deliver = true } = {}) {
+export function startCode(phone, { purpose = "login", userId = null, clubId = null, ip = null, deliver = true } = {}) {
   return db.transaction(() => {
     const recent = db.prepare("SELECT created_at FROM login_codes WHERE phone = ? AND created_at > ? ORDER BY created_at DESC").all(phone, iso(Date.now() - 24 * 60 * 60 * 1000));
     if (recent[0] && Date.now() - new Date(recent[0].created_at).getTime() < RESEND_GAP_MS) throw new DomainError(429, "We just sent a code. Wait 30 seconds before asking for another.");
     if (recent.filter((r) => Date.now() - new Date(r.created_at).getTime() < 15 * 60 * 1000).length >= PER_PHONE_15_MIN || recent.length >= PER_PHONE_DAY) {
       throw new DomainError(429, "Too many codes for this number. Please wait 15 minutes and try again.");
     }
-    const club = senderClub(phone);
-    if (!club) throw new DomainError(503, "WhatsApp codes aren't available right now. Please try again shortly, or sign in with email.");
+    const club = deliver ? senderClub(phone, { userId, clubId }) : null;
+    // Password reset answers the same whether or not a code can be sent, so it never reveals who is on PaceUp.
+    if (!club && purpose === "reset") deliver = false;
+    else if (!club) throw new DomainError(503, "We couldn't send you a code. Your club needs to be on PaceUp with its WhatsApp number linked. Ask your club admin, or use the sign-in link they sent you.");
     const code = String(randomInt(0, 1000000)).padStart(6, "0");
     const now = Date.now();
     // A new code replaces any earlier one for this number.
@@ -193,8 +202,14 @@ export function registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit 
   const phoneBody = { type: "object", properties: { phone: { type: "string", maxLength: 30 } }, required: ["phone"] };
   const code = { type: "string", maxLength: 10 };
 
-  app.post("/api/auth/otp/start", { config: limit(10), schema: { body: phoneBody } }, async (req, reply) => {
-    try { return startCode(normalizePhone(req.body.phone), { ip: req.ip }); } catch (error) { return domain(reply, error); }
+  const startBody = { type: "object", properties: { phone: { type: "string", maxLength: 30 }, inviteToken: { type: "string", maxLength: 200 } }, required: ["phone"] };
+  app.post("/api/auth/otp/start", { config: limit(10), schema: { body: startBody } }, async (req, reply) => {
+    try {
+      // An invitation names the club whose number sends the code.
+      const invitation = req.body.inviteToken ? findInvitation(hashToken(req.body.inviteToken)) : null;
+      const clubId = invitation && !invitation.accepted_at && new Date(invitation.expires_at).getTime() > Date.now() ? invitation.club_id : null;
+      return startCode(normalizePhone(req.body.phone), { ip: req.ip, clubId });
+    } catch (error) { return domain(reply, error); }
   });
 
   app.post("/api/auth/otp/verify", {

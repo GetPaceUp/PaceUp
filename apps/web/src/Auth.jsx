@@ -25,7 +25,7 @@ export function PhoneAuth({ mode, inviteToken, onDone }) {
     e?.preventDefault(); setError("");
     if (mode === "register" && name.trim().length < 2) { setError("Enter your name."); return; }
     setBusy(true);
-    try { await api("/api/auth/otp/start", { method: "POST", body: JSON.stringify({ phone }) }); setStep("code"); setResendIn(30); }
+    try { await api("/api/auth/otp/start", { method: "POST", body: JSON.stringify({ phone, ...(inviteToken ? { inviteToken } : {}) }) }); setStep("code"); setResendIn(30); }
     catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }

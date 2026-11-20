@@ -25,6 +25,8 @@ test("no connected WhatsApp: a clear error, nothing stored", async () => {
 test("sign up with a mobile number: code on WhatsApp and a name. No email, password or club creation.", async () => {
   db.prepare("INSERT INTO whatsapp_connections (club_id, desired, status, updated_at, last_seen_at) VALUES (?, 'on', 'connected', ?, ?)").run(owner.clubId, new Date().toISOString(), new Date().toISOString());
   assert.equal((await start("12")).statusCode, 400);
+  // The club's member list already has this number (from the WhatsApp group).
+  db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES ('r1', ?, 'Amit Daga', 'amit daga', '919876543210', 'whatsapp', ?, ?)").run(owner.clubId, new Date().toISOString(), new Date().toISOString());
   const sent = await start("98765 43210");
   assert.equal(sent.statusCode, 200);
   const row = db.prepare("SELECT * FROM whatsapp_direct WHERE to_phone = '919876543210'").get();
@@ -35,8 +37,6 @@ test("sign up with a mobile number: code on WhatsApp and a name. No email, passw
 
   assert.equal((await start("98765 43210")).statusCode, 429, "30 s between codes");
   assert.equal((await verify({ phone: "9876543210", code: "000000" === code ? "111111" : "000000" })).statusCode, 400);
-  // The club's member list already has this number (from the WhatsApp group).
-  db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES ('r1', ?, 'Amit Daga', 'amit daga', '919876543210', 'whatsapp', ?, ?)").run(owner.clubId, new Date().toISOString(), new Date().toISOString());
   const unknown = await verify({ phone: "+91 98765 43210", code });
   assert.deepEqual(unknown.json(), { needs_signup: true, name_hint: "Amit Daga" }, "new number: ask for a name (pre-filled from the club list), code still valid");
   const created = await verify({ phone: "9876543210", code, name: "Amit Daga", clubName: "Pune Pacers" });
@@ -76,7 +76,9 @@ test("per-number limits", async () => {
 test("an invited person joins with just their phone", async () => {
   const token = await invite(owner.cookie, owner.clubId, "someone@example.com");
   allowResend();
-  await start("9811122233");
+  assert.equal((await start("9811122233")).statusCode, 503, "not in any club yet: no number may send to them");
+  allowResend();
+  assert.equal((await call("POST", "/api/auth/otp/start", { payload: { phone: "9811122233", inviteToken: token } })).statusCode, 200, "the invitation names the club whose number sends the code");
   const res = await verify({ phone: "9811122233", code: lastCode("919811122233"), name: "Neha Joshi", inviteToken: token });
   assert.equal(res.statusCode, 201, res.body);
   assert.deepEqual(res.json().clubs.map((c) => [c.name, c.role]), [["Sunrise Riders", "member"]]);
@@ -154,3 +156,19 @@ test("a login code can't be used to reset a password", async () => {
 });
 
 test.after(async () => { await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
+
+test("each club sends codes only from its own number, never another club's", async () => {
+  const other = await registerOwner("Second Owner", "second@example.com", "Second Club");
+  const t = new Date().toISOString();
+  // Someone on the second club's list. The second club has not linked its number; the first club has.
+  db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES ('r-second', ?, 'Kiran Rao', 'kiran rao', '919700000001', 'whatsapp', ?, ?)").run(other.clubId, t, t);
+  allowResend();
+  const res = await start("9700000001");
+  assert.equal(res.statusCode, 503);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct WHERE to_phone = '919700000001'").get().n, 0, "nothing queued from the first club's number");
+  // Once the second club links its own number, the code comes from it.
+  db.prepare("INSERT INTO whatsapp_connections (club_id, desired, status, updated_at, last_seen_at) VALUES (?, 'on', 'connected', ?, ?)").run(other.clubId, t, t);
+  allowResend();
+  assert.equal((await start("9700000001")).statusCode, 200);
+  assert.equal(db.prepare("SELECT club_id FROM whatsapp_direct WHERE to_phone = '919700000001'").get().club_id, other.clubId);
+});
