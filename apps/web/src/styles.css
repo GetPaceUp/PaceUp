@@ -141,3 +141,9 @@ label.check input { width: auto; margin: 0; }
 /* Header buttons: a link styled as a button (Super Admin) matches a real one (Sign out) */
 .head-actions{align-items:center}.head-actions a.secondary-button,.head-actions button.secondary-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:46px;padding:13px 18px;border-radius:8px;font:inherit;font-weight:700;line-height:1.2;text-decoration:none}
 @media(max-width:480px){.dashboard-head:has(.head-actions){flex-wrap:wrap}.dashboard-head .head-actions{flex:1 1 100%;justify-content:stretch}.dashboard-head .head-actions>*{flex:1 1 0}}
+/* Club name card: left-aligned with the heading, label as a muted caption, snug to the button */
+.club-name-view{margin:14px 0 24px;gap:10px}.club-name-view .field-grow{flex:1 1 auto;text-align:left}
+.club-name-view .field-label{margin:0 0 2px;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#7b877f}
+.club-name-view .club-name-text{padding:0;font:700 22px/1.25 Manrope,sans-serif;overflow-wrap:anywhere}
+@media(max-width:480px){.club-name-view{align-items:stretch;gap:12px;margin:12px 0 22px}.club-name-view .field-grow{flex:0 0 auto}}
+@media(min-width:481px){.club-name-view{align-items:center}.club-name-view button{white-space:nowrap}}
