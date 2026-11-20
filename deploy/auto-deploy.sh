@@ -21,7 +21,20 @@ HEALTH_TRIES="${HEALTH_TRIES:-20}"
 log() { echo "[paceup-deploy] $*"; }
 run() { if [ -n "$RUN_AS" ]; then $RUN_AS "$@"; else "$@"; fi; }
 notify() { (cd "$APP" && run node deploy/notify.cjs "$1") || log "could not queue the WhatsApp note: $1"; }
-healthy() { for _ in $(seq 1 "$HEALTH_TRIES"); do curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null | grep -q '"ok"' && return 0; sleep 2; done; return 1; }
+# healthy [sha]: the API answers ok and, given a sha, both the API and the WhatsApp worker report running it
+# (the worker checks in every few seconds; a worker still on the old code fails the deploy).
+healthy() {
+  local want="${1:-}" body
+  for _ in $(seq 1 "$HEALTH_TRIES"); do
+    body=$(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null)
+    if echo "$body" | grep -q '"ok"'; then
+      [ -z "$want" ] && return 0
+      echo "$body" | grep -q "\"version\":\"$want\"" && echo "$body" | grep -q "\"worker_version\":\"$want\"" && return 0
+    fi
+    sleep 2
+  done
+  log "health check failed (wanted ${want:-ok}): ${body:-no answer}"; return 1
+}
 restart_all() { "$SYSTEMCTL" restart paceup-api && sleep 3 && "$SYSTEMCTL" restart paceup-whatsapp; }
 build() { # $1 = old sha, $2 = new sha (npm ci only when the lockfile changed)
   if [ -n "$(cd "$APP" && run git diff --name-only "$1" "$2" -- package-lock.json)" ]; then (cd "$APP" && run npm ci) || return 1; fi
@@ -47,9 +60,9 @@ main() {
   backup=$(run node deploy/backup-db.cjs) || { echo "$new" > "$failed_file"; notify "⚠️ PaceUp: could not back up the database, so I did not deploy $short. Nothing changed."; exit 0; }
   log "backup: $backup"
 
-  if run git merge --ff-only "$new" >/dev/null && build "$cur" "$new" && restart_all && healthy; then
+  if run git merge --ff-only "$new" >/dev/null && build "$cur" "$new" && restart_all && healthy "$short"; then
     rm -f "$failed_file"
-    notify "✅ PaceUp updated to $short. Health check passed. Backup: $(basename "$backup")"
+    notify "✅ PaceUp updated to $short (site and WhatsApp worker). Health check passed. Backup: $(basename "$backup")"
     log "deployed $short"; exit 0
   fi
 
