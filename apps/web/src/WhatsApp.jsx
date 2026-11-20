@@ -58,6 +58,55 @@ function MemberGroups({ wa, busy, onSave }) {
   );
 }
 
+/** Which of the linked phone's groups belong to the club. The number owner and the Super Admin choose. */
+export function GroupPicker({ url, onSaved }) {
+  const [view, setView] = useState(null), [picked, setPicked] = useState(new Set()), [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState({});
+  const apply = (d) => { setView(d); setPicked(new Set(d.groups.filter((g) => g.linked).map((g) => g.jid))); };
+  useEffect(() => { fetch(url, { credentials: "include" }).then((r) => r.json()).then(apply).catch(() => setMsg({ error: "Could not load groups." })); }, [url]);
+  async function save() {
+    setBusy(true); setMsg({});
+    try {
+      const r = await fetch(url, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jids: [...picked] }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "Could not save.");
+      apply(d); setMsg({ ok: `Saved. The club uses ${picked.size} group${picked.size === 1 ? "" : "s"}.` }); onSaved?.();
+    } catch (err) { setMsg({ error: err.message }); } finally { setBusy(false); }
+  }
+  if (!view) return <div className="platform-groups"><p className="panel-copy">{msg.error || "Loading…"}</p></div>;
+  const toggle = (jid) => setPicked((s) => { const n = new Set(s); n.has(jid) ? n.delete(jid) : n.add(jid); return n; });
+  const shown = view.groups.filter((g) => !q || String(g.name).toLowerCase().includes(q.toLowerCase()));
+  return <div className="platform-groups">
+    <p className="panel-copy"><b>Groups for this club.</b> {view.groups.length ? <>Club admins see and post only to the groups ticked here. Every other group on the phone stays hidden from them.</> : view.status === "connected" ? "The linked number isn't in any groups yet." : "The club hasn't connected WhatsApp yet."}{view.phone ? ` Linked number ${view.phone}.` : ""}</p>
+    {view.groups.length > 8 && <input className="platform-groups-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search groups" aria-label="Search groups" />}
+    {view.groups.length > 0 && <ul className="cleanup-list">{shown.map((g) => <li key={g.jid}><label><input type="checkbox" checked={picked.has(g.jid)} onChange={() => toggle(g.jid)} /><span><b>{g.name}</b><small className="panel-copy">{g.size == null ? "Not on the phone anymore" : `${g.size} members`}</small></span></label></li>)}</ul>}
+    {msg.error && <p className="error" role="alert">{msg.error}</p>}{msg.ok && <p className="success-note" role="status">{msg.ok}</p>}
+    {view.groups.length > 0 && <button type="button" disabled={busy} onClick={save}>{busy ? "Saving…" : `Save (${picked.size} linked)`}</button>}
+  </div>;
+}
+
+/** Linking the club's own number: a code typed on the club phone, or a QR code scanned from another screen. */
+function ConnectNumber({ busy, onConnect }) {
+  const phoneFirst = typeof window !== "undefined" && window.matchMedia?.("(max-width: 800px)").matches;
+  const [how, setHow] = useState(phoneFirst ? "code" : "qr");
+  const [phone, setPhone] = useState("+91 ");
+  return (
+    <div className="wa-connect">
+      <p className="wa-warn">Use a number kept only for the club, ideally a WhatsApp Business number. Not a personal number. One number can serve only one club.</p>
+      <div className="seg" role="tablist" aria-label="How to link">
+        <button type="button" role="tab" aria-selected={how === "code"} className={how === "code" ? "on" : ""} onClick={() => setHow("code")}>Club phone is this phone</button>
+        <button type="button" role="tab" aria-selected={how === "qr"} className={how === "qr" ? "on" : ""} onClick={() => setHow("qr")}>Scan a QR code</button>
+      </div>
+      {how === "code"
+        ? <form className="stack-form" onSubmit={(e) => { e.preventDefault(); onConnect({ phone }); }}>
+            <label htmlFor="wa-num">Club's WhatsApp number</label>
+            <input id="wa-num" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" pattern="[+0-9 ()-]{10,20}" required />
+            <button type="submit" disabled={busy}>Get a link code</button>
+          </form>
+        : <><p className="panel-copy">A QR code appears here. Scan it with the club phone.</p><button type="button" disabled={busy} onClick={() => onConnect({})}>Show QR code</button></>}
+    </div>
+  );
+}
+
 export function WhatsAppPanel({ clubId }) {
   const [wa, setWa] = useState(null);
   const [error, setError] = useState("");
@@ -76,6 +125,8 @@ export function WhatsAppPanel({ clubId }) {
   }
 
   useEffect(() => { setWa(null); setConfirmOff(false); load(); }, [clubId]);
+  // Arriving from the owner's sign-in link: bring the Connect step into view.
+  useEffect(() => { if (wa && window.location.hash === "#connect") document.getElementById("connect")?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [Boolean(wa)]);
   useEffect(() => {
     clearInterval(timer.current);
     const fast = wa && wa.desired === "on" && (wa.status !== "connected" || wa.groups_refreshing);
@@ -87,30 +138,38 @@ export function WhatsAppPanel({ clubId }) {
   const [cls, label] = STATUS[wa.status] || STATUS.disconnected;
   const connected = wa.status === "connected";
   const starting = wa.desired === "on" && !connected;
-  const isSuper = Boolean(wa.can_pick_groups); // only the Super Admin links or unlinks the club number
+  const manager = Boolean(wa.can_manage_number); // the club's number owner, or the Super Admin
+  const owner = wa.number_owner;
 
   return (
-    <section className="admin-panel wa-panel">
+    <section className="admin-panel wa-panel" id="connect">
       <h3>WhatsApp</h3>
       <p className="panel-copy">Post new activities and the updated list of who's going to your club's WhatsApp group automatically.</p>
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
       {wa.last_error && !connected && <p className="error">{wa.last_error}</p>}
 
-      {wa.desired !== "on" && (isSuper
-        ? <>
-            <p className="panel-copy">Use a phone number only for the club. Don't link a personal number.</p>
-            <button type="button" disabled={busy} onClick={() => act("/connect")}>Connect WhatsApp</button>
-          </>
-        : <p className="panel-copy">The PaceUp Super Admin connects the club's WhatsApp number. Ask them if it needs linking again.</p>)}
+      {wa.desired !== "on" && (manager
+        ? <ConnectNumber busy={busy} onConnect={(body) => act("/connect", "POST", body)} />
+        : <p className="panel-copy">{owner ? `${owner.name} looks after the club's WhatsApp number and links it.` : "The PaceUp team links the club's WhatsApp number."}</p>)}
 
-      {starting && !isSuper && <p className="panel-copy">The PaceUp Super Admin is linking the club's number.</p>}
-      {starting && isSuper && (wa.qr
-        ? <div className="wa-pair">
-            <img className="wa-qr" src={wa.qr} alt="WhatsApp link code. Scan it with the club phone." />
-            <ol className="wa-howto"><li>Open WhatsApp on the <b>club's phone</b></li><li>Settings → <b>Linked devices</b> → Link a device</li><li>Point the phone at this code</li></ol>
-          </div>
-        : <p className="panel-copy">Preparing a code to scan…</p>)}
-      {starting && isSuper && <button type="button" className="text-button" onClick={() => act("/disconnect")}>Cancel</button>}
+      {starting && !manager && <p className="panel-copy">{owner ? `${owner.name} is linking the club's number.` : "The club's number is being linked."}</p>}
+      {starting && manager && (wa.pairing_phone
+        ? (wa.pairing_code
+          ? <div className="wa-pair">
+              <p className="panel-copy">Your link code for {wa.pairing_phone}:</p>
+              <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
+              <ol className="wa-howto"><li>Open WhatsApp on the <b>club's phone</b></li><li>Settings → <b>Linked devices</b> → Link a device</li><li>Tap <b>Link with phone number instead</b></li><li>Type the code above</li></ol>
+            </div>
+          : <p className="panel-copy">Getting your link code…</p>)
+        : (wa.qr
+          ? <div className="wa-pair">
+              <img className="wa-qr" src={wa.qr} alt="WhatsApp link code. Scan it with the club phone." />
+              <ol className="wa-howto"><li>Open WhatsApp on the <b>club's phone</b></li><li>Settings → <b>Linked devices</b> → Link a device</li><li>Point the phone at this code</li></ol>
+            </div>
+          : <p className="panel-copy">Preparing a code to scan…</p>))}
+      {starting && manager && <div className="wa-pair-actions">
+        <button type="button" className="text-button" onClick={() => act("/disconnect")}>Cancel</button>
+      </div>}
 
       {connected && <>
         <p className="success-note">Admins can create activities by sending this number a WhatsApp message{wa.phone ? ` (${wa.phone})` : ""}, e.g. "Create a run Sunday 6 AM from Cubbon Park, 10 km". It recognises you by the mobile number on your PaceUp account.</p>
@@ -120,8 +179,9 @@ export function WhatsAppPanel({ clubId }) {
               <option value="">Choose a group…</option>
               {wa.groups.map((g) => <option key={g.jid} value={g.jid}>{g.name} ({g.size})</option>)}
             </select>
-          : <p className="panel-copy">{wa.groups_linked ? "Your club's groups aren't on this number anymore. Ask the PaceUp Super Admin to check them." : "No WhatsApp groups are linked to your club yet. The PaceUp Super Admin chooses which groups belong to the club."}</p>}
-        {wa.can_pick_groups && <p className="panel-copy">You're the Super Admin: <a href="/superadmin">choose this club's groups</a> (Super Admin → All clubs → Groups).</p>}
+          : <p className="panel-copy">{wa.groups_linked ? "Your club's groups aren't on this number anymore." : "No WhatsApp groups are linked to your club yet."} {manager ? "Choose them below." : owner ? `${owner.name} chooses which groups belong to the club.` : "The PaceUp team chooses which groups belong to the club."}</p>}
+        {manager && <details className="wa-groups-pick"><summary>Choose the club's groups</summary><GroupPicker url={`${base}/all-groups`} onSaved={load} /></details>}
+        {!manager && owner && <p className="panel-copy">{owner.name} linked this number. Only {owner.name} or the PaceUp team can change or disconnect it.</p>}
         {wa.group && <p className="panel-copy">You can pick a different group for any activity or template.</p>}
         {wa.groups.length > 1 && <MemberGroups wa={wa} busy={busy} onSave={(jids) => act("/member-groups", "PUT", { jids })} />}
         <button type="button" className="text-button" disabled={busy || wa.groups_refreshing} onClick={() => act("/groups/refresh")}>{wa.groups_refreshing ? "Refreshing groups…" : "Group name out of date? Refresh"}</button>
@@ -139,7 +199,7 @@ export function WhatsAppPanel({ clubId }) {
           <button type="button" className="secondary-button" disabled={busy} onClick={async () => { if (await act("/test")) setNotice("Test message queued. It should appear in the group within a minute."); }}>Send a test message</button>
         </>}
         {notice && <p className="success-note">{notice}</p>}
-        {isSuper && (confirmOff
+        {manager && (confirmOff
           ? <div className="confirm-row"><span>Unlink this number from PaceUp?</span><button type="button" disabled={busy} onClick={() => { setConfirmOff(false); act("/disconnect"); }}>Disconnect</button><button type="button" className="secondary-button" onClick={() => setConfirmOff(false)}>Keep</button></div>
           : <button type="button" className="text-button wa-off" onClick={() => setConfirmOff(true)}>Disconnect this number</button>)}
       </>}

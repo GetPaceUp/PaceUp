@@ -69,7 +69,9 @@ test("Super Admin creates a club from the directory and gets the owner's one-tim
   const body = res.json();
   link = body.owner_link;
   assert.match(link.url, /\/start\/[\w-]{20,}$/);
-  assert.match(link.text, /Sunrise Striders is now on PaceUp/);
+  assert.match(link.text, /I've set up \*Sunrise Striders\* on \*PaceUp\*/);
+  assert.ok(link.text.includes(link.url) && link.text.startsWith("Hi Priya 👋") && link.text.endsWith("– Boss, PaceUp"));
+  assert.ok(new Date(link.expires_at).getTime() - Date.now() > 6.9 * 86400000, "valid 7 days");
   assert.equal(link.phone, "919822011111");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct").get().n, 0, "nothing is sent from any club's number");
   const entry = db.prepare("SELECT status, club_id FROM club_directory WHERE id = ?").get(striders.id);

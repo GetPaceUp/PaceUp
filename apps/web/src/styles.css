@@ -150,3 +150,28 @@ label.check input { width: auto; margin: 0; }
 .wa-section-label{margin:18px 0 0;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#7b877f}
 .wa-stats{margin-top:14px}
 .wa-panel .panel-copy a{color:#d36640;font-weight:700}
+
+/* Club onboarding: own numbers, owner links, directory */
+.club-list{display:grid}.club-item{display:grid;gap:10px;padding:14px 0;border-bottom:1px solid #edf0eb}
+.club-item-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.club-item-main{display:grid;gap:3px;min-width:0}.club-item-main strong{font-size:14px}.club-item-main small{font-size:12px;color:#5f6b63}
+.club-item-actions{display:flex;flex-wrap:wrap;gap:8px}
+.stage{font-size:11px;font-weight:700;border-radius:20px;padding:6px 10px;white-space:nowrap}.stage-live{background:#e9f5eb;color:#2c5a38}.stage-wait{background:#e8f0f7;color:#24496b}.stage-invited{background:#fbf0dc;color:#6b3f0c}.stage-off{background:#eef0ec;color:#4b564f}
+.owner-link{display:grid;gap:10px;margin-top:14px;padding:16px;border-radius:13px;background:#f7f8f5}.owner-link h3{font:700 18px Manrope,sans-serif;margin:0}.owner-link .share-preview{background:#fff}.owner-link-rules{margin:0;padding-left:18px;line-height:1.7}
+.combo{position:relative}.combo-list{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);margin:0;padding:0;list-style:none;background:#fff;border:1px solid #dce2da;border-radius:10px;box-shadow:0 12px 30px rgba(24,35,30,.10);max-height:320px;overflow:auto}
+.combo-list li{display:grid;gap:2px;padding:11px 14px;cursor:pointer;border-bottom:1px solid #f0f2ee}.combo-list li:last-child{border-bottom:0}.combo-list li.on,.combo-list li:hover{background:#fdf1ec}.combo-list b{font-size:14px}.combo-list small{font-size:12px;color:#5f6b63}
+.cc-owner-label{margin:14px 0 0;color:#4b564f}
+.dir-counts{font-size:12px;color:#4b564f;font-weight:700;margin:0 0 12px}.dir-filters{margin-bottom:10px}
+.dir-list{display:grid}.dir-row{border-bottom:1px solid #edf0eb}.dir-hidden{opacity:.6}
+.dir-row-head{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:12px 2px;background:none;color:inherit;text-align:left;border-radius:0;font-weight:400;min-height:44px}
+.dir-row-head span:first-child{display:grid;gap:2px;min-width:0}.dir-row-head b{font-size:14px}.dir-row-head small{font-size:12px;color:#5f6b63}
+.dir-record{display:grid;gap:8px;padding:4px 2px 16px}.dir-record dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:6px 10px;margin:0;font-size:13px}.dir-record dt{color:#4b564f;font-weight:700}.dir-record dd{margin:0;min-width:0;overflow-wrap:anywhere}.dir-record a{color:#b4502c}
+.muted{color:#8a958e}.dir-record-actions{display:flex;gap:12px;align-items:center}.dir-upload{display:grid;gap:8px;margin-top:16px;justify-items:start}
+.wa-connect{display:grid;gap:12px}.wa-warn{margin:0;background:#fbf0dc;color:#6b3f0c;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#eef0ec;border-radius:10px;padding:4px}.seg button{background:transparent;color:#4b564f;min-height:44px;font-size:13px;padding:8px}.seg button.on{background:#fff;color:#18231e;box-shadow:0 1px 3px rgba(24,35,30,.12)}
+.wa-code{font:800 28px Manrope,sans-serif;letter-spacing:3px;text-align:center;background:#f2f4ef;border-radius:12px;padding:16px 0}
+.wa-pair-actions{display:flex;gap:16px}.wa-groups-pick summary{cursor:pointer;color:#b4502c;font-weight:700;font-size:13px;padding:8px 0}
+.roster-names-how{background:#f2f4ef;border-radius:10px;padding:12px 14px;color:#3d4a42}
+.start-page{max-width:560px;margin:40px auto;display:grid;gap:16px}.start-title{font:800 clamp(30px,6vw,44px)/1.1 Manrope,sans-serif;letter-spacing:-1.5px;margin:0}
+.start-step{display:grid;gap:12px}.step-head{display:flex;align-items:center;gap:10px;font-size:16px}.step-num{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#e46f45;color:#fff;font-weight:700;font-size:13px}.step-num.off{background:#e2e6df;color:#4b564f}.step-next{opacity:.8}
+.digits-input{width:150px;font:700 22px "DM Sans",sans-serif;letter-spacing:8px}
+@media(max-width:480px){.start-page{margin:22px auto}.club-item-head{flex-direction:column}}

@@ -5,6 +5,7 @@ import { RosterPanel, MembersCard } from "./Roster.jsx";
 import { PhoneAuth, AddPhone, ForgotPassword, phoneText } from "./Auth.jsx";
 import { PeoplePanel } from "./People.jsx";
 import { ResetPage } from "./PasswordReset.jsx";
+import { StartPage } from "./Start.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "" };
@@ -15,6 +16,8 @@ export default function App() {
   if (rideMatch) return <RidePage code={rideMatch[1]} />;
   const resetMatch = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]{20,200})$/);
   if (resetMatch) return <ResetPage token={resetMatch[1]} />;
+  const startMatch = window.location.pathname.match(/^\/start\/([A-Za-z0-9_-]{20,100})$/);
+  if (startMatch) return <StartPage token={startMatch[1]} />;
   const [user, setUser] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [mode, setMode] = useState("login");

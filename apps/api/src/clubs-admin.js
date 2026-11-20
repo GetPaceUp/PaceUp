@@ -59,9 +59,9 @@ export function createClub({ name, adminPhone, adminName, city, activity, direct
 
 // ---------------------------------------------------------------- one-time owner sign-in links
 // A new club has no WhatsApp number yet, so its owner can't get a code. The Super Admin shares
-// this link by hand (never sent from any club's number). It signs the owner in once, after they
+// this link by hand (never sent from any club's number). It signs the owner in once (valid 7 days), after they
 // confirm the last 4 digits of their mobile.
-const OWNER_LINK_TTL_MS = 72 * 3600 * 1000;
+const OWNER_LINK_TTL_MS = 7 * 24 * 3600 * 1000;
 const OWNER_LINK_TRIES = 5;
 const tokenHash = (t) => createHash("sha256").update(`owner-link:${t}`).digest("hex");
 const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${p.slice(2, 7)} •••••` : null);
@@ -79,7 +79,9 @@ export function createOwnerLink(clubId, userId, actorId) {
   audit({ actorUserId: actorId || null, action: "club.owner_link", targetUserId: userId, newValue: club.name });
   const url = `${appUrl()}/start/${token}`;
   const first = user.name.split(" ")[0];
-  const text = `Hi ${first}! ${club.name} is now on PaceUp, with you as its owner.\n\nTap to sign in and link the club's WhatsApp number (takes 2 minutes):\n${url}\n\nThe link works once, for 72 hours.`;
+  const sender = (actorId && db.prepare("SELECT name FROM users WHERE id = ?").get(actorId)?.name?.split(" ")[0]) || "the PaceUp team";
+  // The wording the Super Admin approved for the owner invite (sent by hand from their own WhatsApp).
+  const text = `Hi ${first} 👋\n\nI've set up *${club.name}* on *PaceUp*, a simple way to run your club's activities right from WhatsApp.\n\n✅ Post an activity to your group in seconds\n✅ Members tap "I'm in", no app or sign-up\n✅ Live "who's going" list, updated in your group automatically\n\nYour private setup link (works once, valid 7 days):\n${url}\n\nOpen it, confirm the last 4 digits of your mobile, then link your club's WhatsApp number. It takes about 2 minutes.\n\nQuestions? Just reply here.\n\n– ${sender}, PaceUp`;
   return { url, text, phone: user.phone, name: user.name, expires_at: new Date(now + OWNER_LINK_TTL_MS).toISOString() };
 }
 

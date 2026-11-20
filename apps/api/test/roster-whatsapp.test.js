@@ -75,21 +75,6 @@ test("a phone-book export names group members and discards everyone else", async
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919000000000'").get().n, 0);
 });
 
-test("phone books read in the browser arrive as names and numbers only", async () => {
-  const { readVcf: browserVcf } = await import("../../web/src/phonebook.js");
-  const photo = "A".repeat(200000);
-  const vcf = ["BEGIN:VCARD", "VERSION:3.0", "FN:Priya Sharma", "TEL:98765-00003", `PHOTO;ENCODING=b;TYPE=JPEG:${photo}`, "END:VCARD",
-    "BEGIN:VCARD", "VERSION:3.0", "FN:Stranger Danger", "TEL:+91 90000 11111", "END:VCARD"].join("\r\n");
-  const contacts = browserVcf(vcf);
-  assert.deepEqual(contacts, [{ name: "Priya Sharma", phones: ["98765-00003"] }, { name: "Stranger Danger", phones: ["+91 90000 11111"] }]);
-  assert.ok(JSON.stringify(contacts).length < 200, "the photo never leaves the phone");
-  const res = await call("POST", `/api/clubs/${club.clubId}/roster/phonebook`, { cookie: club.cookie, payload: { contacts } });
-  assert.equal(res.statusCode, 200, res.body);
-  assert.equal(res.json().matched, 1);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE name = 'Stranger Danger'").get().n, 0, "non-members discarded");
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE phone = '919000011111'").get().n, 0);
-});
-
 test("names imported before the tidy-up get a preview, and only ticked ones change", async () => {
   const now = new Date().toISOString();
   const add = (name, phone) => db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'upload', ?, ?)")

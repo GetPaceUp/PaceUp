@@ -1,13 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "./Rides.jsx";
-import { readVcf } from "./phonebook.js";
 
-const toBase64 = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-  reader.onerror = () => reject(new Error("Couldn't read that file."));
-  reader.readAsDataURL(file);
-});
 const phoneText = (p) => (p ? `+${p.slice(0, p.length - 10)} ${p.slice(-10, -5)} ${p.slice(-5)}` : "No number");
 const ago = (iso) => {
   if (!iso) return "not yet";
@@ -102,7 +95,6 @@ export function RosterPanel({ clubId, onBack }) {
   const [notice, setNotice] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("+91 ");
-  const fileInput = useRef();
   const base = `/api/clubs/${clubId}/roster`;
 
   async function load(query = q) {
@@ -121,24 +113,6 @@ export function RosterPanel({ clubId, onBack }) {
     try { await fn(); } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
-  const upload = (file) => file && run(async () => {
-    try {
-      let r;
-      if (/\.vcf$/i.test(file.name) || /vcard/i.test(file.type)) {
-        // Read on the phone: only names and numbers are sent, never photos or other details.
-        const contacts = readVcf(await file.text());
-        if (!contacts.length) throw new Error("No contacts with phone numbers found in that file.");
-        r = await api(`${base}/phonebook`, { method: "POST", body: JSON.stringify({ contacts }) });
-      } else {
-        if (file.size > 30 * 1024 * 1024) throw new Error("That file is over 30 MB. Export it as .vcf or CSV instead.");
-        r = await api(`${base}/import`, { method: "POST", body: JSON.stringify({ filename: file.name, data: await toBase64(file) }) });
-      }
-      setNotice(r.mode === "phonebook"
-        ? `${r.named} of ${r.group_members} group members now have names${r.unnamed ? `, ${r.unnamed} still unnamed` : ""}. ${r.added + r.renamed} names came from your phone book. The other ${r.contacts - r.matched} contacts weren't in the group and were not saved.${r.clashes.length ? ` Not added, because the name is already on the list with a different number: ${r.clashes.slice(0, 5).join(", ")}. If that's the same person with two numbers, there's nothing to do. Otherwise add a surname or initial to one of them.` : ""}`
-        : `Read ${r.read} ${r.read === 1 ? "name" : "names"}: ${r.added} added, ${r.updated} updated, ${r.unchanged} already there.`);
-      setQ(""); await load("");
-    } finally { if (fileInput.current) fileInput.current.value = ""; }
-  });
   const sync = () => run(async () => { await api(`${base}/sync`, { method: "POST" }); await load(); });
   const [added, setAdded] = useState(null); // { ok, text, existing }
   const [adding, setAdding] = useState(false);
@@ -191,11 +165,7 @@ export function RosterPanel({ clubId, onBack }) {
         <button type="button" className="secondary-button small-button" disabled={busy || wa.syncing || !wa.connected} onClick={sync}>{wa.syncing ? "Reading the group…" : "Refresh from group"}</button>
       </div> : <p className="panel-copy">Connect WhatsApp below and choose the club group. Its members are added here automatically.</p>}
 
-      <div className="roster-upload">
-        <button type="button" disabled={busy} onClick={() => fileInput.current?.click()}>{busy ? "Working…" : "Add names from your phone book"}</button>
-        <p className="panel-copy">Export your contacts (.vcf from Android, iCloud or Google Contacts) and upload the file. PaceUp keeps only the names of numbers that are in the club group and discards everything else. An Excel or CSV list with a "Name" column also works.</p>
-        <input ref={fileInput} type="file" accept=".vcf,.csv,.xlsx,text/vcard,text/x-vcard,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(e) => upload(e.target.files[0])} />
-      </div>
+      <p className="panel-copy roster-names-how">Names fill in by themselves: the WhatsApp name people set, then the name they type the first time they tap "I'm in". A name you type here always wins. Add someone below only if they aren't in the WhatsApp group.</p>
       {notice && <p className="success-note" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <NameCleanup key={`${base}:${data.total}:${notice}`} base={base} onApplied={() => load()} />
@@ -223,7 +193,7 @@ export function RosterPanel({ clubId, onBack }) {
         </form>
         {(data.total > 8 || q) && <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${data.total} names`} aria-label="Search the member list" />}
         <div className="roster-list">
-          {data.people.map((p) => <NameRow key={p.id} label={p.name} sub={[p.phone && phoneText(p.phone), p.self_added && "Added themselves from an RSVP link"].filter(Boolean).join(" · ")} initial={p.name} action="Edit" busy={busy} onSave={(v) => rename(p, v)} onRemove={() => remove(p)} />)}
+          {data.people.map((p) => <NameRow key={p.id} label={p.name} sub={[p.phone && phoneText(p.phone), p.self_added ? "Typed at RSVP" : p.source === "whatsapp" ? "WhatsApp name" : null].filter(Boolean).join(" · ")} initial={p.name} action="Edit" busy={busy} onSave={(v) => rename(p, v)} onRemove={() => remove(p)} />)}
           {data.people.length === 0 && <p className="panel-copy">{q ? "No names match." : "No names yet."}</p>}
           {data.total > data.people.length && !q && <p className="panel-copy">Showing the first {data.people.length}. Search to find others.</p>}
         </div>
