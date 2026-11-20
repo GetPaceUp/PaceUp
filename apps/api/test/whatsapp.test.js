@@ -274,4 +274,19 @@ test("message counts, the link code, connect and disconnect are Super Admin only
   db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(a.user.id);
 });
 
+test("one number serves one club: linking a number another club already uses is refused and unlinked", async () => {
+  await asSuper(a, () => wa(a, "POST", "/connect")); await worker.tick(); await fakeSessions.get(a.clubId).scan("919811100001"); await settle();
+  assert.equal((await wa(a)).json().whatsapp.status, "connected");
+  await asSuper(b, () => wa(b, "POST", "/connect")); await worker.tick();
+  await fakeSessions.get(b.clubId).scan("919811100001"); await settle();
+  const refused = (await wa(b)).json().whatsapp;
+  assert.equal(refused.status, "disconnected");
+  assert.equal(refused.desired, "off");
+  assert.match(refused.last_error, /already linked to another club/);
+  assert.equal(fakeSessions.has(b.clubId), false, "the duplicate link was removed");
+  assert.equal((await wa(a)).json().whatsapp.status, "connected", "the first club keeps its number");
+  await asSuper(b, () => wa(b, "POST", "/connect")); await worker.tick(); await fakeSessions.get(b.clubId).scan("919811100002"); await settle();
+  assert.equal((await wa(b)).json().whatsapp.status, "connected", "its own number links fine");
+});
+
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });

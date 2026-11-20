@@ -8,7 +8,7 @@ export const fakeAdapter = {
     const session = {
       clubId, open: false, failNext: 0,
       groups: [{ jid: `${clubId.slice(0, 8)}-main@g.us`, name: "Club group", size: 42 }, { jid: `${clubId.slice(0, 8)}-admins@g.us`, name: "Club admins", size: 5 }],
-      scan() { this.open = true; onOpen({ phone: "919800004521" }); },
+      scan(phone = "919800004521") { this.open = true; return onOpen({ phone }); },
       drop(loggedOut = false) { this.open = false; onClose({ loggedOut, error: "simulated" }); },
       async sendText(jid, text) {
         if (!this.open) throw new Error("not connected");
