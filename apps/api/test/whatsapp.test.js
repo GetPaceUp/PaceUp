@@ -163,9 +163,9 @@ test("a change post repeats everything: details, Organiser, Lead, notes, who's g
   makeDue(); await worker.tick();
   const text = sent.at(-1).text;
   assert.match(text, /^✏️ \*Ride changed: Nandi Hills long ride\*\n/);
-  assert.match(text, /📍 Hebbal flyover, Gate 3\n🗺️ https:\/\/maps\.app\.goo\.gl\/abc123\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/);
+  assert.match(text, /📍 Hebbal flyover, Gate 3\n🗺️ https:\/\/maps\.app\.goo\.gl\/abc123\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\nJoin or drop out 👇\nhttps:\/\/paceup\.example\/r\/[^\n]+\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/, "join link above the list, list last");
   assert.match(text, /\(lead\)/);
-  assert.match(text, new RegExp(`Join or drop out 👇\nhttps://paceup.example/r/${rideCode}$`));
+  assert.match(text, new RegExp(`Join or drop out 👇\nhttps://paceup.example/r/${rideCode}\n`));
 });
 
 test("hourly cap holds posts back instead of dropping them", async () => {
