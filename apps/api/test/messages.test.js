@@ -19,13 +19,14 @@ test("with a midway point, both points show with their times and the list is gro
   ];
   const text = riderListText(ride, riders, riders.slice(0, 2));
   assert.match(text, /\nSat 21 Nov\n📍 Xavier's · 5:45 AM\n🗺️ https:\/\/maps\.app\.goo\.gl\/a\n📍 Tulip Chowk · 6:00 AM\n🗺️ https:\/\/maps\.app\.goo\.gl\/b\n35 km\n/);
-  assert.match(text, /\*3 going\*\n\*Xavier's · 5:45 AM \(2\)\*\n1\. Amit D\. \(lead\)\n2\. Anurag M\. 🆕\n\*Tulip Chowk · 6:00 AM \(1\)\*\n3\. Nandini R\.$/);
+  assert.match(text, /\*3 going\*\n\*Xavier's · 5:45 AM \(2\)\*\n1\. Amit D\. \(lead\)\n2\. Anurag M\. 🆕\n\*Tulip Chowk · 6:00 AM \(1\)\*\n3\. Nandini R\.\n\nNo need to copy\/paste this list, it updates itself\.$/);
 });
 
 test("without a midway point the post is unchanged", () => {
   const plain = { ...ride, meeting_point_2: null, meeting_at_2: null, map_url_2: null };
   const text = ridePublishedText(plain, [{ id: "u1", user_id: "u1", name: "Amit Daga", join_point: 1 }]);
   assert.match(text, /\nSat 21 Nov · 5:45 AM\n📍 Xavier's\n🗺️ https:\/\/maps\.app\.goo\.gl\/a\n35 km\n/);
-  assert.match(text, /\*1 going\*\n1\. Amit D\. \(lead\)$/);
+  assert.match(text, /\*1 going\*\n1\. Amit D\. \(lead\)\n\nNo need to copy\/paste this list, it updates itself\.$/);
+  assert.match(text, /\n👇 \*Tap the link to join\.\*\nhttps:/);
   assert.doesNotMatch(text, /Tulip/);
 });
