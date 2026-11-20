@@ -21,15 +21,12 @@ const HOUSE = `EXISTS (SELECT 1 FROM club_memberships hm INNER JOIN users hu ON 
 const isHouseClub = (clubId) => Boolean(db.prepare(`SELECT 1 FROM clubs c WHERE c.id = ? AND ${HOUSE}`).get(clubId));
 
 function clubState(clubId) {
-  const c = db.prepare(`SELECT c.id, c.name, c.city, c.activity, c.signup_status, c.signup_at,
-      (SELECT u.name FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = c.id AND cm.role = 'owner' LIMIT 1) AS owner_name
-    FROM clubs c WHERE c.id = ?`).get(clubId);
+  const c = db.prepare("SELECT c.id, c.name, c.city, c.activity, c.signup_status FROM clubs c WHERE c.id = ?").get(clubId);
   if (!c || c.signup_status === "removed") return null;
   return {
     club_id: c.id, name: c.name, city: c.city, activity: c.activity, on_paceup: true,
     // Someone started setting it up and hasn't linked WhatsApp yet.
-    pending: c.signup_status === "pending",
-    owner_first_name: c.owner_name ? c.owner_name.split(" ")[0] : null
+    pending: c.signup_status === "pending"
   };
 }
 
@@ -150,7 +147,7 @@ function deleteClub(clubId) {
 export function releaseStaleSignups(now = Date.now()) {
   return db.transaction(() => {
     const stale = db.prepare(`SELECT c.id FROM clubs c LEFT JOIN whatsapp_connections wc ON wc.club_id = c.id
-      WHERE (c.signup_status = 'pending' AND c.signup_at <= ? AND COALESCE(wc.status, '') != 'connected')
+      WHERE (c.signup_status = 'pending' AND c.signup_at <= ? AND COALESCE(wc.status, '') != 'connected' AND COALESCE(wc.desired, 'off') != 'logout')
          OR (c.signup_status = 'removed' AND COALESCE(wc.desired, 'off') != 'logout')`).all(iso(now - HOLD_MS));
     for (const { id } of stale) deleteClub(id);
     return stale.length;
@@ -168,7 +165,7 @@ export function removeSignupClub(clubId, actorId) {
       const u = db.prepare("SELECT signup_unverified FROM users WHERE id = ?").get(user_id);
       if (u?.signup_unverified) revokeAllSessions(user_id);
     }
-    if (wa && (wa.desired === "on" || wa.status === "connected")) {
+    if (wa && (wa.desired !== "off" || wa.status === "connected")) {
       // The worker unlinks the number from the phone first; the club is deleted after that.
       db.prepare("UPDATE whatsapp_connections SET desired = 'logout' WHERE club_id = ?").run(clubId);
       db.prepare("UPDATE clubs SET signup_status = 'removed' WHERE id = ?").run(clubId);
@@ -188,7 +185,7 @@ export function requestAccess({ clubId, name, phone: rawPhone, userId = null }) 
   if (person.length < 2) throw new DomainError(400, "Enter your name.");
   if (!phone) throw new DomainError(400, "Enter your mobile number with the country code, e.g. +91 98765 43210.");
   const asked = db.prepare("SELECT 1 FROM club_access_requests WHERE club_id = ? AND phone = ? AND created_at > ?").get(clubId, phone, iso(Date.now() - HOLD_MS));
-  if (asked) return { sent: true, owner_first_name: club.owner_first_name };
+  if (asked) return { sent: true };
   const owner = db.prepare("SELECT u.phone FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = ? AND cm.role = 'owner'").get(clubId);
   const connected = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND status = 'connected' AND desired = 'on'").get(clubId);
   const tell = Boolean(owner?.phone && connected && !club.pending);
@@ -200,7 +197,7 @@ export function requestAccess({ clubId, name, phone: rawPhone, userId = null }) 
         .run(randomUUID(), clubId, owner.phone, text, iso(Date.now() + HOLD_MS), iso());
     }
   }).immediate();
-  return { sent: true, owner_first_name: club.owner_first_name };
+  return { sent: true };
 }
 
 /** The PaceUp Admin's "New sign-ups" list. */
@@ -214,7 +211,7 @@ export function listSignups() {
     LEFT JOIN users u ON u.id = cm.user_id
     LEFT JOIN whatsapp_connections wc ON wc.club_id = c.id
     LEFT JOIN club_directory d ON d.club_id = c.id
-    WHERE c.signup_status IN ('pending', 'live') ORDER BY c.signup_at DESC LIMIT 100`).all()
+    WHERE c.signup_status IN ('pending', 'live') ORDER BY c.signup_at DESC`).all()
     .map((c) => ({
       ...c,
       signup_unverified: Boolean(c.signup_unverified),
@@ -224,7 +221,7 @@ export function listSignups() {
       released_at: c.signup_status === "pending" ? iso(new Date(c.signup_at).getTime() + HOLD_MS) : null
     }));
   const requests = db.prepare(`SELECT r.id, r.name, r.phone, r.owner_told, r.created_at, c.id AS club_id, c.name AS club_name
-    FROM club_access_requests r INNER JOIN clubs c ON c.id = r.club_id ORDER BY r.created_at DESC LIMIT 50`).all()
+    FROM club_access_requests r INNER JOIN clubs c ON c.id = r.club_id ORDER BY r.created_at DESC`).all()
     .map((r) => ({ ...r, owner_told: Boolean(r.owner_told) }));
   const week = iso(Date.now() - 7 * 86400000);
   return { clubs, requests, this_week: clubs.filter((c) => c.signup_at > week).length };

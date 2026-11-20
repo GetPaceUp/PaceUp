@@ -93,7 +93,7 @@ test("linking WhatsApp makes the club live and verifies an owner who linked thei
 test("asking to help run a club that's on PaceUp tells its owner from the club's own number", async () => {
   const res = await call("POST", "/api/signup/request-access", { payload: { clubId: priya.clubId, name: "Meera Iyer", phone: "98470 55555" } });
   assert.equal(res.statusCode, 200, res.body);
-  assert.equal(res.json().owner_first_name, "Priya");
+  assert.deepEqual(res.json(), { sent: true }, "nothing about the owner goes back to the public");
   const msg = db.prepare("SELECT club_id, to_phone, text FROM whatsapp_direct WHERE to_phone = '919822012345' ORDER BY created_at DESC LIMIT 1").get();
   assert.equal(msg.club_id, priya.clubId);
   assert.match(msg.text, /\*Meera Iyer\* \(\+91 98470 55555\) asked to help run \*Sunrise Striders\*/);
@@ -122,6 +122,21 @@ test("someone who typed another person's number loses access once a club adds th
   assert.equal((await call("GET", "/api/auth/me", { cookie })).statusCode, 200);
   await call("POST", `/api/clubs/${priya.clubId}/people`, { cookie: priya.cookie, payload: { phone: "+91 98220 33333", name: "Real Person", role: "admin" } });
   assert.equal((await call("GET", "/api/auth/me", { cookie })).statusCode, 401);
+});
+
+test("when the number's real owner signs in with a WhatsApp code, the earlier sign-ins on it end", async () => {
+  const res = await call("POST", "/api/signup", { payload: { clubName: "Dawn Patrol", city: "Pune", activity: "Cycling", name: "Typed By Someone", phone: "98220 44444" } });
+  const typedCookie = sessionCookie(res);
+  const u = db.prepare("SELECT id FROM users WHERE phone = '919822044444'").get();
+  // The number is on a connected club's list (straight in the database, as the roster sync would).
+  db.prepare("INSERT INTO club_memberships (id, club_id, user_id, role) VALUES ('m-dawn', ?, ?, 'member')").run(priya.clubId, u.id);
+  db.prepare("UPDATE login_codes SET created_at = ?").run(new Date(Date.now() - 20 * 60000).toISOString());
+  assert.equal((await call("POST", "/api/auth/otp/start", { payload: { phone: "98220 44444" } })).statusCode, 200);
+  const text = db.prepare("SELECT text FROM whatsapp_direct WHERE to_phone = '919822044444' ORDER BY created_at DESC LIMIT 1").get().text;
+  const v = await call("POST", "/api/auth/otp/verify", { payload: { phone: "98220 44444", code: text.match(/\*(\d{6})\*/)[1] } });
+  assert.equal(v.statusCode, 200, v.body);
+  assert.equal((await call("GET", "/api/auth/me", { cookie: typedCookie })).statusCode, 401, "whoever typed the number is signed out");
+  assert.equal((await call("GET", "/api/auth/me", { cookie: sessionCookie(v) })).statusCode, 200, "the real owner stays signed in");
 });
 
 test("the PaceUp Admin sees every sign-up and can remove one; a linked number is unlinked first", async () => {

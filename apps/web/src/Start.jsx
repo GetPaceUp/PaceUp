@@ -124,18 +124,21 @@ export function SignupPage() {
 
   async function askAccess(event) {
     event.preventDefault(); setError(""); setSaving(true);
-    try { setAsked(await call("/api/signup/request-access", { clubId: club.club_id, ...(me ? {} : person) })); }
+    try { setAsked(await call("/api/signup/request-access", { clubId: club.club_id, ...(me ? (me.phone ? {} : { phone: person.phone }) : person) })); }
     catch (e) { setError(e.message); }
     finally { setSaving(false); }
   }
 
+  const phoneField = <>
+    <label htmlFor="su-phone">Your mobile number</label>
+    <input id="su-phone" type="tel" inputMode="tel" autoComplete="tel" value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} pattern="[+0-9 \(\)\-]{10,20}" required />
+  </>;
   const whoFields = me
-    ? <p className="panel-copy">Signed in as <b>{me.name}</b>{me.phone ? ` (${me.phone})` : ""}.</p>
+    ? <><p className="panel-copy">Signed in as <b>{me.name}</b>{me.phone ? ` (${me.phone})` : ""}.</p>{!me.phone && phoneField}</>
     : <>
         <label htmlFor="su-name">Your name</label>
         <input id="su-name" autoComplete="name" value={person.name} onChange={(e) => setPerson({ ...person, name: e.target.value })} minLength={2} maxLength={80} required />
-        <label htmlFor="su-phone">Your mobile number</label>
-        <input id="su-phone" type="tel" inputMode="tel" autoComplete="tel" value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} pattern="[+0-9 \(\)\-]{10,20}" required />
+        {phoneField}
       </>;
   const signInLink = <a href={`/?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}>Sign in</a>;
   const step = club || adding ? 1 : 0;
@@ -195,12 +198,12 @@ export function SignupPage() {
         {step === 1 && club?.on_paceup && <>
           <Picked club={club} onChange={reset} />
           {asked
-            ? <section className="workspace su-card"><b className="su-h">Request sent</b><p className="panel-copy">{asked.owner_first_name ? `We've let ${asked.owner_first_name} know.` : "We've let the club know."} You'll get a WhatsApp message once you're added.</p></section>
+            ? <section className="workspace su-card"><b className="su-h">Request sent</b><p className="panel-copy">We've let the club's owner know. You'll get a WhatsApp message once you're added.</p></section>
             : club.pending
               ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone started setting it up a short while ago. If they don't finish within 24 hours, it's free for you to set up. Check back tomorrow.</p></section>
               : <form className="workspace su-card" onSubmit={askAccess}>
                   <b className="su-h">{club.name} is already on PaceUp</b>
-                  <p className="panel-copy">{club.owner_first_name ? `Run by ${club.owner_first_name}.` : ""} Ask to be added as an admin and we'll let {club.owner_first_name || "the club"} know.</p>
+                  <p className="panel-copy">Ask to be added as an admin and we'll let the club's owner know.</p>
                   {whoFields}
                   {error && <p className="error" role="alert">{error}</p>}
                   <button className="primary-button" type="submit" disabled={saving}>{saving ? "Sending…" : "Ask to be an admin"}</button>
