@@ -158,12 +158,12 @@ test("when WhatsApp is down, posts wait; failures retry with backoff", async () 
 });
 
 test("a change post repeats everything: details, Organiser, Lead, notes, who's going and the link", async () => {
-  await call("PATCH", `/api/clubs/${a.clubId}/rides/${rideId}`, { cookie: a.cookie, payload: { meeting_point: "Hebbal flyover, Gate 3", notes: "Bring lights." } });
+  await call("PATCH", `/api/clubs/${a.clubId}/rides/${rideId}`, { cookie: a.cookie, payload: { meeting_point: "Hebbal flyover, Gate 3", map_url: "https://maps.app.goo.gl/abc123", notes: "Bring lights." } });
   assert.deepEqual(pending(a.clubId).map((r) => r.kind), ["ride_updated"]);
   makeDue(); await worker.tick();
   const text = sent.at(-1).text;
   assert.match(text, /^✏️ \*Ride changed: Nandi Hills long ride\*\n/);
-  assert.match(text, /📍 Hebbal flyover, Gate 3\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/);
+  assert.match(text, /📍 Hebbal flyover, Gate 3\n🗺️ https:\/\/maps\.app\.goo\.gl\/abc123\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/);
   assert.match(text, /\(lead\)/);
   assert.match(text, new RegExp(`Join or drop out 👇\nhttps://paceup.example/r/${rideCode}$`));
 });

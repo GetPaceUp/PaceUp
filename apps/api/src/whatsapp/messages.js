@@ -38,6 +38,7 @@ function details(ride) {
 /** The full activity details. Every post carries all of them: people don't scroll up. */
 function body(ride) {
   const lines = [whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
+  if (ride.map_url) lines.push(`🗺️ ${ride.map_url}`);
   if (details(ride)) lines.push(details(ride));
   // The club organises; the admin who created it leads.
   if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
