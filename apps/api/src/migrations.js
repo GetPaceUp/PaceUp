@@ -621,6 +621,15 @@ export const migrations = [
       const now = new Date().toISOString();
       db.prepare("UPDATE rides SET absent_nudge_at = ? WHERE starts_at <= ?").run(now, now);
     }
+  },
+  {
+    id: 26,
+    name: "roster_keep_both",
+    up(db) {
+      // An admin said two look-alike names ("Mahesh Giri Cycling Tulip Purple" and "Mahesh Giri")
+      // are different people: stop offering to tidy or merge this one.
+      db.exec("ALTER TABLE club_roster ADD COLUMN tidy_dismissed INTEGER NOT NULL DEFAULT 0");
+    }
   }
 ];
 
