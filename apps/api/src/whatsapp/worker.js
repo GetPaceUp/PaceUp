@@ -6,7 +6,7 @@ import { join, dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { db } from "../db.js";
 import { loadAdapter } from "./adapter.js";
-import { HOURLY_CAP, MAX_ATTEMPTS, memberGroups, clubGroups, isClubGroup } from "./outbox.js";
+import { HOURLY_CAP, MAX_ATTEMPTS, PAIRING_TIMEOUT_MS, memberGroups, clubGroups, isClubGroup } from "./outbox.js";
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
@@ -15,7 +15,6 @@ import { markClubLive } from "../directory.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
-const PAIRING_TIMEOUT_MS = 5 * 60 * 1000;
 const GROUPS_REFRESH_MS = 2 * 60 * 1000;
 const ROSTER_REFRESH_MS = 30 * 60 * 1000;
 const QUIET_START = 22, QUIET_END = 5;
@@ -61,9 +60,13 @@ export class WhatsAppWorker {
       entry.session = await this.adapter.connect(clubId, {
         authDir: this.authDir(clubId),
         pairingPhone,
-        onQr: (qr) => this.setConn(clubId, { status: "pairing", qr, qr_updated_at: iso(Date.now()), last_error: null }),
+        // Once a link code is out, QR rotations don't matter: the code's own clock (qr_updated_at) must not move.
+        onQr: (qr) => { if (!entry.codeAt) this.setConn(clubId, { status: "pairing", qr, qr_updated_at: iso(Date.now()), last_error: null }); },
         // "Link with phone number instead": WhatsApp gives a code the owner types on the club phone.
-        onPairingCode: (code) => this.setConn(clubId, { status: "pairing", pairing_code: code, qr_updated_at: iso(Date.now()), last_error: null }),
+        onPairingCode: (code) => {
+          entry.codeAt = Date.now();
+          this.setConn(clubId, { status: "pairing", pairing_code: code, qr_updated_at: iso(entry.codeAt), last_error: null });
+        },
         onOpen: async ({ phone }) => {
           // Each club sends from its own number only. A number already serving another club is refused
           // at once: one ban would otherwise take down both clubs.
@@ -189,16 +192,17 @@ export class WhatsAppWorker {
       }
       if (c.desired !== "on") continue;
       wanted.add(c.club_id);
-      if (entry && !entry.open && !entry.placeholder && (c.pairing_phone || null) !== (entry.pairingPhone || null)) {
-        // The owner switched between a code and a QR: start pairing again.
+      if (entry && !entry.open && !entry.placeholder && ((c.pairing_phone || null) !== (entry.pairingPhone || null) || (entry.codeAt && !c.pairing_code))) {
+        // The owner switched between a code and a QR, or asked for a new code: start pairing again.
         entry.session?.end();
         this.sessions.delete(c.club_id);
         await this.startSession(c.club_id, c.pairing_phone || null);
       } else if (!entry || (entry.placeholder && Date.now() >= entry.retryAt)) await this.startSession(c.club_id, c.pairing_phone || null);
-      else if (!entry.open && c.status === "pairing" && c.qr_updated_at && Date.now() - entry.startedAt > PAIRING_TIMEOUT_MS) {
+      else if (!entry.open && c.status === "pairing" && c.qr_updated_at && Date.now() - (entry.codeAt || entry.startedAt) > PAIRING_TIMEOUT_MS) {
         entry.session?.end();
         this.sessions.delete(c.club_id);
-        this.setConn(c.club_id, { desired: "off", status: "disconnected", qr: null, pairing_code: null, pairing_phone: null, last_error: "The link code expired before it was used. Press Connect to try again." });
+        // pairing_phone stays, so "Get a new code" can reuse the number.
+        this.setConn(c.club_id, { desired: "off", status: "disconnected", qr: null, pairing_code: null, last_error: c.pairing_phone ? "The link code expired before it was used." : "The QR code expired before it was scanned. Press Show QR code to try again." });
       } else if (entry.open) {
         this.setConn(c.club_id, { last_seen_at: iso(Date.now()) });
         const asked = c.groups_wanted_at && new Date(c.groups_wanted_at).getTime() > (entry.groupsAt || 0);

@@ -2,7 +2,7 @@
 // club wants; the worker process does the connecting and sending.
 import QRCode from "qrcode";
 import { db } from "../db.js";
-import { getConnection, enqueueTest, outboxStats, memberGroups, knownGroups, clubGroups, allowedGroupIds, isClubGroup } from "./outbox.js";
+import { getConnection, enqueueTest, outboxStats, memberGroups, knownGroups, clubGroups, allowedGroupIds, isClubGroup, PAIRING_TIMEOUT_MS } from "./outbox.js";
 import { audit, getPlatformRole } from "../db.js";
 import { canManageNumber } from "../clubs-admin.js";
 import { cleanPhone } from "../roster.js";
@@ -34,6 +34,8 @@ async function view(clubId, userId) {
       qr: qrFresh && manager ? await QRCode.toDataURL(c.qr, { margin: 1, width: 280 }) : null,
       pairing_code: manager && c.status === "pairing" && c.pairing_code ? c.pairing_code : null,
       pairing_phone: manager && c.pairing_phone ? `+${c.pairing_phone}` : null,
+      pairing_expires_at: manager && c.status === "pairing" && c.pairing_code && c.qr_updated_at
+        ? new Date(new Date(c.qr_updated_at).getTime() + PAIRING_TIMEOUT_MS).toISOString() : null,
       can_manage_number: manager,
       number_owner: owner ? { name: owner.name, is_you: owner.id === userId } : null,
       phone: maskPhone(c.phone),

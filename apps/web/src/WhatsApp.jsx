@@ -10,11 +10,45 @@ const api = async (url, options = {}) => {
 const STATUS = {
   disconnected: ["st-off", "Not connected"],
   pairing: ["st-wait", "Waiting for you to scan the code"],
+  entering: ["st-wait", "Waiting for you to enter the code"],
   reconnecting: ["st-wait", "Reconnecting…"],
   connected: ["st-on", "Connected"],
   logged_out: ["st-bad", "Unlinked from the phone"],
   error: ["st-bad", "Connection problem"]
 };
+
+/** "+919011022222" → "+91 90110 22222"; other countries keep the code apart from the rest. */
+export const prettyPhone = (p) => {
+  const d = String(p || "").replace(/\D/g, "");
+  if (!d) return p || "";
+  if (d.length === 12 && d.startsWith("91")) return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
+  return p.startsWith("+") ? p : `+${d}`;
+};
+
+const mmss = (ms) => { const t = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+
+/** The 8-character code, the time left on it, and how to type it on the club phone. */
+function LinkCode({ wa, busy, onNewCode }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const left = wa.pairing_expires_at ? new Date(wa.pairing_expires_at).getTime() - now : null;
+  const expired = left !== null && left <= 0;
+  return (
+    <div className="wa-code-block">
+      <p className="panel-copy">Link code for <b>{prettyPhone(wa.pairing_phone)}</b></p>
+      <div className={`wa-code${expired ? " expired" : ""}`} aria-label="Link code">{wa.pairing_code}</div>
+      {expired
+        ? <div className="wa-code-expired"><span>This code has expired.</span><button type="button" disabled={busy} onClick={onNewCode}>Get a new code</button></div>
+        : left !== null && <p className="wa-code-timer">Code expires in {mmss(left)}</p>}
+      <ol className="wa-steps">
+        <li>Open WhatsApp on the <b>club's phone</b></li>
+        <li>Go to <b>Settings</b> (iPhone) or the <b>⋮ menu</b> (Android), then <b>Linked devices</b> → <b>Link a device</b></li>
+        <li>Tap <b>Link with phone number instead</b></li>
+        <li>Type the code above</li>
+      </ol>
+    </div>
+  );
+}
 
 const ago = (iso) => {
   if (!iso) return "never";
@@ -85,10 +119,10 @@ export function GroupPicker({ url, onSaved }) {
 }
 
 /** Linking the club's own number: a code typed on the club phone, or a QR code scanned from another screen. */
-function ConnectNumber({ busy, onConnect }) {
+function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
   const phoneFirst = typeof window !== "undefined" && window.matchMedia?.("(max-width: 800px)").matches;
-  const [how, setHow] = useState(phoneFirst ? "code" : "qr");
-  const [phone, setPhone] = useState("+91 ");
+  const [how, setHow] = useState(lastPhone || phoneFirst ? "code" : "qr");
+  const [phone, setPhone] = useState(lastPhone ? prettyPhone(lastPhone) : "+91 ");
   return (
     <div className="wa-connect">
       <p className="wa-warn">Use a number kept only for the club, ideally a WhatsApp Business number. Not a personal number. One number can serve only one club.</p>
@@ -99,8 +133,8 @@ function ConnectNumber({ busy, onConnect }) {
       {how === "code"
         ? <form className="stack-form" onSubmit={(e) => { e.preventDefault(); onConnect({ phone }); }}>
             <label htmlFor="wa-num">Club's WhatsApp number</label>
-            <input id="wa-num" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" pattern="[+0-9 ()-]{10,20}" required />
-            <button type="submit" disabled={busy}>Get a link code</button>
+            <input id="wa-num" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" pattern="[+0-9 \(\)\-]{10,20}" required />
+            <button type="submit" disabled={busy}>{expired ? "Get a new code" : "Get a link code"}</button>
           </form>
         : <><p className="panel-copy">A QR code appears here. Scan it with the club phone.</p><button type="button" disabled={busy} onClick={() => onConnect({})}>Show QR code</button></>}
     </div>
@@ -135,7 +169,8 @@ export function WhatsAppPanel({ clubId }) {
   }, [clubId, wa?.desired, wa?.status, wa?.groups_refreshing]);
 
   if (!wa) return <section className="admin-panel wa-panel"><h3>WhatsApp</h3><p className="panel-copy">Loading…</p></section>;
-  const [cls, label] = STATUS[wa.status] || STATUS.disconnected;
+  const [cls, label] = STATUS[wa.status === "pairing" && wa.pairing_phone ? "entering" : wa.status] || STATUS.disconnected;
+  const codeExpired = wa.desired !== "on" && Boolean(wa.pairing_phone) && /expired/.test(wa.last_error || "");
   const connected = wa.status === "connected";
   const starting = wa.desired === "on" && !connected;
   const manager = Boolean(wa.can_manage_number); // the club's number owner, or the Super Admin
@@ -146,23 +181,19 @@ export function WhatsAppPanel({ clubId }) {
       <h3>WhatsApp</h3>
       <p className="panel-copy">Post new activities and the updated list of who's going to your club's WhatsApp group automatically.</p>
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
-      {wa.last_error && !connected && <p className="error">{wa.last_error}</p>}
+      {wa.last_error && !connected && <p className="error">{codeExpired ? "That link code expired before it was used. Get a new one below." : wa.last_error}</p>}
 
       {wa.desired !== "on" && (manager
-        ? <ConnectNumber busy={busy} onConnect={(body) => act("/connect", "POST", body)} />
+        ? <ConnectNumber key={codeExpired ? "again" : "new"} busy={busy} lastPhone={codeExpired ? wa.pairing_phone : null} expired={codeExpired} onConnect={(body) => act("/connect", "POST", body)} />
         : <p className="panel-copy">{owner ? `${owner.name} looks after the club's WhatsApp number and links it.` : "The PaceUp team links the club's WhatsApp number."}</p>)}
 
       {starting && !manager && <p className="panel-copy">{owner ? `${owner.name} is linking the club's number.` : "The club's number is being linked."}</p>}
       {starting && manager && (wa.pairing_phone
         ? (wa.pairing_code
-          ? <div className="wa-pair">
-              <p className="panel-copy">Your link code for {wa.pairing_phone}:</p>
-              <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
-              <ol className="wa-howto"><li>Open WhatsApp on the <b>club's phone</b></li><li>Settings → <b>Linked devices</b> → Link a device</li><li>Tap <b>Link with phone number instead</b></li><li>Type the code above</li></ol>
-            </div>
-          : <p className="panel-copy">Getting your link code…</p>)
+          ? <LinkCode wa={wa} busy={busy} onNewCode={() => act("/connect", "POST", { phone: wa.pairing_phone })} />
+          : <p className="panel-copy">Getting your link code for {prettyPhone(wa.pairing_phone)}…</p>)
         : (wa.qr
-          ? <div className="wa-pair">
+          ? <div className="wa-pair qr">
               <img className="wa-qr" src={wa.qr} alt="WhatsApp link code. Scan it with the club phone." />
               <ol className="wa-howto"><li>Open WhatsApp on the <b>club's phone</b></li><li>Settings → <b>Linked devices</b> → Link a device</li><li>Point the phone at this code</li></ol>
             </div>
