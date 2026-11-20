@@ -69,7 +69,7 @@ test("invites go by mobile number: added at once and WhatsApped from the club nu
   assert.equal(admin.json().whatsapp.sent, true);
   const dm = db.prepare("SELECT * FROM whatsapp_direct WHERE to_phone = '919876522222'").get();
   assert.equal(dm.club_id, clubId, "sent from this club's number");
-  assert.match(dm.text, /as an admin/);
+  assert.match(dm.text, /as a club admin/);
   assert.match(dm.text, /Sign in with this mobile number/);
 
   // The invited person signs in with a code to that number and lands in the club.

@@ -11,8 +11,10 @@ function Delivery({ w, name }) {
   return <p className="panel-copy">The club WhatsApp isn't connected, so nothing was sent. <a href={shareLink(w)} target="_blank" rel="noreferrer">Send it from your WhatsApp</a> or <button type="button" className="text-button" onClick={() => navigator.clipboard?.writeText(w.text)}>copy the message</button>.</p>;
 }
 
-/** Club admins: invite people by mobile number and manage who is in the club. */
-export function PeoplePanel({ clubId, members, me, onChange }) {
+const ROLE_LABEL = { owner: "Club owner", admin: "Club admin", member: "Member" };
+
+/** Club admins invite people by mobile number and manage members; only the club owner makes or removes club admins. */
+export function PeoplePanel({ clubId, members, me, isOwner, onChange }) {
   const [phone, setPhone] = useState("+91 ");
   const [name, setName] = useState("");
   const [role, setRole] = useState("member");
@@ -47,6 +49,12 @@ export function PeoplePanel({ clubId, members, me, onChange }) {
     try { await api(`/api/clubs/${clubId}/members/${m.id}/role`, { method: "PATCH", body: JSON.stringify({ role }) }); onChange(); }
     catch (err) { setError(err.message); } finally { setBusy(""); }
   }
+  async function handOver(m) {
+    if (busy !== `owner-${m.id}`) { setBusy(`owner-${m.id}`); return; }
+    setBusy(m.id); setError(""); setResult(null);
+    try { await api(`/api/clubs/${clubId}/owner`, { method: "PUT", body: JSON.stringify({ userId: m.id }) }); window.location.reload(); }
+    catch (err) { setError(err.message); setBusy(""); }
+  }
   async function remove(m) {
     if (busy !== `confirm-${m.id}`) { setBusy(`confirm-${m.id}`); return; }
     setBusy(m.id); setError("");
@@ -63,8 +71,10 @@ export function PeoplePanel({ clubId, members, me, onChange }) {
         {suggest.length > 0 && <ul className="name-list">{suggest.map((p) => <li key={p.id}><button type="button" onClick={() => { setName(p.name); setPhone(`+${p.phone}`); setSuggest([]); }}><span>{p.name}</span><small> {phoneText(p.phone)}</small></button></li>)}</ul>}
         <label htmlFor="inv-phone">Mobile number</label>
         <input id="inv-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" required />
-        <label htmlFor="inv-role">Role</label>
-        <select id="inv-role" value={role} onChange={(e) => setRole(e.target.value)}><option value="member">Member</option><option value="admin">Club admin</option></select>
+        <label htmlFor={isOwner ? "inv-role" : undefined}>Role</label>
+        {isOwner
+          ? <select id="inv-role" value={role} onChange={(e) => setRole(e.target.value)}><option value="member">Member</option><option value="admin">Club admin</option></select>
+          : <p className="panel-copy" id="inv-role">Member. Only the club owner can add club admins.</p>}
         {error && <p className="error" role="alert">{error}</p>}
         <button type="submit" disabled={busy === "invite"}>{busy === "invite" ? "Sending…" : "Send invite"}</button>
       </form>
@@ -75,9 +85,10 @@ export function PeoplePanel({ clubId, members, me, onChange }) {
       {members.map((m) => <div className="member-row" key={m.id}>
         <div className="member-avatar">{m.name.slice(0, 1).toUpperCase()}</div>
         <div className="member-info"><strong>{m.name}</strong><small>{m.phone ? phoneText(m.phone) : m.email}</small></div>
-        <span className="role-tag">{m.role}</span>
-        {m.role !== "owner" && m.id !== me && <div className="member-actions">
-          <button type="button" className="text-button" disabled={busy === m.id} onClick={() => changeRole(m, m.role === "admin" ? "member" : "admin")}>{m.role === "admin" ? "Make member" : "Make admin"}</button>
+        <span className="role-tag">{ROLE_LABEL[m.role] || m.role}</span>
+        {m.role !== "owner" && m.id !== me && (isOwner || m.role === "member") && <div className="member-actions">
+          {isOwner && <button type="button" className="text-button" disabled={busy === m.id} onClick={() => changeRole(m, m.role === "admin" ? "member" : "admin")}>{m.role === "admin" ? "Make member" : "Make admin"}</button>}
+          {isOwner && m.role === "admin" && <button type="button" className="text-button" disabled={busy === m.id} onClick={() => handOver(m)}>{busy === `owner-${m.id}` ? "Tap to hand over the club" : "Make owner"}</button>}
           {m.phone && <button type="button" className="text-button" disabled={busy === m.id} onClick={() => resend(m)}>Resend</button>}
           {!m.phone && m.role === "member" && <ResetLinkButton endpoint={`/api/clubs/${clubId}/members/${m.id}/password-reset`} name={m.name} />}
           <button type="button" className="text-button remove" disabled={busy === m.id} onClick={() => remove(m)}>{busy === `confirm-${m.id}` ? "Tap to confirm" : "Remove"}</button>

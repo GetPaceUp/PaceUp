@@ -90,6 +90,7 @@ export function listClubsForUser(userId) {
     WHERE cm.user_id = ? ORDER BY c.created_at DESC
   `).all(userId);
 }
+export const getClubById = (clubId) => db.prepare("SELECT id, name, slug FROM clubs WHERE id = ?").get(clubId);
 export function getClubMembership(clubId, userId) {
   return db.prepare(`
     SELECT cm.role, c.id, c.name, c.slug FROM club_memberships cm
@@ -220,13 +221,13 @@ const setPlatformRoleTx = db.transaction(({ actorUserId, targetUserId, role, ip 
   // Re-check the actor inside the write lock: a Super Admin demoted a moment ago
   // must not be able to complete a change that was already in flight.
   const actor = db.prepare("SELECT platform_role FROM users WHERE id = ?").get(actorUserId);
-  if (actor?.platform_role !== "super_admin") throw new DomainError(403, "Platform owner access required.");
+  if (actor?.platform_role !== "super_admin") throw new DomainError(403, "Only the PaceUp Admin can do this.");
   const target = db.prepare("SELECT id, platform_role FROM users WHERE id = ?").get(targetUserId);
   if (!target) throw new DomainError(404, "User not found.");
   if (target.platform_role !== role) {
     if (target.platform_role === "super_admin") {
       const remaining = db.prepare("SELECT COUNT(*) AS n FROM users WHERE platform_role = 'super_admin'").get().n;
-      if (remaining <= 1) throw new DomainError(409, "PaceUp must always have at least one Super Admin. Promote someone else first.");
+      if (remaining <= 1) throw new DomainError(409, "PaceUp must always have at least one PaceUp Admin. Make someone else a PaceUp Admin first.");
     }
     db.prepare("UPDATE users SET platform_role = ? WHERE id = ?").run(role, targetUserId);
     audit({ actorUserId, action: role === "super_admin" ? "platform_role.promote" : "platform_role.demote", targetUserId, oldValue: target.platform_role, newValue: role, ip });

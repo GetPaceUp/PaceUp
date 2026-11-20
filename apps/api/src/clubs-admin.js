@@ -47,8 +47,8 @@ export function createClub({ name, adminPhone, adminName, city, activity, direct
     const id = randomUUID();
     db.prepare("INSERT INTO clubs (id, name, slug, city, activity) VALUES (?, ?, ?, ?, ?)").run(id, clubName, uniqueSlug(clubName), cityName, activityName);
     const ownerId = phone ? findOrCreatePhoneUser(phone, adminName) : actorId;
+    // The person the PaceUp Admin names is the Club Owner: they link the club's own WhatsApp number.
     setRole(id, ownerId, "owner");
-    // The owner links and looks after the club's own WhatsApp number.
     db.prepare("UPDATE clubs SET number_owner_id = ? WHERE id = ?").run(ownerId, id);
     const club = db.prepare("SELECT id, name, slug, city, activity, created_at FROM clubs WHERE id = ?").get(id);
     linkDirectoryToClub(directoryId, club);
@@ -118,27 +118,28 @@ export function useOwnerLink(token, last4) {
   return { user: getUserById(result.userId), clubId: result.clubId };
 }
 
-/** Super Admin, or the club admin who owns the club's WhatsApp number. */
-export function canManageNumber(clubId, userId) {
+/** The PaceUp Admin, or the club's owner: the club's number, name, groups, admins and message stats. */
+export function isClubOwner(clubId, userId) {
   if (getPlatformRole(userId) === "super_admin") return true;
-  const club = db.prepare("SELECT number_owner_id FROM clubs WHERE id = ?").get(clubId);
-  if (!club?.number_owner_id || club.number_owner_id !== userId) return false;
-  return ["owner", "admin"].includes(getClubMembership(clubId, userId)?.role);
+  return getClubMembership(clubId, userId)?.role === "owner";
 }
+export const clubOwnerId = (clubId) => db.prepare("SELECT user_id FROM club_memberships WHERE club_id = ? AND role = 'owner'").get(clubId)?.user_id || null;
 
-export function setNumberOwner(clubId, userId, actorId) {
-  if (userId) {
-    const m = getClubMembership(clubId, userId);
-    if (!m || !["owner", "admin"].includes(m.role)) throw new DomainError(400, "The number owner must be an admin of the club.");
-  }
-  db.prepare("UPDATE clubs SET number_owner_id = ? WHERE id = ?").run(userId || null, clubId);
-  audit({ actorUserId: actorId, action: "club.number_owner", targetUserId: userId || null });
+/** Hands the club to another member: they become owner, the old owner stays on as a club admin. */
+export function transferOwnership(clubId, userId, actorId) {
+  const m = getClubMembership(clubId, userId);
+  if (!m) throw new DomainError(400, "The new owner must be a member of the club.");
+  if (m.role !== "owner") db.transaction(() => {
+    db.prepare("UPDATE club_memberships SET role = 'admin' WHERE club_id = ? AND role = 'owner'").run(clubId);
+    db.prepare("UPDATE club_memberships SET role = 'owner' WHERE club_id = ? AND user_id = ?").run(clubId, userId);
+    db.prepare("UPDATE clubs SET number_owner_id = ? WHERE id = ?").run(userId, clubId);
+  }).immediate();
+  audit({ actorUserId: actorId, action: "club.owner_transfer", targetUserId: userId });
   return clubAdmins(clubId);
 }
 export function clubAdmins(clubId) {
-  const club = db.prepare("SELECT number_owner_id FROM clubs WHERE id = ?").get(clubId);
   return {
-    number_owner_id: club?.number_owner_id || null,
+    owner_id: clubOwnerId(clubId),
     admins: db.prepare("SELECT u.id, u.name, cm.role FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = ? AND cm.role IN ('owner', 'admin') ORDER BY cm.role DESC, u.name").all(clubId)
   };
 }
@@ -146,7 +147,7 @@ export function clubAdmins(clubId) {
 export function addClubAdmin(clubId, { phone, name }) { return addClubPerson(clubId, { phone, name, role: "admin" }).person; }
 
 const appUrl = () => (process.env.APP_BASE_URL || "http://localhost:5173").replace(/\/$/, "");
-const ROLE_TEXT = { owner: "an admin", admin: "an admin", member: "a member" };
+const ROLE_TEXT = { owner: "the club owner", admin: "a club admin", member: "a member" };
 
 function welcomeText(clubId, userId, inviterId) {
   const club = db.prepare("SELECT name FROM clubs WHERE id = ?").get(clubId);
@@ -178,6 +179,7 @@ export function addClubPerson(clubId, { phone: rawPhone, name, role = "member" }
   const phone = cleanPhone(rawPhone);
   if (!phone) throw new DomainError(400, "Enter the mobile number with the country code, e.g. +91 98765 43210.");
   if (!["admin", "member"].includes(role)) throw new DomainError(400, "Choose member or club admin.");
+  if (role === "admin" && inviterId && !isClubOwner(clubId, inviterId)) throw new DomainError(403, OWNER_ONLY);
   const userId = db.transaction(() => {
     const id = findOrCreatePhoneUser(phone, name);
     setRole(clubId, id, role);
@@ -186,10 +188,12 @@ export function addClubPerson(clubId, { phone: rawPhone, name, role = "member" }
   return { person: getUserById(userId), whatsapp: sendWelcome(clubId, userId, inviterId) };
 }
 
+const OWNER_ONLY = "Only the club owner can add or remove club admins.";
 export function removeClubPerson(clubId, userId, actorId) {
   const m = getClubMembership(clubId, userId);
   if (!m) throw new DomainError(404, "Not a member of this club.");
-  if (m.role === "owner") throw new DomainError(409, "The club owner can't be removed.");
+  if (m.role === "owner") throw new DomainError(409, "The club owner can't be removed. Hand the club to someone else first.");
+  if (m.role === "admin" && !isClubOwner(clubId, actorId)) throw new DomainError(403, OWNER_ONLY);
   if (userId === actorId) throw new DomainError(409, "You can't remove yourself.");
   db.prepare("DELETE FROM club_memberships WHERE club_id = ? AND user_id = ?").run(clubId, userId);
 }
@@ -199,7 +203,8 @@ export function changeClubRole(clubId, userId, role, actorId) {
   if (!["admin", "member"].includes(role)) throw new DomainError(400, "Choose member or club admin.");
   const m = getClubMembership(clubId, userId);
   if (!m) throw new DomainError(404, "Not a member of this club.");
-  if (m.role === "owner") throw new DomainError(409, "The club owner's role can't be changed.");
+  if (m.role === "owner") throw new DomainError(409, "The club owner's role can't be changed. Hand the club to someone else instead.");
+  if (!isClubOwner(clubId, actorId)) throw new DomainError(403, OWNER_ONLY);
   if (userId === actorId) throw new DomainError(409, "You can't change your own role.");
   db.prepare("UPDATE club_memberships SET role = ? WHERE club_id = ? AND user_id = ?").run(role, clubId, userId);
   return { id: userId, role };
@@ -215,7 +220,7 @@ export function joinClubsByPhone(userId, phone) {
 /** The name a club list already has for this number, to pre-fill sign-up. */
 export const rosterNameFor = (phone) => db.prepare("SELECT name FROM club_roster WHERE phone = ? ORDER BY updated_at DESC LIMIT 1").get(phone)?.name || null;
 
-export function registerClubAdminRoutes(app, { requireClubRole, requirePlatformAdmin }) {
+export function registerClubAdminRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin }) {
   const fail = (reply, error) => { if (error instanceof DomainError) return reply.code(error.status).send({ error: error.message }); throw error; };
   const str = (n) => ({ type: "string", maxLength: n });
   app.post("/api/platform/clubs", {
@@ -234,10 +239,11 @@ export function registerClubAdminRoutes(app, { requireClubRole, requirePlatformA
     } catch (error) { return fail(reply, error); }
   });
   app.get("/api/platform/clubs/:clubId/admins", { preHandler: [app.authenticate, requirePlatformAdmin], schema: { params: clubParams } }, async (req) => clubAdmins(req.params.clubId));
-  app.put("/api/platform/clubs/:clubId/number-owner", {
-    preHandler: [app.authenticate, requirePlatformAdmin],
-    schema: { params: clubParams, body: { type: "object", properties: { userId: { type: ["string", "null"], maxLength: 36 } }, required: ["userId"] } }
-  }, async (req, reply) => { try { return setNumberOwner(req.params.clubId, req.body.userId, req.user.sub); } catch (error) { return fail(reply, error); } });
+  // The owner, or the PaceUp Admin, hands the club to another member.
+  app.put("/api/clubs/:clubId/owner", {
+    preHandler: [app.authenticate, requireClubOwner],
+    schema: { params: clubParams, body: { type: "object", properties: { userId: { type: "string", maxLength: 36 } }, required: ["userId"] } }
+  }, async (req, reply) => { try { return transferOwnership(req.params.clubId, req.body.userId, req.user.sub); } catch (error) { return fail(reply, error); } });
   app.post("/api/clubs/:clubId/people", {
     preHandler: [app.authenticate, requireClubRole(["owner", "admin"])],
     schema: { body: { type: "object", properties: { phone: str(30), name: str(200), role: { type: "string", enum: ["member", "admin"] } }, required: ["phone"] } }
@@ -260,7 +266,7 @@ export function registerClubAdminRoutes(app, { requireClubRole, requirePlatformA
     try { return { member: changeClubRole(req.params.clubId, req.params.userId, req.body.role, req.user.sub) }; } catch (error) { return fail(reply, error); }
   });
   app.post("/api/clubs/:clubId/admins", {
-    preHandler: [app.authenticate, requireClubRole(["owner", "admin"])],
+    preHandler: [app.authenticate, requireClubOwner],
     schema: { body: { type: "object", properties: { phone: str(30), name: str(200) }, required: ["phone"] } }
   }, async (req, reply) => {
     try { return reply.code(201).send({ admin: addClubAdmin(req.params.clubId, req.body) }); } catch (error) { return fail(reply, error); }

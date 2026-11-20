@@ -558,6 +558,29 @@ export const migrations = [
         if (!linked && c.owner) db.prepare("UPDATE clubs SET number_owner_id = ? WHERE id = ?").run(c.owner, c.id);
       }
     }
+  },
+  {
+    id: 22,
+    name: "one_club_owner",
+    up(db) {
+      // Three roles: PaceUp Admin (platform), one Club Owner per club (the club's number, name, groups,
+      // admins and stats), Club Admins (activities and members). The separate "number owner" folds into
+      // the Club Owner. Who becomes owner: a PaceUp Admin who is in the club (the pilot club), else the
+      // number owner, else the existing owner, else the longest-serving admin.
+      const memberRole = db.prepare("SELECT role FROM club_memberships WHERE club_id = ? AND user_id = ?");
+      for (const c of db.prepare("SELECT id, number_owner_id FROM clubs").all()) {
+        const platform = db.prepare(`SELECT cm.user_id FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id
+          WHERE cm.club_id = ? AND u.platform_role = 'super_admin' ORDER BY cm.created_at LIMIT 1`).get(c.id)?.user_id;
+        const numberOwner = c.number_owner_id && ["owner", "admin"].includes(memberRole.get(c.id, c.number_owner_id)?.role) ? c.number_owner_id : null;
+        const pick = (role) => db.prepare("SELECT user_id FROM club_memberships WHERE club_id = ? AND role = ? ORDER BY created_at LIMIT 1").get(c.id, role)?.user_id;
+        const owner = platform || numberOwner || pick("owner") || pick("admin");
+        if (!owner) continue;
+        db.prepare("UPDATE club_memberships SET role = 'admin' WHERE club_id = ? AND role = 'owner' AND user_id != ?").run(c.id, owner);
+        db.prepare("UPDATE club_memberships SET role = 'owner' WHERE club_id = ? AND user_id = ?").run(c.id, owner);
+        db.prepare("UPDATE clubs SET number_owner_id = ? WHERE id = ?").run(owner, c.id);
+      }
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS club_memberships_one_owner ON club_memberships(club_id) WHERE role = 'owner'");
+    }
   }
 ];
 
