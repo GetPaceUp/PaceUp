@@ -39,47 +39,78 @@ function NameRow({ label, sub, initial = "", action, onSave, onRemove, busy }) {
   );
 }
 
-/** Phone-book names often carry tags ("Aneesh Saraiya Cycling Sector 65"). Preview the tidy names and apply the ticked ones. */
-function NameCleanup({ base, onApplied }) {
+/**
+ * WhatsApp contact names often carry tags ("Aneesh Saraiya Cycling Sector 65"). Preview the tidy
+ * names and apply the ticked ones. When the tidy name is already on the list, ask once:
+ * same person (merge) or two people (keep both). Every flag here can be cleared.
+ */
+function NameCleanup({ base, total, onApplied }) {
   const [people, setPeople] = useState([]);
+  const [dups, setDups] = useState([]);
   const [open, setOpen] = useState(false);
   const [off, setOff] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  async function load() { try { setPeople((await api(`${base}/cleanup`)).people); } catch { setPeople([]); } }
-  useEffect(() => { load(); }, [base]);
-  if (!people.length) return msg ? <p className="success-note" role="status">{msg}</p> : null;
+  async function load() {
+    try { const r = await api(`${base}/cleanup`); setPeople(r.people); setDups(r.duplicates || []); }
+    catch { setPeople([]); setDups([]); }
+  }
+  useEffect(() => { load(); }, [base, total]);
+  if (!people.length && !dups.length) return msg ? <p className="success-note" role="status">{msg}</p> : null;
   const chosen = people.filter((p) => !off.has(p.id));
   const toggle = (id) => setOff((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  async function apply() {
+  async function run(fn) {
     setBusy(true);
-    try {
-      const r = await api(`${base}/cleanup`, { method: "POST", body: JSON.stringify({ ids: chosen.map((p) => p.id) }) });
-      setMsg(`Tidied ${r.applied} ${r.applied === 1 ? "name" : "names"}.${r.skipped.length ? ` Left as they were, because the tidy name is already on the list: ${r.skipped.join(", ")}.` : ""}`);
-      setOpen(false); setOff(new Set()); await load(); onApplied();
-    } catch (err) { setMsg(err.message); }
+    try { setMsg(await fn()); await load(); onApplied(); }
+    catch (err) { setMsg(err.message); }
     finally { setBusy(false); }
   }
+  const apply = () => run(async () => {
+    const r = await api(`${base}/cleanup`, { method: "POST", body: JSON.stringify({ ids: chosen.map((p) => p.id) }) });
+    setOpen(false); setOff(new Set());
+    return `Tidied ${r.applied} ${r.applied === 1 ? "name" : "names"}.`;
+  });
+  const merge = (d) => run(async () => { await api(`${base}/cleanup/${d.id}/merge`, { method: "POST" }); return `Merged into ${d.match.name}.`; });
+  const keep = (d) => run(async () => { await api(`${base}/cleanup/${d.id}/keep`, { method: "POST" }); return `Kept both. ${d.name} won't be flagged again.`; });
+  const who = (name, phone) => <>{name}{phone && <small className="panel-copy dup-phone">{phoneText(phone)}</small>}</>;
+
   return (
     <div className="cleanup-box">
-      <p><b>✨ {people.length} {people.length === 1 ? "name has" : "names have"} extra words from your phone book</b>, like "{people[0].name}". Members would see "{people[0].suggested}" instead.</p>
-      {!open
-        ? <button type="button" className="secondary-button small-button" onClick={() => setOpen(true)}>Review and tidy</button>
-        : <>
-            <ul className="cleanup-list">
-              {people.map((p) => (
-                <li key={p.id}><label>
-                  <input type="checkbox" checked={!off.has(p.id)} onChange={() => toggle(p.id)} />
-                  <span><s>{p.name}</s><b>{p.suggested}</b></span>
-                </label></li>
-              ))}
-            </ul>
-            <div className="cleanup-actions">
-              <button type="button" disabled={busy || !chosen.length} onClick={apply}>{busy ? "Tidying…" : `Apply cleanup (${chosen.length})`}</button>
-              <button type="button" className="text-button" onClick={() => setOpen(false)}>Not now</button>
-            </div>
-            <p className="panel-copy">Untick any that look wrong. You can still edit any name afterwards.</p>
-          </>}
+      {people.length > 0 && <>
+        <p><b>✨ {people.length} {people.length === 1 ? "name has" : "names have"} extra words after the name</b>, like "{people[0].name}". Members would see "{people[0].suggested}" instead.</p>
+        {!open
+          ? <button type="button" className="secondary-button small-button" onClick={() => setOpen(true)}>Review and tidy</button>
+          : <>
+              <ul className="cleanup-list">
+                {people.map((p) => (
+                  <li key={p.id}><label>
+                    <input type="checkbox" checked={!off.has(p.id)} onChange={() => toggle(p.id)} />
+                    <span><s>{p.name}</s><b>{p.suggested}</b></span>
+                  </label></li>
+                ))}
+              </ul>
+              <div className="cleanup-actions">
+                <button type="button" disabled={busy || !chosen.length} onClick={apply}>{busy ? "Tidying…" : `Apply cleanup (${chosen.length})`}</button>
+                <button type="button" className="text-button" onClick={() => setOpen(false)}>Not now</button>
+              </div>
+              <p className="panel-copy">Untick any that look wrong. You can still edit any name afterwards.</p>
+            </>}
+      </>}
+      {dups.length > 0 && <>
+        <p className="dup-head"><b>👥 {dups.length === 1 ? "1 name looks like it's" : `${dups.length} names look like they're`} on the list twice.</b> Same person? Merge them. Two people? Keep both.</p>
+        <ul className="cleanup-list dup-list">
+          {dups.map((d) => (
+            <li key={d.id}>
+              <span><span className="dup-from">{who(d.name, d.phone)}</span><span>Already on the list: <b>{who(d.match.name, d.match.phone)}</b></span></span>
+              <div className="cleanup-actions">
+                <button type="button" className="small-button" disabled={busy} onClick={() => merge(d)}>Same person, merge</button>
+                <button type="button" className="secondary-button small-button" disabled={busy} onClick={() => keep(d)}>Keep both</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <p className="panel-copy">Merging keeps "{dups[0].match.name}" with the WhatsApp number and moves their RSVPs across.</p>
+      </>}
       {msg && <p className="success-note" role="status">{msg}</p>}
     </div>
   );
@@ -168,7 +199,7 @@ export function RosterPanel({ clubId, onBack }) {
       <p className="panel-copy roster-names-how">Names fill in by themselves: the WhatsApp name people set, then the name they type the first time they tap "I'm in". A name you type here always wins. Add someone below only if they aren't in the WhatsApp group.</p>
       {notice && <p className="success-note" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-      <NameCleanup key={`${base}:${data.total}:${notice}`} base={base} onApplied={() => load()} />
+      <NameCleanup key={`${base}:${notice}`} base={base} total={data.total} onApplied={() => load()} />
 
       <div className="tabs" role="tablist">
         <button type="button" role="tab" aria-selected={view === "named"} className={view === "named" ? "tab on" : "tab"} onClick={() => setView("named")}>On the list ({data.total})</button>

@@ -88,12 +88,45 @@ test("names imported before the tidy-up get a preview, and only ticked ones chan
   assert.equal(byName["Aneesh Saraiya Cycling Sector 65"].suggested, "Aneesh Saraiya");
   assert.equal(byName["Ankit Manocha Cycling Nirvana"].suggested, "Ankit Manocha");
   assert.ok(!preview.some((p) => p.name === "Priya Sharma"), "clean names aren't listed");
-  const res = (await call("POST", base, { cookie: club.cookie, payload: { ids: [byName["Aneesh Saraiya Cycling Sector 65"].id, byName["Kavya Cycling"].id] } })).json();
-  assert.deepEqual(res, { applied: 1, skipped: ["Kavya"] });
+  assert.ok(!byName["Kavya Cycling"], "a name whose tidy version is taken isn't offered as a tidy");
+  const res = (await call("POST", base, { cookie: club.cookie, payload: { ids: [byName["Aneesh Saraiya Cycling Sector 65"].id] } })).json();
+  assert.deepEqual(res, { applied: 1, skipped: [] });
   const row = db.prepare("SELECT name, contact_name FROM club_roster WHERE phone = '919910678100'").get();
   assert.deepEqual(row, { name: "Aneesh Saraiya", contact_name: "Aneesh Saraiya Cycling Sector 65" });
   assert.equal(db.prepare("SELECT name FROM club_roster WHERE phone = '918762544321'").get().name, "Ankit Manocha Cycling Nirvana", "unticked stays as it was");
+  const after = (await call("GET", base, { cookie: club.cookie })).json();
+  assert.deepEqual(after.people.map((p) => p.name), ["Ankit Manocha Cycling Nirvana"]);
+  assert.deepEqual(after.duplicates.map((d) => [d.name, d.match.name]), [["Kavya Cycling", "Kavya"]], "the look-alike is offered as a possible duplicate instead");
   db.prepare("DELETE FROM club_roster WHERE phone IN ('919910678100', '918762544321', '918762544999')").run();
+});
+
+test("look-alike names clear for good: merge moves RSVPs and the number, keep both stops the flag", async () => {
+  const now = new Date().toISOString();
+  const add = (name, phone, source = "whatsapp") => { const id = crypto.randomUUID(); db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(id, club.clubId, name, name.toLowerCase(), phone, source, now, now); return id; };
+  const mahesh = add("Mahesh Giri", null, "manual");
+  const maheshTagged = add("Mahesh Giri Cycling Tulip Purple", "919811100001");
+  add("Prashant Sethi", "919811100002", "manual");
+  const prashantTagged = add("Prashant Sethi Cycling", "919811100003");
+  const base = `/api/clubs/${club.clubId}/roster/cleanup`;
+  const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: { title: "Sunday morning", starts_at: new Date(Date.now() + 86400000).toISOString(), meeting_point: "Tulip Chowk", status: "published" } })).json().ride;
+  db.prepare("INSERT INTO ride_rsvps (id, ride_id, roster_id, participant_name, status, created_at, updated_at) VALUES (?, ?, ?, 'Mahesh', 'going', ?, ?)").run(crypto.randomUUID(), ride.id, maheshTagged, now, now);
+
+  const dups = (await call("GET", base, { cookie: club.cookie })).json().duplicates;
+  assert.deepEqual(dups.map((d) => d.name).sort(), ["Mahesh Giri Cycling Tulip Purple", "Prashant Sethi Cycling"]);
+
+  assert.equal((await call("POST", `${base}/${maheshTagged}/merge`, { cookie: club.cookie })).statusCode, 200);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE id = ?").get(maheshTagged).n, 0, "the tagged entry is gone");
+  assert.equal(db.prepare("SELECT phone FROM club_roster WHERE id = ?").get(mahesh).phone, "919811100001", "the kept name gets the WhatsApp number, so a refresh won't add them back");
+  assert.equal(db.prepare("SELECT roster_id FROM ride_rsvps WHERE ride_id = ? AND participant_name = 'Mahesh'").get(ride.id).roster_id, mahesh, "their RSVP moves across");
+
+  assert.equal((await call("POST", `${base}/${prashantTagged}/keep`, { cookie: club.cookie })).statusCode, 200);
+  const left = (await call("GET", base, { cookie: club.cookie })).json();
+  assert.ok(!left.duplicates.some((d) => d.id === prashantTagged || d.id === maheshTagged), "nothing left to flag");
+  assert.equal((await call("POST", `${base}/${prashantTagged}/merge`, { cookie: club.cookie })).statusCode, 404, "a kept pair can't be merged by a stale screen");
+  db.prepare("DELETE FROM outbox WHERE status = 'pending'").run();
+  db.prepare("DELETE FROM ride_rsvps WHERE ride_id = ?").run(ride.id);
+  db.prepare("DELETE FROM rides WHERE id = ?").run(ride.id);
+  db.prepare("DELETE FROM club_roster WHERE phone IN ('919811100001', '919811100002', '919811100003') OR id = ?").run(mahesh);
 });
 
 test("admins fix names; a later sync never overwrites them", async () => {

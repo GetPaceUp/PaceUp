@@ -122,6 +122,11 @@ label.check input { width: auto; margin: 0; }
 .cleanup-list input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
 .cleanup-list span { display: flex; flex-direction: column; min-width: 0; }
 .cleanup-list s { color: #8a8a80; font-size: 0.85em; overflow-wrap: anywhere; }
+.dup-list li { padding: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.dup-list .dup-from { color: #5f5f57; overflow-wrap: anywhere; }
+.dup-list .dup-phone { display: block; font-weight: 400; }
+.cleanup-box .dup-head { margin-top: 14px; }
+.cleanup-box .dup-head:first-child { margin-top: 0; }
 .cleanup-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .platform-club-row{grid-template-columns:1.5fr 1fr .6fr .7fr}.platform-club-row button{padding:8px 10px;font-size:11px}.platform-groups{padding:12px 4px 18px;border-bottom:1px solid #edf0eb}.platform-groups-search{width:100%;margin:6px 0}
 .member-row .confirm-row{flex-basis:100%;background:#fdf1ee;border-radius:8px;padding:10px 12px}.small-button.danger{background:#a83327;color:#fff}.club-name-view{align-items:center}.club-name-text{display:block;font-size:18px;padding:6px 0}

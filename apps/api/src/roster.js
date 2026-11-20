@@ -365,11 +365,29 @@ export function removeRosterPerson(clubId, id) {
   if (!changes) throw new DomainError(404, "Not found.");
 }
 
-/** Names imported from a phone book or WhatsApp that still carry tags, with the tidy version. */
+/**
+ * Names from WhatsApp (or an old upload) that still carry tags ("Mahesh Giri Cycling Tulip Purple").
+ * people: the tidy name is free, so it can be applied.
+ * duplicates: the tidy name is already someone else's on the list. The admin either merges
+ * them (same person) or keeps both (different people); either way the flag goes away for good.
+ */
 export function cleanupSuggestions(clubId) {
-  return db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND source IN ('upload', 'whatsapp') AND self_added = 0 ORDER BY name_key").all(clubId)
+  const all = db.prepare("SELECT id, name, name_key, phone FROM club_roster WHERE club_id = ?").all(clubId);
+  const byKey = new Map(all.map((r) => [r.name_key, r]));
+  const candidates = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND source IN ('upload', 'whatsapp') AND self_added = 0 AND tidy_dismissed = 0 ORDER BY name_key").all(clubId)
     .map((p) => ({ ...p, suggested: tidyContactName(p.name) }))
     .filter((p) => p.suggested !== p.name);
+  const people = [];
+  const duplicates = [];
+  const claimed = new Set();
+  for (const p of candidates) {
+    const key = nameKey(p.suggested);
+    const match = byKey.get(key);
+    if (match && match.id !== p.id) duplicates.push({ ...p, match: { id: match.id, name: match.name, phone: match.phone } });
+    else if (!claimed.has(key)) { claimed.add(key); people.push(p); }
+    // A second name that tidies to the same one waits: once the first is tidied it shows as a duplicate.
+  }
+  return { people, duplicates };
 }
 
 /** Applies the tidy names the admin ticked. The original stays in contact_name. */
@@ -377,7 +395,7 @@ export function applyCleanup(clubId, ids) {
   const wanted = new Set(ids);
   const result = { applied: 0, skipped: [] };
   db.transaction(() => {
-    for (const p of cleanupSuggestions(clubId)) {
+    for (const p of cleanupSuggestions(clubId).people) {
       if (!wanted.has(p.id)) continue;
       const clash = db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(clubId, nameKey(p.suggested), p.id);
       if (clash) { result.skipped.push(p.suggested); continue; }
@@ -387,6 +405,40 @@ export function applyCleanup(clubId, ids) {
     }
   }).immediate();
   return result;
+}
+
+/**
+ * Same person twice: keep the tidy name, give it the WhatsApp number of the tagged entry
+ * (so the next group refresh recognises them and doesn't add them back), move their
+ * RSVPs across, and remove the tagged entry.
+ */
+export function mergeDuplicate(clubId, id) {
+  return db.transaction(() => {
+    const dup = cleanupSuggestions(clubId).duplicates.find((d) => d.id === id);
+    if (!dup) throw new DomainError(404, "Already sorted.");
+    const from = db.prepare("SELECT * FROM club_roster WHERE id = ?").get(dup.id);
+    const into = db.prepare("SELECT * FROM club_roster WHERE id = ?").get(dup.match.id);
+    const phone = from.phone || into.phone;
+    const jid = from.wa_jid || into.wa_jid;
+    // Both entries answered the same activity: keep the "going" one.
+    for (const r of db.prepare("SELECT ride_id, id, status FROM ride_rsvps WHERE roster_id = ?").all(from.id)) {
+      const other = db.prepare("SELECT id, status FROM ride_rsvps WHERE ride_id = ? AND roster_id = ?").get(r.ride_id, into.id);
+      if (!other) continue;
+      db.prepare("DELETE FROM ride_rsvps WHERE id = ?").run(r.status === "going" && other.status !== "going" ? other.id : r.id);
+    }
+    db.prepare("UPDATE ride_rsvps SET roster_id = ? WHERE roster_id = ?").run(into.id, from.id);
+    db.prepare("DELETE FROM club_roster WHERE id = ?").run(from.id);
+    db.prepare("UPDATE club_roster SET phone = ?, wa_jid = ?, contact_name = COALESCE(contact_name, ?), updated_at = ? WHERE id = ?")
+      .run(phone, jid, from.contact_name || from.name, nowIso(), into.id);
+    return { kept: into.name };
+  }).immediate();
+}
+
+/** Different people who happen to share a name: stop flagging this one. */
+export function keepBoth(clubId, id) {
+  const changes = db.prepare("UPDATE club_roster SET tidy_dismissed = 1, updated_at = ? WHERE club_id = ? AND id = ?").run(nowIso(), clubId, id).changes;
+  if (!changes) throw new DomainError(404, "Not found.");
+  return { ok: true };
 }
 
 /**
@@ -448,7 +500,14 @@ export function registerRosterRoutes(app, { requireClubRole }) {
     return { ok: true };
   });
 
-  app.get(`${base}/cleanup`, { schema: { params }, preHandler: pre }, async (req) => ({ people: cleanupSuggestions(req.params.clubId) }));
+  app.get(`${base}/cleanup`, { schema: { params }, preHandler: pre }, async (req) => cleanupSuggestions(req.params.clubId));
+  const dupParams = { type: "object", properties: { clubId: id, rosterId: id }, required: ["clubId", "rosterId"] };
+  app.post(`${base}/cleanup/:rosterId/merge`, { schema: { params: dupParams }, preHandler: pre }, async (req, reply) => {
+    try { return mergeDuplicate(req.params.clubId, req.params.rosterId); } catch (error) { return domain(reply, error); }
+  });
+  app.post(`${base}/cleanup/:rosterId/keep`, { schema: { params: dupParams }, preHandler: pre }, async (req, reply) => {
+    try { return keepBoth(req.params.clubId, req.params.rosterId); } catch (error) { return domain(reply, error); }
+  });
   app.post(`${base}/cleanup`, {
     schema: { params, body: { type: "object", properties: { ids: { type: "array", maxItems: 5000, items: id } }, required: ["ids"] } }, preHandler: pre
   }, async (req) => applyCleanup(req.params.clubId, req.body.ids));

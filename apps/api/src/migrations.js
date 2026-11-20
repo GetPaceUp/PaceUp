@@ -651,9 +651,17 @@ export const migrations = [
         CREATE UNIQUE INDEX idx_outbox_one_pending_list ON outbox(ride_id) WHERE kind = 'rider_list' AND status = 'pending';
       `);
     }
+  },
+  {
+    id: 27,
+    name: "roster_keep_both",
+    up(db) {
+      // An admin said two look-alike names ("Mahesh Giri Cycling Tulip Purple" and "Mahesh Giri")
+      // are different people: stop offering to tidy or merge this one.
+      db.exec("ALTER TABLE club_roster ADD COLUMN tidy_dismissed INTEGER NOT NULL DEFAULT 0");
+    }
   }
 ];
-
 export function pendingMigrations(db) {
   const tracked = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get();
   const applied = new Set(tracked ? db.prepare("SELECT id FROM schema_migrations").all().map((row) => row.id) : []);
