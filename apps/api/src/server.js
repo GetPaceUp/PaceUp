@@ -8,7 +8,8 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import bcrypt from "bcryptjs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { registerRideRoutes } from "./rides.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
@@ -26,6 +27,11 @@ import {
 } from "./db.js";
 
 const isProduction = process.env.NODE_ENV === "production";
+// The commit this server was started from, so a deploy can be confirmed over HTTPS (/health).
+const deployedVersion = (() => {
+  try { return execFileSync("git", ["rev-parse", "--short=7", "HEAD"], { cwd: fileURLToPath(new URL("../../..", import.meta.url)), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null; }
+  catch { return null; }
+})();
 const appSecret = process.env.APP_SECRET;
 if (isProduction && (!appSecret || appSecret.length < 32)) {
   throw new Error("APP_SECRET must be set to at least 32 characters in production.");
@@ -136,7 +142,7 @@ export async function buildApp(options = {}) {
     } catch { /* visitor */ }
   }
 
-  app.get("/health", async () => ({ status: "ok", name: "paceup-api" }));
+  app.get("/health", async () => ({ status: "ok", name: "paceup-api", version: deployedVersion }));
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
   registerRosterRoutes(app, { requireClubRole });
   registerTemplateRoutes(app, { requireClubRole });

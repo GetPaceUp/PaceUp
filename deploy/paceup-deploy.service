@@ -1,0 +1,11 @@
+# Self-deploy: checks GitHub main and deploys new commits (see deploy/auto-deploy.sh).
+# Install: sudo cp deploy/paceup-deploy.service deploy/paceup-deploy.timer /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now paceup-deploy.timer
+[Unit]
+Description=PaceUp self-deploy (pull main, build, restart, health check)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/paceup/deploy/auto-deploy.sh
+TimeoutStartSec=900
