@@ -102,6 +102,23 @@ function saveDraft(clubId, userId, draft) {
 const dropDraft = (clubId, userId) => db.prepare("DELETE FROM whatsapp_drafts WHERE club_id = ? AND user_id = ?").run(clubId, userId);
 
 const startsAt = (draft) => (draft.date && draft.time ? zonedToUtc(draft.date, draft.time, TZ()) : null);
+/**
+ * When the group meets at the midway point: the time given with it ("midway Tulip Chowk 6am"), an
+ * AM/PM-less time read as the one after the start, or a template's minutes after the start. Null if unknown.
+ */
+function midwayAt(draft) {
+  const start = startsAt(draft);
+  if (!draft.midway || !start) return null;
+  if (draft.midway_time) return zonedToUtc(draft.date, draft.midway_time, TZ());
+  if (draft.midway_time_ambiguous) {
+    const [h, mi] = draft.midway_time_ambiguous.split(":").map(Number);
+    const options = [h % 12, (h % 12) + 12].map((hh) => zonedToUtc(draft.date, `${String(hh).padStart(2, "0")}:${String(mi).padStart(2, "0")}`, TZ()));
+    return options.find((t) => t.getTime() >= start.getTime()) || null;
+  }
+  if (draft.midway_offset_min != null) return new Date(start.getTime() + draft.midway_offset_min * 60000);
+  return null;
+}
+const clock = (date) => date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ() });
 const timeText = (time) => new Date(`2000-01-01T${time}:00Z`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
 const dateText = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -111,6 +128,11 @@ function summary(draft) {
   if (draft.time) lines.push(`⏰ ${timeText(draft.time)}`);
   if (draft.location) lines.push(`📍 ${draft.location}`);
   if (draft.map_url) lines.push(`🗺️ ${draft.map_url}`);
+  if (draft.midway) {
+    const at = midwayAt(draft);
+    lines.push(`📍 Midway: ${draft.midway}${at ? ` · ${clock(at)}` : ""}`);
+    if (draft.map_url_2) lines.push(`🗺️ ${draft.map_url_2}`);
+  }
   if (draft.distance_km) lines.push(`📏 ${draft.distance_km} km`);
   if (draft.pace) lines.push(`⏱️ ${draft.pace}`);
   if (draft.capacity) lines.push(`👥 ${draft.capacity} spots`);
@@ -129,6 +151,11 @@ function nextQuestion(draft) {
   if (!draft.time) return "What time does it start? (e.g. 6 AM)";
   if (!draft.location) return "Where are we meeting? (e.g. Tulip Chowk, 60 km)";
   if (startsAt(draft).getTime() <= Date.now()) return "That date and time has already passed. Send a new day or time.";
+  if (draft.midway) {
+    const at = midwayAt(draft);
+    if (!at) return `What time do you meet at ${draft.midway}? (e.g. "midway ${draft.midway} 6:15 AM")`;
+    if (at.getTime() < startsAt(draft).getTime() || at.getTime() - startsAt(draft).getTime() > 12 * 3600000) return `The midway time should be after the start. Send it again (e.g. "midway ${draft.midway} 6:15 AM"), or "no midway".`;
+  }
   return null;
 }
 
@@ -152,6 +179,7 @@ function publishDraft(clubId, userId, draft) {
   const ride = createRide(clubId, userId, {
     title: draft.title || defaultTitle(draft), category: draft.category || "other",
     starts_at: startsAt(draft).toISOString(), meeting_point: draft.location,
+    meeting_point_2: draft.midway || null, meeting_at_2: draft.midway ? midwayAt(draft).toISOString() : null, map_url_2: draft.midway ? draft.map_url_2 ?? null : null,
     distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null,
     map_url: draft.map_url ?? null, pace: draft.pace ?? null, wa_group_jid: groupStillThere(clubId, draft.wa_group_jid), status: "published"
   }, { actorType: "whatsapp" });
@@ -221,10 +249,15 @@ export function handleIncoming(clubId, msg) {
 
   const tz = TZ();
   const found = parseActivity(text, { tz });
+  // "no midway": drop the midway point.
+  if (/\b(?:no|remove|drop|without)\s+(?:the\s+)?(?:mid-?way|second|2nd)\b/i.test(text)) Object.assign(found, { midway: null, midway_time: null, midway_time_ambiguous: null, midway_offset_min: null, map_url_2: null });
+  // A new midway place or time replaces the old one's time entirely.
+  else if (found.midway) for (const k of ["midway_time", "midway_time_ambiguous", "midway_offset_min"]) if (found[k] == null) found[k] = null;
   // A saved template named in the message ("Pandala Sunday 6am") fills in everything but the date and time.
   if (template) {
     const from = { template: template.name, title: template.title, category: template.category, location: template.meeting_point, map_url: template.map_url,
-      distance_km: template.distance_km, pace: template.pace, notes: template.notes, capacity: template.capacity, wa_group_jid: template.wa_group_jid };
+      distance_km: template.distance_km, pace: template.pace, notes: template.notes, capacity: template.capacity, wa_group_jid: template.wa_group_jid,
+      ...(template.meeting_point_2 && found.midway === undefined ? { midway: template.meeting_point_2, map_url_2: template.map_url_2, midway_offset_min: template.midway_offset_min } : {}) };
     for (const [k, v] of Object.entries(from)) if (v != null && v !== "" && found[k] == null) found[k] = v;
     if (draft?.category) draft.category = found.category || draft.category;
   }

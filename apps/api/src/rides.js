@@ -17,7 +17,19 @@ export const CATEGORIES = ["cycling", "running", "hiking", "swimming", "triathlo
 /** An activity counts as past (the "completed" state) this long after it starts. */
 const PAST_AFTER_MS = 12 * 60 * 60 * 1000;
 
-const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "distance_km", "pace", "notes", "capacity", "category", "wa_group_jid"];
+const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "meeting_point_2", "meeting_at_2", "map_url_2", "distance_km", "pace", "notes", "capacity", "category", "wa_group_jid"];
+
+/**
+ * The optional midway meeting point (people who join on the way): a place and a time, both or neither.
+ * Its time is on or after the start and within 12 hours of it. Clearing the place clears the rest.
+ */
+function checkMidway(ride) {
+  if (!ride.meeting_point_2) { ride.meeting_point_2 = null; ride.meeting_at_2 = null; ride.map_url_2 = null; return ride; }
+  if (!ride.meeting_at_2) throw new DomainError(400, "Add a time for the midway meeting point.");
+  const start = new Date(ride.starts_at).getTime(), mid = new Date(ride.meeting_at_2).getTime();
+  if (!(mid >= start) || mid - start > 12 * 60 * 60 * 1000) throw new DomainError(400, "The midway time should be after the start time, on the same outing.");
+  return ride;
+}
 
 /** An activity may post to any of the club's linked groups; null means the club's default group. */
 export function checkGroup(clubId, jid) {
@@ -78,7 +90,7 @@ function getRideRow(where, value) {
 /** Who is going, in RSVP order. The current roster/account name wins over the name saved at RSVP time. */
 export function participants(rideId) {
   return db.prepare(`
-    SELECT rs.id, rs.user_id, rs.roster_id, COALESCE(u.name, ro.name, rs.participant_name) AS name, rs.updated_at
+    SELECT rs.id, rs.user_id, rs.roster_id, COALESCE(u.name, ro.name, rs.participant_name) AS name, rs.join_point, rs.updated_at
     FROM ride_rsvps rs LEFT JOIN users u ON u.id = rs.user_id LEFT JOIN club_roster ro ON ro.id = rs.roster_id
     WHERE rs.ride_id = ? AND rs.status = 'going' ORDER BY rs.updated_at, rs.rowid
   `).all(rideId);
@@ -110,7 +122,8 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
   const view = {
     id: ride.id, code: ride.share_code, club: { id: ride.club_id, name: ride.club_name },
     title: ride.title, category: ride.category || "other", starts_at: ride.starts_at, meeting_point: ride.meeting_point,
-    map_url: ride.map_url, distance_km: ride.distance_km, pace: ride.pace, notes: ride.notes,
+    map_url: ride.map_url, meeting_point_2: ride.meeting_point_2 || null, meeting_at_2: ride.meeting_point_2 ? ride.meeting_at_2 : null,
+    map_url_2: ride.meeting_point_2 ? ride.map_url_2 : null, distance_km: ride.distance_km, pace: ride.pace, notes: ride.notes,
     status: ride.status, capacity: ride.capacity, going_count: list.length,
     is_full: ride.capacity != null && list.length >= ride.capacity,
     started, past: new Date(ride.starts_at).getTime() < Date.now() - PAST_AFTER_MS,
@@ -118,9 +131,10 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
     participants: list.map((p) => ({
       ...(admin ? { id: p.id, kind: p.user_id ? "member" : p.roster_id ? "roster" : "guest", no_show: marked.has(p.id), no_shows: counts.get(p.user_id || p.roster_id) || 0 } : {}),
       name: p.name,
+      join_point: ride.meeting_point_2 ? p.join_point : 1,
       is_you: Boolean(mine && mine.id === p.id)
     })),
-    my_rsvp: mine?.status === "going" ? { id: mine.id, name: list.find((p) => p.id === mine.id)?.name || mine.participant_name, listed: Boolean(mine.user_id || mine.roster_id) } : null,
+    my_rsvp: mine?.status === "going" ? { id: mine.id, name: list.find((p) => p.id === mine.id)?.name || mine.participant_name, listed: Boolean(mine.user_id || mine.roster_id), join_point: ride.meeting_point_2 ? mine.join_point : 1 } : null,
     viewer: { signed_in: Boolean(userId), member: Boolean(membership), admin },
     ...(admin ? { wa_group_jid: ride.wa_group_jid || null } : {})
   };
@@ -136,7 +150,7 @@ export function listClubRides(clubId, userId, { when = "upcoming" } = {}) {
   const cutoff = new Date(Date.now() - PAST_AFTER_MS).toISOString();
   const past = when === "past";
   return db.prepare(`
-    SELECT r.id, r.share_code AS code, r.title, r.category, r.starts_at, r.meeting_point, r.distance_km, r.status, r.capacity,
+    SELECT r.id, r.share_code AS code, r.title, r.category, r.starts_at, r.meeting_point, r.meeting_point_2, r.distance_km, r.status, r.capacity,
       (SELECT COUNT(*) FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.status = 'going') AS going_count,
       (SELECT status FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.user_id = ?) AS my_rsvp,
       (SELECT COUNT(*) FROM ride_rsvps rs WHERE rs.ride_id = r.id AND rs.status = 'going' AND rs.no_show = 1) AS no_show_count
@@ -168,9 +182,10 @@ export function createRide(clubId, userId, input, { actorType = "user" } = {}) {
     for (const key of EDITABLE) ride[key] = input[key] ?? null;
     ride.wa_group_jid = checkGroup(clubId, input.wa_group_jid);
     ride.category = CATEGORIES.includes(input.category) ? input.category : "other";
+    checkMidway(ride);
     db.prepare(`
-      INSERT INTO rides (id, club_id, share_code, title, category, starts_at, meeting_point, map_url, distance_km, pace, notes, capacity, wa_group_jid, status, organiser_id, created_by, created_at, updated_at)
-      VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @distance_km, @pace, @notes, @capacity, @wa_group_jid, @status, @organiser_id, @created_by, @created_at, @updated_at)
+      INSERT INTO rides (id, club_id, share_code, title, category, starts_at, meeting_point, map_url, meeting_point_2, meeting_at_2, map_url_2, distance_km, pace, notes, capacity, wa_group_jid, status, organiser_id, created_by, created_at, updated_at)
+      VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @meeting_point_2, @meeting_at_2, @map_url_2, @distance_km, @pace, @notes, @capacity, @wa_group_jid, @status, @organiser_id, @created_by, @created_at, @updated_at)
     `).run(ride);
     logActivity({ clubId, rideId: ride.id, actorType, actorId: userId, action: ride.status === "published" ? "created_published" : "created_draft" });
     if (ride.status === "published") { addLead(ride); enqueueRideEvent(ride, "ride_published"); }
@@ -189,6 +204,10 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     const changes = {};
     if ("wa_group_jid" in input) input = { ...input, wa_group_jid: checkGroup(clubId, input.wa_group_jid) };
     for (const key of EDITABLE) if (key in input && input[key] !== ride[key]) changes[key] = input[key];
+    if (["starts_at", "meeting_point_2", "meeting_at_2", "map_url_2"].some((k) => k in changes)) {
+      const merged = checkMidway({ ...ride, ...changes });
+      for (const k of ["meeting_point_2", "meeting_at_2", "map_url_2"]) { if (merged[k] !== ride[k]) changes[k] = merged[k]; else delete changes[k]; }
+    }
     if (input.status && input.status !== ride.status) {
       if (input.status === "draft" && joined > 0) {
         throw new DomainError(409, `${joined} ${joined === 1 ? "person has" : "people have"} already joined. Cancel the activity instead of unpublishing it.`);
@@ -202,6 +221,8 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     if (!keys.length) return getRideRow("id", rideId);
     db.prepare(`UPDATE rides SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @updated_at WHERE id = @id`)
       .run({ ...changes, updated_at: nowIso(), id: rideId });
+    // Midway point removed: everyone joins at the start.
+    if ("meeting_point_2" in changes && !changes.meeting_point_2) db.prepare("UPDATE ride_rsvps SET join_point = 1 WHERE ride_id = ?").run(rideId);
     const updated = getRideRow("id", rideId);
 
     const fields = keys.filter((k) => k !== "status");
@@ -211,7 +232,7 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     if (changes.status === "published") { addLead(updated); enqueueRideEvent(updated, "ride_published"); }
     else if (changes.status === "cancelled" && ride.status === "published") enqueueRideEvent(updated, "ride_cancelled");
     else if (ride.status === "published" && updated.status === "published") {
-      if ("starts_at" in changes || "meeting_point" in changes) enqueueRideEvent(updated, "ride_updated");
+      if (["starts_at", "meeting_point", "meeting_point_2", "meeting_at_2"].some((k) => k in changes)) enqueueRideEvent(updated, "ride_updated");
       if ("capacity" in changes) enqueueRiderList(updated);
     }
     return updated;
@@ -245,7 +266,7 @@ export function getRideByCode(code) { return getRideRow("share_code", code); }
  * duplicate checks and the write run in one write transaction, so simultaneous
  * taps can't overfill or double-book.
  */
-export function setRsvp(code, { userId = null, deviceHash = null, status, name = null, phone = null, memberId = null, rosterId = null }) {
+export function setRsvp(code, { userId = null, deviceHash = null, status, name = null, phone = null, memberId = null, rosterId = null, joinPoint = null }) {
   return db.transaction(() => {
     const ride = getRideRow("share_code", code);
     if (!ride || ride.status === "draft") throw new DomainError(404, "Activity not found.");
@@ -263,6 +284,13 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       if (!row || row.status !== "going") return view();
       db.prepare("UPDATE ride_rsvps SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, row.id);
       enqueueRiderList(ride);
+      return view();
+    }
+
+    // Already in, only changing where they join (no name sent): keep everything else, including their place on the list.
+    if (!membership && row?.status === "going" && !name && !rosterId && !memberId && joinPoint) {
+      const point = ride.meeting_point_2 && joinPoint === 2 ? 2 : 1;
+      if (row.join_point !== point) { db.prepare("UPDATE ride_rsvps SET join_point = ? WHERE id = ?").run(point, row.id); enqueueRiderList(ride); }
       return view();
     }
 
@@ -324,17 +352,19 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
     }
 
     const wasGoing = row?.status === "going";
+    // Where they join: the midway point only when there is one. Changing it keeps your place on the list.
+    const point = ride.meeting_point_2 ? (joinPoint === 2 ? 2 : joinPoint === 1 ? 1 : (row?.join_point || 1)) : 1;
     if (!wasGoing && ride.capacity != null && going.length >= ride.capacity) throw new DomainError(409, "This activity is full.");
 
     if (row) {
-      if (wasGoing && row.user_id === who.user_id && row.roster_id === who.roster_id && row.participant_name === displayName) return view();
+      if (wasGoing && row.user_id === who.user_id && row.roster_id === who.roster_id && row.participant_name === displayName && row.join_point === point) return view();
       // Re-joining moves you to the end of the list; changing your name does not.
-      db.prepare(`UPDATE ride_rsvps SET user_id = @user, roster_id = @roster, participant_name = @name, status = 'going',
+      db.prepare(`UPDATE ride_rsvps SET user_id = @user, roster_id = @roster, participant_name = @name, status = 'going', join_point = @point,
           device_hash = COALESCE(device_hash, @device), updated_at = CASE WHEN @rejoin THEN @now ELSE updated_at END WHERE id = @id`)
-        .run({ user: who.user_id, roster: who.roster_id, name: displayName, device: membership ? null : deviceHash, rejoin: wasGoing ? 0 : 1, now, id: row.id });
+        .run({ user: who.user_id, roster: who.roster_id, name: displayName, point, device: membership ? null : deviceHash, rejoin: wasGoing ? 0 : 1, now, id: row.id });
     } else {
-      db.prepare("INSERT INTO ride_rsvps (id, ride_id, user_id, roster_id, participant_name, device_hash, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'going', ?, ?)")
-        .run(randomUUID(), ride.id, who.user_id, who.roster_id, displayName, membership ? null : deviceHash, now, now);
+      db.prepare("INSERT INTO ride_rsvps (id, ride_id, user_id, roster_id, participant_name, device_hash, status, join_point, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'going', ?, ?, ?)")
+        .run(randomUUID(), ride.id, who.user_id, who.roster_id, displayName, membership ? null : deviceHash, point, now, now);
     }
     enqueueRiderList(ride);
     return view();
@@ -349,6 +379,9 @@ const rideFields = {
   starts_at: { type: "string", format: "date-time" },
   meeting_point: { type: "string", minLength: 2, maxLength: 200 },
   map_url: { type: ["string", "null"], maxLength: 500, pattern: "^(https://.*)?$" },
+  meeting_point_2: { type: ["string", "null"], maxLength: 200 },
+  meeting_at_2: { anyOf: [{ type: "string", format: "date-time" }, { type: "null" }] },
+  map_url_2: { type: ["string", "null"], maxLength: 500, pattern: "^(https://.*)?$" },
   distance_km: { type: ["number", "null"], minimum: 0, maximum: 1000 },
   pace: { type: ["string", "null"], maxLength: 60 },
   notes: { type: ["string", "null"], maxLength: 2000 },
@@ -356,8 +389,8 @@ const rideFields = {
   wa_group_jid: { type: ["string", "null"], maxLength: 100 }
 };
 const blankToNull = (body) => {
-  for (const key of ["map_url", "pace", "notes"]) if (typeof body[key] === "string" && !body[key].trim()) body[key] = null;
-  for (const key of ["title", "meeting_point", "pace", "notes"]) if (typeof body[key] === "string") body[key] = body[key].trim();
+  for (const key of ["map_url", "map_url_2", "meeting_point_2", "pace", "notes"]) if (typeof body[key] === "string" && !body[key].trim()) body[key] = null;
+  for (const key of ["title", "meeting_point", "meeting_point_2", "pace", "notes"]) if (typeof body[key] === "string") body[key] = body[key].trim();
   return body;
 };
 
@@ -457,7 +490,7 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     config: { rateLimit: { max: publicRateLimit, timeWindow: "10 minutes" } },
     schema: {
       params: codeParams,
-      body: { type: "object", properties: { status: { type: "string", enum: ["going", "cancelled"] }, name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 }, member_id: id, roster_id: id }, required: ["status"] }
+      body: { type: "object", properties: { status: { type: "string", enum: ["going", "cancelled"] }, name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 }, member_id: id, roster_id: id, join_point: { type: "integer", enum: [1, 2] } }, required: ["status"] }
     },
     preHandler: [optionalUser]
   }, async (request, reply) => {
@@ -466,7 +499,7 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
       const membership = request.userId && ride ? getClubMembership(ride.club_id, request.userId) : null;
       // Members act as themselves; everyone else needs this browser's device token.
       const deviceHash = membership ? deviceHashOf(request) : (request.body.status === "going" ? ensureDevice(request, reply) : deviceHashOf(request));
-      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, memberId: request.body.member_id, rosterId: request.body.roster_id }) };
+      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, memberId: request.body.member_id, rosterId: request.body.roster_id, joinPoint: request.body.join_point }) };
     } catch (error) { return domain(reply, error); }
   });
 }

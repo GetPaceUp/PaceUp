@@ -59,15 +59,19 @@ function ShareButtons({ ride }) {
 
 // ---------------------------------------------------------------- create / edit form
 
-const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", distance_km: "", pace: "", capacity: "", notes: "", wa_group_jid: "" };
+const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", mid_point: "", mid_time: "", mid_map: "", distance_km: "", pace: "", capacity: "", notes: "", wa_group_jid: "" };
+const minutesBetween = (a, b) => { const [ah, am] = a.split(":").map(Number), [bh, bm] = b.split(":").map(Number); return (bh * 60 + bm) - (ah * 60 + am); };
+const addMinutes = (time, min) => { const t = time.split(":").map(Number); const total = t[0] * 60 + t[1] + min; return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`; };
 const formFrom = (r) => ({
   title: r.title, category: r.category || "other", date: localDate(r.starts_at), time: localTime(r.starts_at), meeting_point: r.meeting_point,
-  map_url: r.map_url || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
+  map_url: r.map_url || "", mid_point: r.meeting_point_2 || "", mid_time: r.meeting_at_2 ? localTime(r.meeting_at_2) : "", mid_map: r.map_url_2 || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
 });
 
 export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel }) {
   const blank = { ...emptyForm, category: defaultCategory };
   const [form, setForm] = useState(ride ? formFrom(ride) : blank);
+  // The optional midway meeting point, for people who join on the way.
+  const [showMid, setShowMid] = useState(Boolean(ride?.meeting_point_2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -91,7 +95,9 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     setTemplateId(id); setTemplateNote("");
     const t = templates.find((x) => x.id === id);
     if (!t) return;
+    setShowMid(Boolean(t.meeting_point_2));
     setForm((f) => ({ ...f, title: t.title ?? "", category: t.category || f.category, meeting_point: t.meeting_point ?? "", map_url: t.map_url ?? "",
+      mid_point: t.meeting_point_2 ?? "", mid_map: t.map_url_2 ?? "", mid_time: t.meeting_point_2 && t.midway_offset_min != null && f.time ? addMinutes(f.time, t.midway_offset_min) : "",
       distance_km: t.distance_km ?? "", pace: t.pace ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "", wa_group_jid: t.wa_group_jid || "" }));
     setTemplateName(t.name);
   }
@@ -105,10 +111,12 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     try { await api(`/api/clubs/${clubId}/templates/${chosen.id}`, { method: "DELETE" }); setTemplateNote(`Deleted ${chosen.name}.`); setTemplateId(""); await loadTemplates(); }
     catch (err) { setError(err.message); }
   }
+  const mid = showMid && form.mid_point.trim();
   async function storeTemplate() {
     const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null,
       notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null,
-      wa_group_jid: form.wa_group_jid || null };
+      wa_group_jid: form.wa_group_jid || null,
+      ...(mid ? { meeting_point_2: form.mid_point.trim(), map_url_2: form.mid_map || null, midway_offset_min: form.time && form.mid_time ? Math.max(0, minutesBetween(form.time, form.mid_time)) : null } : {}) };
     await api(`/api/clubs/${clubId}/templates`, { method: "POST", body: JSON.stringify(body) });
   }
 
@@ -117,6 +125,8 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     if (!form.title || !form.date || !form.time || !form.meeting_point) { setError("Add a title, date, start time and meeting point."); return; }
     const startsAt = new Date(`${form.date}T${form.time}`);
     if (Number.isNaN(startsAt.getTime())) { setError("Check the date and start time."); return; }
+    if (mid && !form.mid_time) { setError("Add a time for the midway point."); return; }
+    if (mid && minutesBetween(form.time, form.mid_time) < 0) { setError("The midway time should be after the start time."); return; }
     if (saveTemplate && templateName.trim().length < 2) { setError("Give the template a name, e.g. Pandala."); return; }
     setSaving(true);
     try {
@@ -124,6 +134,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       const body = {
         title: form.title, category: form.category, starts_at: startsAt.toISOString(), meeting_point: form.meeting_point,
         map_url: form.map_url || null, pace: form.pace || null, notes: form.notes || null,
+        meeting_point_2: mid ? form.mid_point.trim() : null, meeting_at_2: mid ? new Date(`${form.date}T${form.mid_time}`).toISOString() : null, map_url_2: mid ? form.mid_map || null : null,
         distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
         capacity: form.capacity !== "" ? Number(form.capacity) : null,
         ...(groupChoices || form.wa_group_jid ? { wa_group_jid: form.wa_group_jid || null } : {}),
@@ -167,6 +178,17 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       </div>
       <label htmlFor="a-meet">Meeting point</label><input id="a-meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
       <label htmlFor="a-map">Map link (optional)</label><input id="a-map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
+      {showMid
+        ? <div className="midway-box">
+            <label htmlFor="a-mid">Midway point &amp; time <span className="optional">(optional)</span></label>
+            <div className="mid-row">
+              <input id="a-mid" value={form.mid_point} onChange={set("mid_point")} placeholder="e.g. Tulip Chowk" maxLength={200} />
+              <input aria-label="Midway time" type="time" value={form.mid_time} onChange={set("mid_time")} />
+            </div>
+            <input aria-label="Midway map link" type="url" value={form.mid_map} onChange={set("mid_map")} placeholder="Google Maps link (optional)" maxLength={500} pattern="https://.*" />
+            <p className="panel-copy">For people who join on the way. <button type="button" className="text-button" onClick={() => { setShowMid(false); setForm((f) => ({ ...f, mid_point: "", mid_time: "", mid_map: "" })); }}>Remove</button></p>
+          </div>
+        : <button type="button" className="text-button add-midway" onClick={() => setShowMid(true)}>+ Add a midway meeting point</button>}
       <div className="two-col">
         <div><label htmlFor="a-km">Distance (km)</label><input id="a-km" type="number" min="0" max="1000" step="0.1" inputMode="decimal" value={form.distance_km} onChange={set("distance_km")} /></div>
         <div><label htmlFor="a-pace">Pace</label><input id="a-pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
@@ -323,14 +345,46 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
   );
 }
 
-function Participants({ ride, busy, onRemove }) {
-  const [confirm, setConfirm] = useState(null);
-  if (!ride.participants.length) return <p className="panel-copy">No one yet. Be the first!</p>;
+/** "Xavier's · 5:45 AM" */
+const pointLabel = (ride, n) => (n === 2 ? `${ride.meeting_point_2} · ${timeOnly(ride.meeting_at_2)}` : `${ride.meeting_point} · ${timeOnly(ride.starts_at)}`);
+
+/** Where will you join? Shown only when the activity has a midway point. */
+function JoinPoint({ ride, value, onChange, disabled }) {
   return (
-    <ol className="people">
-      {ride.participants.map((p, i) => (
+    <fieldset className="join-point">
+      <legend className="field-label">Where will you join?</legend>
+      {[1, 2].map((n) => (
+        <label key={n} className={value === n ? "opt on" : "opt"}>
+          <input type="radio" name="join-point" checked={value === n} disabled={disabled} onChange={() => onChange(n)} />
+          <span className="opt-place">{n === 2 ? ride.meeting_point_2 : ride.meeting_point}</span>
+          <small>{timeOnly(n === 2 ? ride.meeting_at_2 : ride.starts_at)}</small>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function Participants({ ride, busy, onRemove }) {
+  if (!ride.participants.length) return <p className="panel-copy">No one yet. Be the first!</p>;
+  if (!ride.meeting_point_2) return <PeopleList ride={ride} people={ride.participants.map((p, i) => [p, i + 1])} busy={busy} onRemove={onRemove} />;
+  // Grouped by where people join, numbered straight through (as in the WhatsApp post).
+  const groups = [1, 2].map((n) => ride.participants.filter((p) => (p.join_point === 2 ? 2 : 1) === n));
+  let count = 0;
+  return groups.map((people, g) => (
+    <div key={g} className="point-group">
+      <h4>{pointLabel(ride, g + 1)} ({people.length})</h4>
+      {people.length ? <PeopleList ride={ride} people={people.map((p) => [p, ++count])} busy={busy} onRemove={onRemove} start={count - people.length + 1} /> : <p className="panel-copy">No one yet.</p>}
+    </div>
+  ));
+}
+
+function PeopleList({ ride, people, busy, onRemove, start = 1 }) {
+  const [confirm, setConfirm] = useState(null);
+  return (
+    <ol className="people" start={start}>
+      {people.map(([p, n], i) => (
         <li key={p.id || `${i}-${p.name}`} className={p.is_you ? "you" : ""}>
-          <span className="num">{i + 1}</span>
+          <span className="num">{n}</span>
           <span className="who">{p.name}{p.is_you && <em> (you)</em>}{ride.viewer.admin && p.kind === "guest" && <small className="tag">guest</small>}{ride.viewer.admin && (p.no_show ? <small className="tag tag-out">no-show</small> : <NoShowBadge count={p.no_shows} />)}</span>
           {ride.viewer.admin && onRemove && !ride.started && (confirm === p.id
             ? <span className="confirm-inline"><button type="button" className="small-button" disabled={busy} onClick={() => { setConfirm(null); onRemove(p); }}>Remove</button><button type="button" className="text-button" onClick={() => setConfirm(null)}>Keep</button></span>
@@ -364,9 +418,10 @@ export function RidePage({ code }) {
   const [editing, setEditing] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [flash, setFlash] = useState("");
+  const [joinPoint, setJoinPoint] = useState(1);
 
   async function load() {
-    try { setRide((await api(`/api/r/${code}`)).ride); setState("ready"); }
+    try { const r = (await api(`/api/r/${code}`)).ride; setRide(r); if (r.my_rsvp) setJoinPoint(r.my_rsvp.join_point || 1); setState("ready"); }
     catch (err) { setState(err.status === 404 ? "missing" : "error"); setError(err.message); }
   }
   useEffect(() => { load(); }, [code]);
@@ -379,13 +434,16 @@ export function RidePage({ code }) {
   async function rsvp(body, label) {
     setBusy(true); setError(""); setFlash("");
     try {
-      const data = await api(`/api/r/${code}/rsvp`, { method: "PUT", body: JSON.stringify(body) });
+      if (ride.meeting_point_2 && body.status === "going" && !body.join_point) body = { ...body, join_point: joinPoint };
+      const { point_only, ...send } = body;
+      const data = await api(`/api/r/${code}/rsvp`, { method: "PUT", body: JSON.stringify(send) });
       setRide(data.ride); setPicking(false);
       const listed = data.ride.my_rsvp?.name;
       // Someone new who typed their number may already be on the club list under another spelling: say so.
       const foundAs = body.phone && listed && listed.trim().toLowerCase() !== String(body.name || "").trim().toLowerCase();
       setFlash(body.status === "cancelled" ? "Done. You've been taken off the list."
         : foundAs ? `You're in! ✓ We found your number on the club list as ${listed}.`
+        : body.point_only ? `Got it. You'll join at ${body.join_point === 2 ? data.ride.meeting_point_2 : data.ride.meeting_point}. ✓`
         : `You're in, ${label.split(" ")[0]}! ✓`);
     } catch (err) { setError(err.message); if (err.status === 409) load(); }
     finally { setBusy(false); }
@@ -428,7 +486,12 @@ export function RidePage({ code }) {
       <h2 className="ride-title">{ride.title}</h2>
       <dl className="ride-meta">
         <div><dt>When</dt><dd>{when(ride.starts_at)}</dd></div>
-        <div><dt>Meet</dt><dd>{ride.meeting_point}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>
+        {ride.meeting_point_2
+          ? <>
+              <div><dt>Meet</dt><dd>{pointLabel(ride, 1)}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>
+              <div><dt>Midway</dt><dd>{pointLabel(ride, 2)}{ride.map_url_2 && <><br /><a href={ride.map_url_2} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>
+            </>
+          : <div><dt>Meet</dt><dd>{ride.meeting_point}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>}
         {(ride.distance_km || ride.pace) && <div><dt>Distance</dt><dd>{[ride.distance_km && `${ride.distance_km} km`, paceText(ride.pace, ride.category)].filter(Boolean).join(" · ")}</dd></div>}
         <div><dt>Organiser</dt><dd>{ride.club.name}</dd></div>
         {ride.organiser && <div><dt>Lead</dt><dd>{ride.organiser.name}</dd></div>}
@@ -438,6 +501,8 @@ export function RidePage({ code }) {
       {open && <div className="ride-actions">
         {flash && <p className="success-note you-in" role="status">{flash}</p>}
         {error && <p className="error" role="alert">{error}</p>}
+        {ride.meeting_point_2 && !(ride.is_full && !ride.my_rsvp) && <JoinPoint ride={ride} value={joinPoint} disabled={busy}
+          onChange={(n) => { setJoinPoint(n); if (ride.my_rsvp && !picking) rsvp({ status: "going", join_point: n, point_only: true }, ""); }} />}
         {ride.my_rsvp ? <>
           {!flash && <p className="success-note you-in">You're in as {ride.my_rsvp.name} ✓</p>}
           {picking

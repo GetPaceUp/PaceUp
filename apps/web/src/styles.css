@@ -179,6 +179,14 @@ label.check input { width: auto; margin: 0; }
 .start-step{display:grid;gap:12px}.step-head{display:flex;align-items:center;gap:10px;font-size:16px}.step-num{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#e46f45;color:#fff;font-weight:700;font-size:13px}.step-num.off{background:#e2e6df;color:#4b564f}.step-next{opacity:.8}
 .digits-input{width:150px;font:700 22px "DM Sans",sans-serif;letter-spacing:8px}
 @media(max-width:480px){.start-page{margin:22px auto}.club-item-head{flex-direction:column}}
+/* Midway meeting point */
+.midway-box{background:#fff4ee;border:1px dashed #e9a487;border-radius:10px;padding:12px;display:grid;gap:8px}.midway-box label{margin-top:0}.midway-box .panel-copy{margin:0}
+.optional{font-weight:500;color:#7a867e}.mid-row{display:grid;grid-template-columns:1fr 138px;gap:8px}.add-midway{justify-self:start;font-size:13px;margin:2px 0 4px}
+.join-point{border:0;padding:0;margin:0 0 12px;display:grid;gap:8px}.join-point legend{margin-bottom:8px}
+.join-point .opt{display:flex;align-items:center;gap:10px;border:1.5px solid #dce2da;border-radius:10px;padding:13px 14px;font-weight:700;font-size:14px;background:#fff;cursor:pointer}
+.join-point .opt.on{border-color:#e46f45;background:#fff4ee}.join-point .opt input{width:18px;height:18px;margin:0;accent-color:#e46f45;flex:none}
+.join-point .opt-place{flex:1;min-width:0;overflow-wrap:anywhere;text-align:left}.join-point .opt small{font-weight:500;color:#7a867e;white-space:nowrap}
+.point-group h4{font:700 13px Manrope,sans-serif;margin:14px 0 6px;color:#34463b}
 /* No-shows (admins only) */
 .ns-badge{margin-left:8px;font-size:11px;font-weight:700;border-radius:10px;padding:2px 8px;background:#f2f4ef;color:#6b786f;white-space:nowrap}.ns-badge.flag{background:#fde8e8;color:#b03a3a}
 .noshow{display:grid;gap:10px;border-top:1px solid #edf0eb;padding-top:14px;scroll-margin-top:12px}.noshow h3{font:700 20px Manrope,sans-serif;margin:0}

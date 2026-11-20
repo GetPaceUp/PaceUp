@@ -36,9 +36,16 @@ function details(ride) {
 }
 
 /** The full activity details. Every post carries all of them: people don't scroll up. */
+const dayText = (iso) => new Date(iso).toLocaleDateString("en-GB", { timeZone: TZ(), weekday: "short", day: "numeric", month: "short" });
+const timeText = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ(), hour: "numeric", minute: "2-digit" });
+/** "Xavier's · 5:45 AM": a meeting point with its time, used when there is a midway point. */
+export const pointLabel = (ride, n) => n === 2 ? `${ride.meeting_point_2} · ${timeText(ride.meeting_at_2)}` : `${ride.meeting_point} · ${timeText(ride.starts_at)}`;
+
 function body(ride) {
-  const lines = [whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
-  if (ride.map_url) lines.push(`🗺️ ${ride.map_url}`);
+  // With a midway point, each point carries its own time.
+  const lines = ride.meeting_point_2
+    ? [dayText(ride.starts_at), `📍 ${pointLabel(ride, 1)}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : []), `📍 ${pointLabel(ride, 2)}`, ...(ride.map_url_2 ? [`🗺️ ${ride.map_url_2}`] : [])]
+    : [whenText(ride.starts_at), `📍 ${ride.meeting_point}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : [])];
   if (details(ride)) lines.push(details(ride));
   // The club organises; the admin who created it leads.
   if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
@@ -48,7 +55,7 @@ function body(ride) {
 }
 
 /**
- * Who's going. riders: [{id, name, user_id}] in RSVP order (id is the member's user id, or the
+ * Who's going. riders: [{id, name, user_id, join_point}] in RSVP order (id is the member's user id, or the
  * RSVP id for a guest); previous: the same shape from the last post, or null (no 🆕 marks).
  */
 function going(ride, riders, previous) {
@@ -57,10 +64,19 @@ function going(ride, riders, previous) {
   const count = ride.capacity ? `${riders.length} / ${ride.capacity}` : `${riders.length}`;
   const full = Boolean(ride.capacity && riders.length >= ride.capacity);
   const lines = [`*${count} going*${full ? " · FULL" : ""}`];
-  riders.forEach((r, i) => {
+  const line = (r, i) => {
     const tags = [r.user_id && r.user_id === ride.organiser_id ? "(lead)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
-    lines.push(`${i + 1}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`);
-  });
+    return `${i}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`;
+  };
+  if (ride.meeting_point_2 && riders.length) {
+    // Grouped by where people join, numbered straight through, so the lead knows who waits where.
+    let n = 0;
+    for (const point of [1, 2]) {
+      const here = riders.filter((r) => (r.join_point === 2 ? 2 : 1) === point);
+      lines.push(`*${pointLabel(ride, point)} (${here.length})*`);
+      for (const r of here) lines.push(line(r, ++n));
+    }
+  } else riders.forEach((r, i) => lines.push(line(r, i + 1)));
   if (!riders.length) lines.push("No one yet.");
   const left = previous ? previous.filter((r) => !now.has(r.id)).map((r) => shortName(r.name)) : [];
   if (left.length) lines.push("", `Dropped out: ${left.join(", ")}`);
@@ -70,21 +86,21 @@ function going(ride, riders, previous) {
 function post(header, ride, riders, previous, cta) {
   const list = going(ride, riders, previous);
   // Join link before the list, so it stays near the top however long the list gets.
-  return [header, ...body(ride), "", list.full ? "Spots open up if someone drops out 👇" : cta, rideLink(ride), ...list.lines].join("\n");
+  return [header, ...body(ride), "", list.full ? "👉 *Full.* Tap the link to grab a spot if someone drops out. No need to copy/paste this list." : cta, rideLink(ride), ...list.lines].join("\n");
 }
 
 export function ridePublishedText(ride, riders = []) {
-  return post(`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, ride, riders, null, "Tap to say you're in 👇");
+  return post(`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, ride, riders, null, "👉 *Tap the link to join.* No need to copy/paste this list, it updates itself.");
 }
 
 /** After people join or drop out: the same full post, with the list marked 🆕 / Dropped out. */
 export function riderListText(ride, riders, previous) {
-  return post(`${emoji(ride)} *${ride.title}*`, ride, riders, previous, "Join or drop out 👇");
+  return post(`${emoji(ride)} *${ride.title}*`, ride, riders, previous, "👉 *Tap the link to join or drop out.* No need to copy/paste this list, it updates itself.");
 }
 
 /** Time or place changed: the same full post, headed as a change. */
 export function rideUpdatedText(ride, riders = []) {
-  return post(`✏️ *${cap(noun(ride))} changed: ${ride.title}*`, ride, riders, null, "Join or drop out 👇");
+  return post(`✏️ *${cap(noun(ride))} changed: ${ride.title}*`, ride, riders, null, "👉 *Tap the link to join or drop out.* No need to copy/paste this list, it updates itself.");
 }
 
 export function rideCancelledText(ride) {
