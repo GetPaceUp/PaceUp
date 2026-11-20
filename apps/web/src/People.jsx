@@ -76,12 +76,12 @@ export function PeoplePanel({ clubId, members, me, onChange }) {
         <div className="member-avatar">{m.name.slice(0, 1).toUpperCase()}</div>
         <div className="member-info"><strong>{m.name}</strong><small>{m.phone ? phoneText(m.phone) : m.email}</small></div>
         <span className="role-tag">{m.role}</span>
-        {m.role !== "owner" && m.id !== me && <>
+        {m.role !== "owner" && m.id !== me && <div className="member-actions">
           <button type="button" className="text-button" disabled={busy === m.id} onClick={() => changeRole(m, m.role === "admin" ? "member" : "admin")}>{m.role === "admin" ? "Make member" : "Make admin"}</button>
           {m.phone && <button type="button" className="text-button" disabled={busy === m.id} onClick={() => resend(m)}>Resend</button>}
           {!m.phone && m.role === "member" && <ResetLinkButton endpoint={`/api/clubs/${clubId}/members/${m.id}/password-reset`} name={m.name} />}
           <button type="button" className="text-button remove" disabled={busy === m.id} onClick={() => remove(m)}>{busy === `confirm-${m.id}` ? "Tap to confirm" : "Remove"}</button>
-        </>}
+        </div>}
       </div>)}
     </section>
   </>;
