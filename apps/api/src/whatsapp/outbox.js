@@ -4,6 +4,9 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db.js";
 
+// How long a link code (or QR session) waits to be used before the worker gives up.
+export const PAIRING_TIMEOUT_MS = 5 * 60 * 1000;
+
 export const LIST_INTERVAL_MS = 30 * 1000;       // at most one participant-list post per activity per 30 s
 export const FIRST_LIST_DELAY_MS = 20 * 1000;    // let the first few taps of a burst gather
 export const HOURLY_CAP = 20;                    // posts per club number per rolling hour

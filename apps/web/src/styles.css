@@ -63,7 +63,7 @@ textarea:focus{border-color:#e47a51;box-shadow:0 0 0 3px rgba(228,122,81,.12)}
 .wa-panel{margin-top:18px;display:grid;gap:12px}.wa-panel h3{margin:0}.wa-panel .panel-copy{margin:0}
 .wa-status{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;border-radius:10px;padding:10px 12px;overflow-wrap:anywhere}.wa-status i{width:9px;height:9px;border-radius:50%;background:currentColor;flex:none}
 .st-off{background:#f2f4ef;color:#6b786f}.st-wait{background:#fbf1dc;color:#8a5a00}.st-on{background:#e9f5eb;color:#2f6b3f}.st-bad{background:#fff1ef;color:#a83327}
-.wa-pair{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.wa-qr{width:220px;max-width:100%;border:1px solid #e3e7e0;border-radius:12px;background:#fff;padding:6px}
+.wa-pair{display:grid;gap:14px;justify-items:start}@media(min-width:700px){.wa-pair.qr{grid-template-columns:auto 1fr;align-items:center}}.wa-qr{width:220px;max-width:100%;border:1px solid #e3e7e0;border-radius:12px;background:#fff;padding:6px}
 .wa-howto{margin:0;padding-left:18px;font-size:13px;color:#56665b;display:grid;gap:4px;min-width:0;flex:1}
 .wa-toggle{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #edf0eb;font-size:14px;cursor:pointer}.wa-toggle small{display:block;color:#7a867e;font-size:12px}.wa-toggle input{width:20px;height:20px;flex:none;accent-color:#2f6b3f}
 .wa-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0}.wa-stats div{background:#f7f8f5;border-radius:10px;padding:10px}.wa-stats dt{font-size:11px;color:#7a867e;font-weight:700}.wa-stats dd{margin:2px 0 0;font:700 15px Manrope,sans-serif}
@@ -168,7 +168,11 @@ label.check input { width: auto; margin: 0; }
 .muted{color:#8a958e}.dir-record-actions{display:flex;gap:12px;align-items:center}.dir-upload{display:grid;gap:8px;margin-top:16px;justify-items:start}
 .wa-connect{display:grid;gap:12px}.wa-warn{margin:0;background:#fbf0dc;color:#6b3f0c;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#eef0ec;border-radius:10px;padding:4px}.seg button{background:transparent;color:#4b564f;min-height:44px;font-size:13px;padding:8px}.seg button.on{background:#fff;color:#18231e;box-shadow:0 1px 3px rgba(24,35,30,.12)}
-.wa-code{font:800 28px Manrope,sans-serif;letter-spacing:3px;text-align:center;background:#f2f4ef;border-radius:12px;padding:16px 0}
+.wa-code-block{display:grid;gap:12px}.wa-code-block .panel-copy{margin:0}
+.wa-code{font:800 34px Manrope,sans-serif;letter-spacing:6px;text-align:center;background:#f2f4ef;border-radius:14px;padding:20px 8px;white-space:nowrap;user-select:all}.wa-code.expired{opacity:.4;text-decoration:line-through}
+.wa-code-timer{margin:0;text-align:center;font-size:13px;color:#56665b}
+.wa-code-expired{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:14px;font-weight:700;color:#7a4a12;background:#fbf0dc;border-radius:10px;padding:10px 12px}
+.wa-steps{margin:0;padding-left:20px;font-size:14px;line-height:1.5;color:#3d4a41;display:grid;gap:6px}
 .wa-pair-actions{display:flex;gap:16px}.wa-groups-pick summary{cursor:pointer;color:#b4502c;font-weight:700;font-size:13px;padding:8px 0}
 .roster-names-how{background:#f2f4ef;border-radius:10px;padding:12px 14px;color:#3d4a42}
 .start-page{max-width:560px;margin:40px auto;display:grid;gap:16px}.start-title{font:800 clamp(30px,6vw,44px)/1.1 Manrope,sans-serif;letter-spacing:-1.5px;margin:0}

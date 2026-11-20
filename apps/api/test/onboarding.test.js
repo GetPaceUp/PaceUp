@@ -118,6 +118,27 @@ test("the owner links the club's own number with a code; other admins can't; the
   assert.equal(pairing.status, "pairing");
   assert.equal(pairing.pairing_code, "ABCD-1234");
   assert.equal(fakeSessions.get(link.clubId).pairingPhone, "919822012345");
+  const left = new Date(pairing.pairing_expires_at).getTime() - Date.now();
+  assert.ok(left > 4 * 60 * 1000 && left <= 5 * 60 * 1000, "the code shows about 5 minutes left");
+
+  // "Get a new code": the same number again starts a fresh pairing session.
+  const first = fakeSessions.get(link.clubId);
+  await wa(link.cookie, "POST", "/connect", { phone: "+91 98220 12345" });
+  assert.equal((await wa(link.cookie)).json().whatsapp.pairing_code, null, "the old code is withdrawn at once");
+  await worker.tick();
+  assert.notEqual(fakeSessions.get(link.clubId), first, "a new pairing session was started");
+  assert.equal((await wa(link.cookie)).json().whatsapp.pairing_code, "ABCD-1234");
+
+  // An unused code expires; the number is kept so the owner can get a new code in one tap.
+  worker.sessions.get(link.clubId).codeAt -= 6 * 60 * 1000;
+  await worker.tick();
+  const expired = (await wa(link.cookie)).json().whatsapp;
+  assert.equal(expired.desired, "off");
+  assert.equal(expired.pairing_phone, "+919822012345");
+  assert.match(expired.last_error, /expired/);
+  await wa(link.cookie, "POST", "/connect", { phone: expired.pairing_phone });
+  await worker.tick();
+  assert.equal((await wa(link.cookie)).json().whatsapp.pairing_code, "ABCD-1234");
   await fakeSessions.get(link.clubId).scan("919822012345"); await settle();
   assert.equal((await wa(link.cookie)).json().whatsapp.status, "connected");
   assert.equal(db.prepare("SELECT status FROM club_directory WHERE club_id = ?").get(link.clubId).status, "live");

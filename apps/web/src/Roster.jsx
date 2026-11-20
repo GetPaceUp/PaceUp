@@ -179,7 +179,7 @@ export function RosterPanel({ clubId, onBack }) {
         <form className="stack-form roster-add" onSubmit={add}>
           <label htmlFor="roster-add">Add someone</label>
           <input id="roster-add" value={name} onChange={(e) => { setName(e.target.value); setAdded(null); }} placeholder="Full name" minLength={2} maxLength={80} autoCapitalize="words" required />
-          <input id="roster-add-phone" aria-label="Mobile number" type="tel" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setAdded(null); }} placeholder="+91 98765 43210" maxLength={20} pattern="[+0-9 ()-]{10,20}" required />
+          <input id="roster-add-phone" aria-label="Mobile number" type="tel" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setAdded(null); }} placeholder="+91 98765 43210" maxLength={20} pattern="[+0-9 \(\)\-]{10,20}" required />
           {groups.length > 0 && <div className="group-add-pick">
             <label className="check-label"><input type="checkbox" checked={toGroup} onChange={(e) => setToGroup(e.target.checked)} /> Also add to the WhatsApp group</label>
             {toGroup && groups.length > 1 && <select value={pickedGroup} onChange={(e) => setGroupJid(e.target.value)} aria-label="WhatsApp group">{groups.map((g) => <option key={g.jid} value={g.jid}>{g.name}</option>)}</select>}

@@ -295,7 +295,7 @@ function NamePicker({ code, initial = "", busy, onPick, onClose }) {
     <form className="name-picker" onSubmit={(e) => { e.preventDefault(); onPick({ name: newName, phone }, newName); }}>
       <p className="panel-copy">Joining as <b>{newName}</b>. <button type="button" className="text-button" onClick={() => setNewName("")}>Change</button></p>
       <label htmlFor="rsvp-phone" className="field-label">Your mobile number</label>
-      <input id="rsvp-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} pattern="[+0-9 ()-]{10,20}" required autoFocus />
+      <input id="rsvp-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} pattern="[+0-9 \(\)\-]{10,20}" required autoFocus />
       <p className="panel-copy">So the club knows who you are. Next time you just pick your name.</p>
       <button type="submit" className="primary-button" disabled={busy}>I'm in</button>
     </form>
