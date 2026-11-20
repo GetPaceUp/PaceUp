@@ -11,6 +11,7 @@ import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
+import { markClubLive } from "../directory.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -53,13 +54,16 @@ export class WhatsAppWorker {
     return join(this.dataDir, clubId);
   }
 
-  async startSession(clubId) {
-    const entry = { open: false, startedAt: Date.now(), retries: this.sessions.get(clubId)?.retries || 0 };
+  async startSession(clubId, pairingPhone = null) {
+    const entry = { open: false, startedAt: Date.now(), retries: this.sessions.get(clubId)?.retries || 0, pairingPhone };
     this.sessions.set(clubId, entry);
     try {
       entry.session = await this.adapter.connect(clubId, {
         authDir: this.authDir(clubId),
+        pairingPhone,
         onQr: (qr) => this.setConn(clubId, { status: "pairing", qr, qr_updated_at: iso(Date.now()), last_error: null }),
+        // "Link with phone number instead": WhatsApp gives a code the owner types on the club phone.
+        onPairingCode: (code) => this.setConn(clubId, { status: "pairing", pairing_code: code, qr_updated_at: iso(Date.now()), last_error: null }),
         onOpen: async ({ phone }) => {
           // Each club sends from its own number only. A number already serving another club is refused
           // at once: one ban would otherwise take down both clubs.
@@ -72,7 +76,8 @@ export class WhatsAppWorker {
             return;
           }
           entry.open = true; entry.retries = 0;
-          this.setConn(clubId, { status: "connected", phone, qr: null, last_error: null, last_seen_at: iso(Date.now()) });
+          this.setConn(clubId, { status: "connected", phone, qr: null, pairing_code: null, pairing_phone: null, last_error: null, last_seen_at: iso(Date.now()) });
+          markClubLive(clubId);
           this.log.info?.(`[whatsapp] club ${clubId} connected`);
           await this.refreshGroups(clubId);
         },
@@ -184,11 +189,16 @@ export class WhatsAppWorker {
       }
       if (c.desired !== "on") continue;
       wanted.add(c.club_id);
-      if (!entry || (entry.placeholder && Date.now() >= entry.retryAt)) await this.startSession(c.club_id);
+      if (entry && !entry.open && !entry.placeholder && (c.pairing_phone || null) !== (entry.pairingPhone || null)) {
+        // The owner switched between a code and a QR: start pairing again.
+        entry.session?.end();
+        this.sessions.delete(c.club_id);
+        await this.startSession(c.club_id, c.pairing_phone || null);
+      } else if (!entry || (entry.placeholder && Date.now() >= entry.retryAt)) await this.startSession(c.club_id, c.pairing_phone || null);
       else if (!entry.open && c.status === "pairing" && c.qr_updated_at && Date.now() - entry.startedAt > PAIRING_TIMEOUT_MS) {
         entry.session?.end();
         this.sessions.delete(c.club_id);
-        this.setConn(c.club_id, { desired: "off", status: "disconnected", qr: null, last_error: "The QR code expired before it was scanned. Press Connect to try again." });
+        this.setConn(c.club_id, { desired: "off", status: "disconnected", qr: null, pairing_code: null, pairing_phone: null, last_error: "The link code expired before it was used. Press Connect to try again." });
       } else if (entry.open) {
         this.setConn(c.club_id, { last_seen_at: iso(Date.now()) });
         const asked = c.groups_wanted_at && new Date(c.groups_wanted_at).getTime() > (entry.groupsAt || 0);

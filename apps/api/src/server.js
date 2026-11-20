@@ -13,7 +13,8 @@ import { execFileSync } from "node:child_process";
 import { registerRideRoutes } from "./rides.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
-import { registerClubAdminRoutes } from "./clubs-admin.js";
+import { registerClubAdminRoutes, checkOwnerLink, useOwnerLink } from "./clubs-admin.js";
+import { registerDirectoryRoutes } from "./directory.js";
 import { registerTemplateRoutes } from "./templates.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
@@ -195,6 +196,22 @@ export async function buildApp(options = {}) {
     services: { api: "online", whatsapp: "not_configured", ssl: "managed_by_deployment" }
   }));
   registerClubAdminRoutes(app, { requireClubRole, requirePlatformAdmin });
+  registerDirectoryRoutes(app, { requirePlatformAdmin });
+
+  // ---- a new club's owner signs in once with the link the Super Admin shared (the club has no number yet)
+  const ownerToken = { type: "string", minLength: 20, maxLength: 100 };
+  app.post("/api/start/check", { config: authLimit(30), schema: { body: { type: "object", properties: { token: ownerToken }, required: ["token"] } } }, async (request, reply) => {
+    try { return checkOwnerLink(request.body.token); } catch (error) { return sendDomain(reply, error); }
+  });
+  app.post("/api/start", {
+    config: authLimit(10), schema: { body: { type: "object", properties: { token: ownerToken, last4: { type: "string", maxLength: 8 } }, required: ["token", "last4"] } }
+  }, async (request, reply) => {
+    try {
+      const { user, clubId } = useOwnerLink(request.body.token, request.body.last4);
+      setSession(reply, user);
+      return { user: { ...user, super_admin: getPlatformRole(user.id) === "super_admin" }, clubs: listClubsForUser(user.id), club_id: clubId };
+    } catch (error) { return sendDomain(reply, error); }
+  });
   app.get("/api/platform/audit", { preHandler: [app.authenticate, requirePlatformAdmin] }, async () => ({ entries: listPlatformAudit(100) }));
   app.patch("/api/platform/users/:userId/role", {
     preHandler: [app.authenticate, requirePlatformAdmin],

@@ -4,6 +4,8 @@ import QRCode from "qrcode";
 import { db } from "../db.js";
 import { getConnection, enqueueTest, outboxStats, memberGroups, knownGroups, clubGroups, allowedGroupIds, isClubGroup } from "./outbox.js";
 import { audit, getPlatformRole } from "../db.js";
+import { canManageNumber } from "../clubs-admin.js";
+import { cleanPhone } from "../roster.js";
 
 const ADMIN = ["owner", "admin"];
 const iso = (ms) => new Date(ms).toISOString();
@@ -20,14 +22,20 @@ const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${"x".repeat(Math.max(0, p.leng
 
 async function view(clubId, userId) {
   const isSuper = getPlatformRole(userId) === "super_admin";
+  const manager = canManageNumber(clubId, userId);
+  const owner = db.prepare("SELECT u.id, u.name FROM clubs c INNER JOIN users u ON u.id = c.number_owner_id WHERE c.id = ?").get(clubId);
   const c = getConnection(clubId) || { desired: "off", status: "disconnected" };
   const workerOnline = Boolean(c.last_seen_at && Date.now() - new Date(c.last_seen_at).getTime() < 60 * 1000);
   const qrFresh = c.status === "pairing" && c.qr && c.qr_updated_at && Date.now() - new Date(c.qr_updated_at).getTime() < 60 * 1000;
   return {
     whatsapp: {
       desired: c.desired, status: c.status, last_error: c.last_error || null,
-      // The link code is only for whoever connects the number: the Super Admin.
-      qr: qrFresh && isSuper ? await QRCode.toDataURL(c.qr, { margin: 1, width: 280 }) : null,
+      // The link code is only for whoever connects the number: the club's number owner or the Super Admin.
+      qr: qrFresh && manager ? await QRCode.toDataURL(c.qr, { margin: 1, width: 280 }) : null,
+      pairing_code: manager && c.status === "pairing" && c.pairing_code ? c.pairing_code : null,
+      pairing_phone: manager && c.pairing_phone ? `+${c.pairing_phone}` : null,
+      can_manage_number: manager,
+      number_owner: owner ? { name: owner.name, is_you: owner.id === userId } : null,
       phone: maskPhone(c.phone),
       group: isClubGroup(c, c.group_jid) ? { jid: c.group_jid, name: c.group_name } : null,
       // Only the groups the Super Admin linked to this club, never everything on the phone.
@@ -50,18 +58,37 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
 
   app.get(base, { schema: { params }, preHandler: pre }, async (req) => {
     const v = await view(req.params.clubId, req.user.sub);
-    v.whatsapp.can_pick_groups = getPlatformRole(req.user.sub) === "super_admin"; // shows the Super Admin a link to the group picker
+    v.whatsapp.can_pick_groups = v.whatsapp.can_manage_number; // the number owner and the Super Admin choose the club's groups
     return v;
   });
 
-  // Linking and unlinking the club number is for the Super Admin only.
-  app.post(`${base}/connect`, { schema: { params }, preHandler: [app.authenticate, requirePlatformAdmin] }, async (req) => {
+  // Linking and unlinking the club number: the Super Admin, or the club admin who owns the number.
+  async function requireNumberManager(req, reply) {
+    if (!canManageNumber(req.params.clubId, req.user.sub)) return reply.code(403).send({ error: "Only the person who looks after the club's WhatsApp number can do this." });
+  }
+  const managerPre = [app.authenticate, requireNumberManager];
+  app.post(`${base}/connect`, {
+    schema: { params, body: { type: ["object", "null"], properties: { phone: { type: "string", maxLength: 30 } } } }, preHandler: managerPre
+  }, async (req, reply) => {
     ensureRow(req.params.clubId);
-    update(req.params.clubId, { desired: "on", last_error: null, ...(getConnection(req.params.clubId).status === "connected" ? {} : { status: "disconnected", qr: null }) });
+    // With a phone number, WhatsApp gives a code to type on that phone ("Link with phone number instead"),
+    // so the owner can link from the same phone. Without one, a QR code to scan.
+    let pairing = null;
+    if (req.body?.phone) {
+      pairing = cleanPhone(req.body.phone);
+      if (!pairing) return reply.code(400).send({ error: "Enter the club's WhatsApp number with the country code, e.g. +91 98765 43210." });
+      const taken = db.prepare("SELECT 1 FROM whatsapp_connections WHERE phone = ? AND club_id != ? AND desired = 'on'").get(pairing, req.params.clubId);
+      if (taken) return reply.code(409).send({ error: "This number is already linked to another club on PaceUp. Each club needs its own WhatsApp number." });
+    }
+    const c = getConnection(req.params.clubId);
+    if (c.status === "connected" && c.desired === "on") return view(req.params.clubId, req.user.sub);
+    // Switching between a code and a QR restarts pairing: the worker notices the changed pairing number.
+    update(req.params.clubId, { desired: "on", status: c.status === "pairing" ? "pairing" : "disconnected", qr: null, last_error: null, pairing_phone: pairing, pairing_code: null });
+    audit({ actorUserId: req.user.sub, action: "club.whatsapp_connect", newValue: pairing ? "pairing code" : "qr", ip: req.ip });
     return view(req.params.clubId, req.user.sub);
   });
 
-  app.post(`${base}/disconnect`, { schema: { params }, preHandler: [app.authenticate, requirePlatformAdmin] }, async (req) => {
+  app.post(`${base}/disconnect`, { schema: { params }, preHandler: managerPre }, async (req) => {
     ensureRow(req.params.clubId);
     update(req.params.clubId, { desired: "logout" });
     db.prepare("UPDATE outbox SET status = 'skipped', last_error = 'club disconnected WhatsApp' WHERE club_id = ? AND status = 'pending'").run(req.params.clubId);
@@ -125,10 +152,13 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
     groups.sort((x, y) => Number(y.linked) - Number(x.linked) || String(x.name).localeCompare(String(y.name)));
     return { status: c?.status || "disconnected", phone: maskPhone(c?.phone), groups };
   };
+  const putSchema = { params, body: { type: "object", properties: { jids: { type: "array", maxItems: 30, items: { type: "string", maxLength: 100 } } }, required: ["jids"] } };
   app.get(platformBase, { schema: { params }, preHandler: platformPre }, async (req) => platformView(req.params.clubId));
-  app.put(platformBase, {
-    schema: { params, body: { type: "object", properties: { jids: { type: "array", maxItems: 30, items: { type: "string", maxLength: 100 } } }, required: ["jids"] } }, preHandler: platformPre
-  }, async (req, reply) => {
+  app.put(platformBase, { schema: putSchema, preHandler: platformPre }, (req, reply) => saveGroups(req, reply));
+  // The club's number owner picks the club's groups too: it's their phone.
+  app.get(`${base}/all-groups`, { schema: { params }, preHandler: managerPre }, async (req) => platformView(req.params.clubId));
+  app.put(`${base}/all-groups`, { schema: putSchema, preHandler: managerPre }, (req, reply) => saveGroups(req, reply));
+  async function saveGroups(req, reply) {
     const c = getConnection(req.params.clubId);
     if (!c) return reply.code(409).send({ error: "This club hasn't connected WhatsApp yet." });
     const pickable = new Set([...knownGroups(c).map((g) => g.jid), ...allowedGroupIds(c)]);
@@ -150,5 +180,5 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requirePlatformAd
     const name = (j) => knownGroups(c).find((g) => g.jid === j)?.name || j;
     audit({ actorUserId: req.user.sub, action: "club.whatsapp_groups", oldValue: before.map(name).join(", ").slice(0, 500), newValue: jids.map(name).join(", ").slice(0, 500), ip: req.ip });
     return platformView(req.params.clubId);
-  });
+  }
 }

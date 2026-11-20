@@ -4,7 +4,7 @@ const sessions = new Map();
 
 export const fakeAdapter = {
   name: "fake",
-  async connect(clubId, { onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
+  async connect(clubId, { pairingPhone = null, onPairingCode = () => {}, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
     const session = {
       clubId, open: false, failNext: 0,
       groups: [{ jid: `${clubId.slice(0, 8)}-main@g.us`, name: "Club group", size: 42 }, { jid: `${clubId.slice(0, 8)}-admins@g.us`, name: "Club admins", size: 5 }],
@@ -37,7 +37,9 @@ export const fakeAdapter = {
       end() { this.open = false; sessions.delete(clubId); }
     };
     sessions.set(clubId, session);
+    session.pairingPhone = pairingPhone;
     onQr(`fake-qr-${clubId}-${Date.now()}`);
+    if (pairingPhone) onPairingCode("ABCD-1234");
     return session;
   }
 };
