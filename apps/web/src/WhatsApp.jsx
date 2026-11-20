@@ -125,10 +125,10 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
   const [phone, setPhone] = useState(lastPhone ? prettyPhone(lastPhone) : "+91 ");
   return (
     <div className="wa-connect">
-      <p className="wa-warn">Use a number kept only for the club, ideally a WhatsApp Business number. Not a personal number. One number can serve only one club.</p>
+      <p className="wa-warn">Use the club's own number, not your personal one.</p>
       <div className="seg" role="tablist" aria-label="How to link">
-        <button type="button" role="tab" aria-selected={how === "code"} className={how === "code" ? "on" : ""} onClick={() => setHow("code")}>Club phone is this phone</button>
-        <button type="button" role="tab" aria-selected={how === "qr"} className={how === "qr" ? "on" : ""} onClick={() => setHow("qr")}>Scan a QR code</button>
+        <button type="button" role="tab" aria-selected={how === "code"} className={how === "code" ? "on" : ""} onClick={() => setHow("code")}>On this phone</button>
+        <button type="button" role="tab" aria-selected={how === "qr"} className={how === "qr" ? "on" : ""} onClick={() => setHow("qr")}>Scan QR</button>
       </div>
       {how === "code"
         ? <form className="stack-form" onSubmit={(e) => { e.preventDefault(); onConnect({ phone }); }}>
@@ -136,7 +136,7 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
             <input id="wa-num" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" pattern="[+0-9 \(\)\-]{10,20}" required />
             <button type="submit" disabled={busy}>{expired ? "Get a new code" : "Get a link code"}</button>
           </form>
-        : <><p className="panel-copy">A QR code appears here. Scan it with the club phone.</p><button type="button" disabled={busy} onClick={() => onConnect({})}>Show QR code</button></>}
+        : <><p className="panel-copy">Scan it with the club phone.</p><button type="button" disabled={busy} onClick={() => onConnect({})}>Show QR code</button></>}
     </div>
   );
 }
@@ -179,9 +179,8 @@ export function WhatsAppPanel({ clubId }) {
   return (
     <section className="admin-panel wa-panel" id="connect">
       <h3>WhatsApp</h3>
-      <p className="panel-copy">Post new activities and the updated list of who's going to your club's WhatsApp group automatically.</p>
+      <p className="panel-copy">{wa.signup_pending && !connected ? "Last step: link your club's WhatsApp." : "Posts your activities and who's going to your WhatsApp group."}</p>
       <div className={`wa-status ${cls}`}><i />{label}{connected && wa.phone ? ` · ${wa.phone}` : ""}{connected && wa.group ? ` · posting to ${wa.group.name}` : ""}</div>
-      {wa.signup_pending && !connected && <p className="success-note">Last step: link your club's WhatsApp number. Your club is held for you until {new Date(wa.signup_release_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}. If it isn't linked by then, it's released.</p>}
       {wa.last_error && !connected && <p className="error">{codeExpired ? "That link code expired before it was used. Get a new one below." : wa.last_error}</p>}
 
       {wa.desired !== "on" && (manager

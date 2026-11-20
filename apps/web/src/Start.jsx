@@ -62,7 +62,7 @@ const call = (url, body) => fetch(url, { method: body ? "POST" : "GET", credenti
   .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(d.error || "Something went wrong."), { status: r.status, data: d }); return d; });
 
 function Steps({ at }) {
-  const steps = ["Pick your club", "Your name and mobile", "Link WhatsApp, pick your groups"];
+  const steps = ["Pick your club", "Your details", "Link WhatsApp"];
   return <ul className="su-steps">{steps.map((s, i) => <li key={s} className={i < at ? "ok" : i === at ? "on" : ""}><span>{i < at ? "✓" : i + 1}</span>{s}</li>)}</ul>;
 }
 
@@ -159,7 +159,7 @@ export function SignupPage() {
         {step === 0 && <>
           <span className="su-free">Absolutely free, for life</span>
           <h1 className="start-title">Set up PaceUp for your club</h1>
-          <p className="hero-copy">Post activities to your WhatsApp group in seconds. Members tap "I'm in", no app. The "who's going" list updates itself.</p>
+          <p className="hero-copy">Post to your WhatsApp group. Members tap "I'm in". The list updates itself.</p>
           <section className="workspace su-card">
             <label htmlFor="su-q">Your club's name</label>
             <input id="su-q" role="combobox" aria-expanded={sug.length > 0} aria-controls="su-sug" aria-autocomplete="list" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={keys} placeholder="Start typing…" autoFocus />
@@ -180,7 +180,6 @@ export function SignupPage() {
             {!club.city && <><label htmlFor="su-city">City</label><input id="su-city" value={nc.city} onChange={(e) => setNc({ ...nc, city: e.target.value })} maxLength={80} required /></>}
             {!club.activity && activityFields}
             {whoFields}
-            <p className="panel-copy">Next you link your club's WhatsApp number. PaceUp posts only this club's activities from it.</p>
             {error && <p className="error" role="alert">{error}{hasAccount && <> {signInLink}</>}</p>}
             <button className="primary-button" type="submit" disabled={saving}>{saving ? "Setting up…" : "Continue"}</button>
           </form>
@@ -204,12 +203,11 @@ export function SignupPage() {
         {step === 1 && club?.on_paceup && <>
           <Picked club={club} onChange={reset} />
           {asked
-            ? <section className="workspace su-card"><b className="su-h">Request sent</b><p className="panel-copy">We've let the club's owner know. You'll get a WhatsApp message once you're added.</p></section>
+            ? <section className="workspace su-card"><b className="su-h">Request sent</b><p className="panel-copy">The owner has been told.</p></section>
             : club.pending
-              ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone started setting it up a short while ago. If they don't finish within 24 hours, it's free for you to set up. Check back tomorrow.</p></section>
+              ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone else is on it. Check back tomorrow.</p></section>
               : <form className="workspace su-card" onSubmit={askAccess}>
                   <b className="su-h">{club.name} is already on PaceUp</b>
-                  <p className="panel-copy">Ask to be added as an admin and we'll let the club's owner know.</p>
                   {whoFields}
                   {error && <p className="error" role="alert">{error}</p>}
                   <button className="primary-button" type="submit" disabled={saving}>{saving ? "Sending…" : "Ask to be an admin"}</button>
@@ -217,7 +215,7 @@ export function SignupPage() {
         </>}
 
         {!(step === 1 && club?.on_paceup) && <Steps at={step} />}
-        <p className="su-foot">{step === 0 && <>About 2 minutes · {me ? <>Signed in as {me.name}</> : <>Already on PaceUp? {signInLink}</>}<br /></>}🔒 Your club's data stays private. Never shared.<br /><br />PACEUP <em className="endorse">by Feet and Pedals</em></p>
+        <p className="su-foot">{step === 0 && <>{me ? <>Signed in as {me.name}</> : <>Already on PaceUp? {signInLink}</>}<br /><br /></>}PACEUP <em className="endorse">by Feet and Pedals</em></p>
       </section>
     </main>
   );
