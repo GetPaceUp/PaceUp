@@ -10,7 +10,7 @@ export default function SuperAdmin() {
  {loading&&<p className="empty-state">Loading…</p>}{error&&<p className="error">{error}</p>}
  {!loading&&!data&&!error&&<section className="workspace"><h3>Platform owner access required</h3><p className="panel-copy">Set PACEUP_SUPERADMIN_EMAIL to your registered account email in the production environment and restart the API.</p></section>}
  {data&&<><div className="platform-stats">{Object.entries(data.counts).map(([k,v])=><div className="workspace" key={k}><span>{k.toUpperCase()}</span><strong>{v}</strong></div>)}</div>
- <CreateClub onCreated={load} /><section className="workspace platform-section"><h2>All clubs</h2><div className="club-list">{data.clubs.map(c=><ClubRow key={c.id} club={c} onChange={load} />)}</div></section>
+ <Signups onChange={load} /><CreateClub onCreated={load} /><section className="workspace platform-section"><h2>All clubs</h2><div className="club-list">{data.clubs.map(c=><ClubRow key={c.id} club={c} onChange={load} />)}</div></section>
  <Directory />
  <section className="workspace platform-section"><h2>Users and platform roles</h2><div className="platform-table"><div className="platform-row platform-user-header"><span>User</span><span>Clubs</span><span>Role</span><span>Action</span></div>{data.users.map(u=><div className="platform-row platform-user-row" key={u.id}><span><strong>{u.name}</strong><small>{u.email || (u.phone ? "+" + u.phone : "")}</small></span><span>{u.club_count}<span className="platform-mobile-count"> club{u.club_count === 1 ? "" : "s"}</span></span><span>{u.platform_role === "super_admin" ? "PaceUp Admin" : "User"}</span><span><button className="secondary-button" disabled={busy===u.id} onClick={()=>role(u.id,u.platform_role==="super_admin"?"user":"super_admin")}>{busy===u.id?"Saving…":u.platform_role==="super_admin"?"Remove PaceUp Admin":"Make PaceUp Admin"}</button><ResetLinkButton endpoint={"/api/platform/users/"+u.id+"/password-reset"} name={u.name} /></span></div>)}</div></section>
  <section className="workspace platform-section"><h2>System status</h2><p>API: Online</p><p>WhatsApp: connected per club, from each club's dashboard</p><p>SSL: Managed by deployment configuration</p><button className="secondary-button" onClick={load}>Refresh</button></section></>}</section><footer><span>PACEUP <em className="endorse">by Feet and Pedals</em></span><span>PaceUp Admin console</span></footer></main>;
@@ -45,6 +45,40 @@ function OwnerLinkCard({ link }) {
     <button type="button" className="secondary-button" onClick={async () => { try { await navigator.clipboard.writeText(link.text); setCopied(true); } catch { setCopied(false); } }}>{copied ? "Copied" : "Copy message"}</button>
     <ul className="panel-copy owner-link-rules"><li>Works once, for 7 days</li><li>Only for {phoneText(link.phone).replace(/\d{5}$/, "•••••")}: {first} confirms the last 4 digits</li><li>Lost it? Make a new link from All clubs. The old one stops working.</li></ul>
   </div>;
+}
+
+const when = (t) => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+const hoursLeft = (t) => Math.max(1, Math.round((new Date(t).getTime() - Date.now()) / 3600000));
+
+/** Clubs that set themselves up at getpaceup.com/start, and requests to help run a club. */
+function Signups({ onChange }) {
+  const [data, setData] = useState(null), [err, setErr] = useState(""), [confirm, setConfirm] = useState("");
+  const load = () => api("/api/platform/signups").then(setData).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  const remove = async (id) => { setErr(""); try { await api(`/api/platform/signups/${id}`, { method: "DELETE" }); setConfirm(""); load(); onChange?.(); } catch (e) { setErr(e.message); } };
+  if (!data) return null;
+  const rows = [...data.clubs.map((c) => ({ ...c, kind: "club", at: c.signup_at })), ...data.requests.map((r) => ({ ...r, kind: "request", at: r.created_at }))].sort((a, b) => b.at.localeCompare(a.at));
+  return <section className="workspace platform-section" id="signups">
+    <div className="section-heading"><div><h2>New sign-ups</h2><p className="panel-copy">Clubs that set themselves up at getpaceup.com/start.</p></div><span className="count">{data.this_week} THIS WEEK</span></div>
+    {err && <p className="error">{err}</p>}
+    {!rows.length && <p className="empty-state">No sign-ups yet. Share getpaceup.com/start with clubs.</p>}
+    {rows.map((r) => r.kind === "club"
+      ? <div className="signup-row" key={r.id}><span className="su-av" style={r.signup_status === "pending" ? { background: "#c9cfc7" } : undefined}>{r.name[0]}</span>
+          <span><b>{r.name}</b>{[r.city, r.activity].filter(Boolean).map((x) => ` · ${x}`).join("")}{!r.in_directory && <> <span className="su-tag" style={{ background: "#f2f4f0", color: "#7a867e" }}>NEW, NOT IN DIRECTORY</span></>}
+            <small>{r.owner_name} · {phoneText(r.owner_phone)} · {when(r.signup_at)}{r.wa_phone && r.wa_phone !== r.owner_phone ? ` · linked ${phoneText(r.wa_phone)}` : ""}</small></span>
+          <span className="act">
+            {r.signup_status === "pending"
+              ? <span className="su-pill su-wait">WAITING FOR WHATSAPP LINK · RELEASED IN {hoursLeft(r.released_at)} H</span>
+              : r.number_matches_directory ? <span className="su-pill su-ok">LIVE · NUMBER MATCHES DIRECTORY</span>
+              : <span className="su-pill su-warn">LIVE · CHECK: {r.in_directory ? "NUMBER NOT IN DIRECTORY" : "NEW CLUB"}</span>}
+            {confirm === r.id
+              ? <span className="confirm-row"><span>Remove {r.name}? Its number is unlinked and the club is deleted.</span><button type="button" onClick={() => remove(r.id)}>Remove</button><button type="button" className="secondary-button" onClick={() => setConfirm("")}>Keep</button></span>
+              : <button type="button" className="secondary-button" onClick={() => setConfirm(r.id)}>Remove club</button>}
+          </span></div>
+      : <div className="signup-row" key={r.id}><span className="su-av" style={{ background: "#7b877f" }}>{r.name[0]}</span>
+          <span><b>{r.name}</b> asked to admin <b>{r.club_name}</b><small>{phoneText(r.phone)} · {r.owner_told ? "owner told on WhatsApp" : "owner told once the club's WhatsApp is back"} · {when(r.created_at)}</small></span>
+          <span className="act"><span className="su-pill su-wait">ADMIN REQUEST</span></span></div>)}
+  </section>;
 }
 
 /** One club: where it is in onboarding, its owner link, club owner and groups. */

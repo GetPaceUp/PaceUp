@@ -660,6 +660,34 @@ export const migrations = [
       // are different people: stop offering to tidy or merge this one.
       db.exec("ALTER TABLE club_roster ADD COLUMN tidy_dismissed INTEGER NOT NULL DEFAULT 0");
     }
+  },
+  {
+    id: 28,
+    name: "self_serve_signup",
+    up(db) {
+      // Clubs that set themselves up at /start. 'pending' until the owner links the club's WhatsApp
+      // number (released after 24 hours if they don't), then 'live'; 'removed' while the PaceUp Admin's
+      // removal unlinks the number. NULL: created by the PaceUp Admin.
+      // An account made at /start hasn't proved its mobile yet (signup_unverified = 1) until it signs in
+      // with a WhatsApp code or links that same number.
+      db.exec(`
+        ALTER TABLE clubs ADD COLUMN signup_status TEXT CHECK (signup_status IN ('pending', 'live', 'removed'));
+        ALTER TABLE clubs ADD COLUMN signup_at TEXT;
+        ALTER TABLE clubs ADD COLUMN signup_live_at TEXT;
+        ALTER TABLE clubs ADD COLUMN signup_dir_snapshot TEXT;
+        ALTER TABLE users ADD COLUMN signup_unverified INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX idx_clubs_signup ON clubs(signup_status, signup_at);
+        CREATE TABLE club_access_requests (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL,
+          owner_told INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_access_requests_created ON club_access_requests(created_at);
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {

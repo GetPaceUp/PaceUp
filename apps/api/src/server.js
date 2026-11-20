@@ -16,6 +16,7 @@ import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
 import { registerClubAdminRoutes, checkOwnerLink, useOwnerLink } from "./clubs-admin.js";
 import { registerDirectoryRoutes } from "./directory.js";
+import { registerSignupRoutes, releaseStaleSignups } from "./signup.js";
 import { registerTemplateRoutes } from "./templates.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
@@ -215,6 +216,21 @@ export async function buildApp(options = {}) {
   }));
   registerClubAdminRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin });
   registerDirectoryRoutes(app, { requirePlatformAdmin });
+
+  // ---- self-serve club sign-up at /start (public; a signed-in person sets up with their own account)
+  async function signedInUser(request) {
+    if (!request.cookies?.paceup_session) return null;
+    try {
+      const payload = await request.jwtVerify();
+      if (!payload.sid || !getActiveSession(payload.sid, payload.sub)) return null;
+      return getUserById(payload.sub) || null;
+    } catch { return null; }
+  }
+  registerSignupRoutes(app, { setSession, requirePlatformAdmin, authLimit, signedInUser });
+  // Clubs held at /start for 24 hours without linking WhatsApp are released for the real owner.
+  const releaseTimer = setInterval(() => { try { releaseStaleSignups(); } catch (error) { app.log.error(error); } }, 10 * 60 * 1000);
+  releaseTimer.unref();
+  app.addHook("onClose", async () => clearInterval(releaseTimer));
 
   // ---- a new club's owner signs in once with the link the Super Admin shared (the club has no number yet)
   const ownerToken = { type: "string", minLength: 20, maxLength: 100 };
