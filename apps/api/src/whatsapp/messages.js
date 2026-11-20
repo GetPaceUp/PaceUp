@@ -69,7 +69,8 @@ function going(ride, riders, previous) {
 
 function post(header, ride, riders, previous, cta) {
   const list = going(ride, riders, previous);
-  return [header, ...body(ride), "", ...list.lines, "", list.full ? "Spots open up if someone drops out 👇" : cta, rideLink(ride)].join("\n");
+  // Join link before the list, so it stays near the top however long the list gets.
+  return [header, ...body(ride), "", list.full ? "Spots open up if someone drops out 👇" : cta, rideLink(ride), ...list.lines].join("\n");
 }
 
 export function ridePublishedText(ride, riders = []) {
