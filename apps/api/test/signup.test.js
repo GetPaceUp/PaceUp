@@ -24,7 +24,8 @@ const CSV = [
   'a1,"Sunrise Striders",Pune,Running,+919822012345',
   'a2,"Hill Walkers",Kolkata,"Hiking, Trekking",',
   'a3,"House Club",Delhi,Cycling,',
-  'a4,"Ridge Runners",Shimla,Running,'
+  'a4,"Ridge Runners",Shimla,Running,',
+  'a5,"No City Club",,,'
 ].join("\n");
 await call("POST", "/api/platform/directory/import", { cookie: boss.cookie, payload: { csv: CSV } });
 const dirId = (name) => db.prepare("SELECT id FROM club_directory WHERE name = ?").get(name).id;
@@ -102,6 +103,14 @@ test("asking to help run a club that's on PaceUp tells its owner from the club's
   assert.equal((await call("POST", "/api/signup/request-access", { payload: { clubId: boss.clubId, name: "X Y", phone: "98470 55556" } })).statusCode, 404);
 });
 
+test("a directory club with no city or activity asks the owner for them", async () => {
+  const id = dirId("No City Club");
+  assert.equal((await call("POST", "/api/signup", { payload: { directoryId: id, name: "Asha Rao", phone: "98220 66666" } })).statusCode, 400);
+  const res = await call("POST", "/api/signup", { payload: { directoryId: id, city: "Nagpur", activity: "Walking", name: "Asha Rao", phone: "98220 66666" } });
+  assert.equal(res.statusCode, 201, res.body);
+  assert.deepEqual(db.prepare("SELECT city, activity FROM clubs WHERE id = ?").get(res.json().club_id), { city: "Nagpur", activity: "Walking" });
+});
+
 test("a held club not linked within 24 hours is released, with its directory entry and account", async () => {
   const res = await call("POST", "/api/signup", { payload: { directoryId: dirId("Ridge Runners"), name: "Anil Verma", phone: "98160 77777" } });
   assert.equal(res.statusCode, 201, res.body);
@@ -110,7 +119,7 @@ test("a held club not linked within 24 hours is released, with its directory ent
   assert.equal(releaseStaleSignups(Date.now() + 23 * 3600 * 1000), 0);
   releaseStaleSignups(Date.now() + 25 * 3600 * 1000);
   assert.equal(db.prepare("SELECT 1 FROM clubs WHERE id = ?").get(clubId), undefined);
-  assert.deepEqual(db.prepare("SELECT status, club_id FROM club_directory WHERE name = 'Ridge Runners'").get(), { status: "prospect", club_id: null });
+  assert.deepEqual(db.prepare("SELECT status, club_id, city, activity FROM club_directory WHERE name = 'Ridge Runners'").get(), { status: "prospect", club_id: null, city: "Shimla", activity: "Running" }, "the directory entry is exactly as it was");
   assert.equal(db.prepare("SELECT 1 FROM users WHERE phone = '919160777777' OR phone = '919816077777'").get(), undefined);
   assert.equal((await call("GET", "/api/auth/me", { cookie: sessionCookie(res) })).statusCode, 401);
   assert.equal((await call("GET", "/api/signup/clubs?q=ridge")).json().clubs[0].on_paceup, false, "free to set up again");
@@ -157,6 +166,19 @@ test("the PaceUp Admin sees every sign-up and can remove one; a linked number is
   releaseStaleSignups();
   assert.equal(db.prepare("SELECT 1 FROM clubs WHERE id = ?").get(priya.clubId), undefined);
   assert.equal(db.prepare("SELECT status FROM club_directory WHERE name = 'Sunrise Striders'").get().status, "prospect");
+});
+
+test("removing a sign-up mid-pairing waits for the unlink, then clears its unverified account", async () => {
+  const res = await call("POST", "/api/signup", { payload: { clubName: "Fog Riders", city: "Pune", activity: "Cycling", name: "Tara Shah", phone: "98220 77777" } });
+  const clubId = res.json().club_id, cookie = sessionCookie(res);
+  await call("POST", `/api/clubs/${clubId}/whatsapp/connect`, { cookie, payload: { phone: "+91 98220 88888" } });
+  assert.equal((await call("DELETE", `/api/platform/signups/${clubId}`, { cookie: boss.cookie })).statusCode, 200);
+  releaseStaleSignups(Date.now() + 25 * 3600 * 1000);
+  assert.ok(db.prepare("SELECT 1 FROM clubs WHERE id = ?").get(clubId), "kept until the worker unlinks");
+  await worker.tick(); await settle();
+  releaseStaleSignups();
+  assert.equal(db.prepare("SELECT 1 FROM clubs WHERE id = ?").get(clubId), undefined);
+  assert.equal(db.prepare("SELECT 1 FROM users WHERE phone = '919822077777'").get(), undefined, "the number is free to sign up again");
 });
 
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });

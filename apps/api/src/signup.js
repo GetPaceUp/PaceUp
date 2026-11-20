@@ -76,7 +76,12 @@ export function createSignupClub({ directoryId, clubName, city, activity, name, 
     const d = db.prepare("SELECT * FROM club_directory WHERE id = ? AND hidden = 0").get(directoryId);
     if (!d) throw new DomainError(404, "We couldn't find that club. Search for it again, or add it as a new club.");
     if (d.club_id) throw taken(d.club_id);
-    club = { name: d.name, city: d.city, activity: activityType(d.activity) || d.activity, directoryId: d.id, dirStatus: d.status };
+    // A directory entry without a city or activity: the owner fills it in.
+    const c = d.city || cleanCity(city);
+    if (!c) throw new DomainError(400, "Enter your club's city.");
+    const a = activityType(d.activity) || d.activity || String(activity || "").trim().slice(0, 80);
+    if (!a) throw new DomainError(400, "Pick what your club does.");
+    club = { name: d.name, city: c, activity: a, directoryId: d.id, dir: d };
   } else {
     let n = cleanClubName(clubName);
     if (n === n.toLowerCase()) n = cleanName(n); // "monsoon trekkers" -> "Monsoon Trekkers"
@@ -88,7 +93,7 @@ export function createSignupClub({ directoryId, clubName, city, activity, name, 
     // The same name in the directory: claim that entry instead of making a second copy.
     const d = db.prepare("SELECT * FROM club_directory WHERE name_key = ? AND hidden = 0 ORDER BY (city_key = ?) DESC LIMIT 1").get(clubKey(n), c.toLowerCase());
     if (d?.club_id) throw taken(d.club_id);
-    club = { name: n, city: c, activity: a, directoryId: d?.id || null, dirStatus: d?.status || null };
+    club = { name: n, city: c, activity: a, directoryId: d?.id || null, dir: d || null };
   }
   const same = db.prepare("SELECT id, name FROM clubs WHERE COALESCE(signup_status, '') != 'removed'").all().find((c) => clubKey(c.name) === clubKey(club.name));
   if (same) throw taken(same.id);
@@ -114,7 +119,9 @@ export function createSignupClub({ directoryId, clubName, city, activity, name, 
       created = true;
     }
     const made = createClub({ name: club.name, city: club.city, activity: club.activity, directoryId: club.directoryId, actorId: ownerId });
-    db.prepare("UPDATE clubs SET signup_status = 'pending', signup_at = ?, signup_dir_status = ? WHERE id = ?").run(iso(), club.dirStatus, made.club.id);
+    // Linking a directory entry overwrites its name, city and activity: keep how it was, to put back on release.
+    const snap = club.dir && (({ status, name, name_key, city, city_key, activity }) => JSON.stringify({ status, name, name_key, city, city_key, activity }))(club.dir);
+    db.prepare("UPDATE clubs SET signup_status = 'pending', signup_at = ?, signup_dir_snapshot = ? WHERE id = ?").run(iso(), snap, made.club.id);
     audit({ actorUserId: ownerId, action: "club.self_signup", targetUserId: ownerId, newValue: made.club.name, ip });
     return { user: getUserById(ownerId), club: made.club, created };
   }).immediate();
@@ -129,12 +136,17 @@ export function signupLinked(clubId) {
 }
 
 function deleteClub(clubId) {
-  const club = db.prepare("SELECT signup_dir_status FROM clubs WHERE id = ?").get(clubId);
+  const club = db.prepare("SELECT signup_dir_snapshot, number_owner_id FROM clubs WHERE id = ?").get(clubId);
   const dir = db.prepare("SELECT id FROM club_directory WHERE club_id = ?").get(clubId);
-  const people = db.prepare("SELECT user_id FROM club_memberships WHERE club_id = ?").all(clubId).map((r) => r.user_id);
+  // The owner is also kept as number_owner_id, so they're found even after a removal cleared the memberships.
+  const people = [...new Set([...db.prepare("SELECT user_id FROM club_memberships WHERE club_id = ?").all(clubId).map((r) => r.user_id), club?.number_owner_id].filter(Boolean))];
   db.prepare("DELETE FROM clubs WHERE id = ?").run(clubId);
-  // The directory entry is back to how it was, free for the real owner.
-  if (dir) db.prepare("UPDATE club_directory SET status = ?, updated_at = ? WHERE id = ?").run(club?.signup_dir_status || "prospect", iso(), dir.id);
+  // The directory entry is back to exactly how it was, free for the real owner.
+  if (dir) {
+    const was = club?.signup_dir_snapshot ? JSON.parse(club.signup_dir_snapshot) : { status: "prospect" };
+    const keep = ["status", "name", "name_key", "city", "city_key", "activity"].filter((k) => k in was);
+    db.prepare(`UPDATE club_directory SET ${keep.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @ts WHERE id = @id`).run({ ...was, ts: iso(), id: dir.id });
+  }
   // An account made only for this sign-up goes too.
   for (const id of people) {
     const u = db.prepare("SELECT signup_unverified, password_hash FROM users WHERE id = ?").get(id);
@@ -235,7 +247,7 @@ export function registerSignupRoutes(app, { setSession, requirePlatformAdmin, au
   const s = (n) => ({ type: "string", maxLength: n });
   app.get("/api/signup/clubs", { config: authLimit(300), schema: { querystring: { type: "object", properties: { q: s(80) } } } },
     async (req) => ({ clubs: publicSearch(req.query.q || "") }));
-  app.get("/api/signup/clubs/:id", { config: authLimit(60), schema: { params: { type: "object", properties: { id: s(64) }, required: ["id"] } } },
+  app.get("/api/signup/clubs/:id", { config: authLimit(60), schema: { params: { type: "object", properties: { id: s(200) }, required: ["id"] } } },
     async (req, reply) => { try { return { club: publicClub(req.params.id) }; } catch (error) { return fail(reply, error); } });
   app.get("/api/signup/activities", async () => ({ activities: [...ACTIVITY_TYPES, "Other"] }));
   // Who is setting up: a signed-in person uses their account, everyone else gives a name and mobile.
@@ -245,7 +257,7 @@ export function registerSignupRoutes(app, { setSession, requirePlatformAdmin, au
   });
   app.post("/api/signup", {
     config: authLimit(10),
-    schema: { body: { type: "object", properties: { directoryId: s(64), clubName: s(200), city: s(80), activity: s(80), name: s(200), phone: s(30) } } }
+    schema: { body: { type: "object", properties: { directoryId: s(200), clubName: s(200), city: s(80), activity: s(80), name: s(200), phone: s(30) } } }
   }, async (req, reply) => {
     try {
       const user = await signedInUser(req);

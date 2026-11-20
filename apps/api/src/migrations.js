@@ -674,7 +674,7 @@ export const migrations = [
         ALTER TABLE clubs ADD COLUMN signup_status TEXT CHECK (signup_status IN ('pending', 'live', 'removed'));
         ALTER TABLE clubs ADD COLUMN signup_at TEXT;
         ALTER TABLE clubs ADD COLUMN signup_live_at TEXT;
-        ALTER TABLE clubs ADD COLUMN signup_dir_status TEXT;
+        ALTER TABLE clubs ADD COLUMN signup_dir_snapshot TEXT;
         ALTER TABLE users ADD COLUMN signup_unverified INTEGER NOT NULL DEFAULT 0;
         CREATE INDEX idx_clubs_signup ON clubs(signup_status, signup_at);
         CREATE TABLE club_access_requests (

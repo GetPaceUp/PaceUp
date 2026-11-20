@@ -73,7 +73,7 @@ export default function App() {
     const next = new URLSearchParams(window.location.search).get("next");
     if (next && /^\/r\/[A-Za-z0-9_-]{6,16}(\?absent)?$/.test(next)) { window.location.href = next; return true; }
     // Signed in from the club set-up page: back to it.
-    if (next && /^\/start(\?club=[A-Za-z0-9-]{1,64})?$/.test(next)) { window.location.href = next; return true; }
+    if (next && /^\/start(\?club=[A-Za-z0-9._~%-]{1,200})?$/.test(next)) { window.location.href = next; return true; }
     return false;
   }
   useEffect(() => {

@@ -109,9 +109,10 @@ export function SignupPage() {
     event.preventDefault(); setError(""); setHasAccount(false); setSaving(true);
     try {
       const who = me ? {} : { name: person.name, phone: person.phone };
+      const activityValue = nc.activity === "Other" ? (nc.other.trim() ? `Other: ${nc.other.trim()}` : "Other") : nc.activity;
       const body = adding
-        ? { clubName: q, city: nc.city, activity: nc.activity === "Other" ? (nc.other.trim() ? `Other: ${nc.other.trim()}` : "Other") : nc.activity, ...who }
-        : { directoryId: club.directory_id, ...who };
+        ? { clubName: q, city: nc.city, activity: activityValue, ...who }
+        : { directoryId: club.directory_id, ...(club.city ? {} : { city: nc.city }), ...(club.activity ? {} : { activity: activityValue }), ...who };
       const d = await call("/api/signup", body);
       // A full page load so the dashboard opens signed in, on the new club, at the WhatsApp step.
       window.location.replace(`/?welcome=1&club=${d.club_id}#connect`);
@@ -129,6 +130,14 @@ export function SignupPage() {
     finally { setSaving(false); }
   }
 
+  const activityFields = <>
+    <label htmlFor="su-act">What does your club do?</label>
+    <select id="su-act" value={nc.activity} onChange={(e) => setNc({ ...nc, activity: e.target.value })} required>
+      <option value="" disabled>Pick one</option>
+      {ACTIVITIES.map((a) => <option key={a}>{a}</option>)}
+    </select>
+    {nc.activity === "Other" && <input aria-label="Which activity?" placeholder="Which activity?" value={nc.other} onChange={(e) => setNc({ ...nc, other: e.target.value })} maxLength={60} />}
+  </>;
   const phoneField = <>
     <label htmlFor="su-phone">Your mobile number</label>
     <input id="su-phone" type="tel" inputMode="tel" autoComplete="tel" value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} pattern="[+0-9 \(\)\-]{10,20}" required />
@@ -168,6 +177,8 @@ export function SignupPage() {
           <h1 className="start-title su-small">Almost there</h1>
           <Picked club={club} onChange={reset} />
           <form className="workspace su-card" onSubmit={submit}>
+            {!club.city && <><label htmlFor="su-city">City</label><input id="su-city" value={nc.city} onChange={(e) => setNc({ ...nc, city: e.target.value })} maxLength={80} required /></>}
+            {!club.activity && activityFields}
             {whoFields}
             <p className="panel-copy">Next you link your club's WhatsApp number. PaceUp posts only this club's activities from it.</p>
             {error && <p className="error" role="alert">{error}{hasAccount && <> {signInLink}</>}</p>}
@@ -182,12 +193,7 @@ export function SignupPage() {
             <input id="su-cn" value={q} onChange={(e) => setQ(e.target.value)} minLength={2} maxLength={80} required />
             <label htmlFor="su-city">City</label>
             <input id="su-city" value={nc.city} onChange={(e) => setNc({ ...nc, city: e.target.value })} maxLength={80} required />
-            <label htmlFor="su-act">What does your club do?</label>
-            <select id="su-act" value={nc.activity} onChange={(e) => setNc({ ...nc, activity: e.target.value })} required>
-              <option value="" disabled>Pick one</option>
-              {ACTIVITIES.map((a) => <option key={a}>{a}</option>)}
-            </select>
-            {nc.activity === "Other" && <input aria-label="Which activity?" placeholder="Which activity?" value={nc.other} onChange={(e) => setNc({ ...nc, other: e.target.value })} maxLength={60} />}
+            {activityFields}
             {whoFields}
             {error && <p className="error" role="alert">{error}{hasAccount && <> {signInLink}</>}</p>}
             <button className="primary-button" type="submit" disabled={saving}>{saving ? "Setting up…" : "Continue"}</button>
