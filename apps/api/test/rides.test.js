@@ -44,7 +44,10 @@ function phone() {
     view: (code) => call("GET", `/api/r/${code}`, { cookie })
   };
 }
-const publish = async (extra = {}) => (await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, status: "published", ...extra } })).json().ride;
+// The lead joins their own activity by default (see "the lead is on the list"). The RSVP tests below are
+// about everyone else, so they start from an activity whose lead has dropped out.
+const dropLead = (id) => db.prepare("DELETE FROM ride_rsvps WHERE ride_id = ? AND user_id = (SELECT organiser_id FROM rides WHERE id = ?)").run(id, id);
+const publish = async (extra = {}) => { const ride = (await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, status: "published", ...extra } })).json().ride; dropLead(ride.id); return ride; };
 
 test("activity lifecycle: draft, publish, edit, unpublish, cancel, with an audit trail", async () => {
   const created = await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "running" } });
@@ -62,7 +65,7 @@ test("activity lifecycle: draft, publish, edit, unpublish, cancel, with an audit
   const published = await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "published", title: "Nandi Hills sunrise run" } });
   assert.equal(published.statusCode, 200);
   assert.equal(published.json().ride.title, "Nandi Hills sunrise run");
-  assert.equal((await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "draft" } })).json().ride.status, "draft", "unpublish while nobody has joined");
+  assert.equal((await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "draft" } })).json().ride.status, "draft", "unpublish while only the lead is on the list");
   await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "published" } });
   await phone().rsvp(code, { status: "going", name: "Rahul Verma", phone: ph("Rahul Verma") });
   assert.equal((await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { status: "draft" } })).statusCode, 409, "can't unpublish once people joined");
@@ -74,8 +77,23 @@ test("activity lifecycle: draft, publish, edit, unpublish, cancel, with an audit
 
   const history = cancelled.json().ride.history.map((h) => h.action).reverse();
   assert.deepEqual(history, ["created_draft", "published", "unpublished", "published", "cancelled"]);
-  assert.equal(cancelled.json().ride.history[0].metadata.going, 1, "cancellation records how many were going");
+  assert.equal(cancelled.json().ride.history[0].metadata.going, 2, "cancellation records how many were going (the lead and Rahul)");
   assert.equal(cancelled.json().ride.history[0].actor_name, "Priya Sharma");
+});
+
+test("the lead is on the list by default once published, counts toward spots, and can drop out", async () => {
+  const draft = (await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, capacity: 2 } })).json().ride;
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ?").get(draft.id).n, 0, "nobody on a draft");
+  const live = (await call("PATCH", `/api/clubs/${clubId}/rides/${draft.id}`, { cookie: owner.cookie, payload: { status: "published" } })).json().ride;
+  assert.deepEqual(live.participants.map((p) => p.name), ["Priya Sharma"]);
+  assert.equal(live.going_count, 1);
+  // Publishing again (after unpublishing) doesn't add the lead twice.
+  await call("PATCH", `/api/clubs/${clubId}/rides/${draft.id}`, { cookie: owner.cookie, payload: { status: "draft" } });
+  await call("PATCH", `/api/clubs/${clubId}/rides/${draft.id}`, { cookie: owner.cookie, payload: { status: "published" } });
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ?").get(draft.id).n, 1);
+  assert.equal((await call("PUT", `/api/r/${live.code}/rsvp`, { cookie: arjun.cookie, payload: { status: "going" } })).json().ride.is_full, true, "the lead takes a spot");
+  const out = await call("PUT", `/api/r/${live.code}/rsvp`, { cookie: owner.cookie, payload: { status: "cancelled" } });
+  assert.deepEqual(out.json().ride.participants.map((p) => p.name), ["Arjun Rao"], "the lead can drop out like anyone");
 });
 
 test("public page: anyone with the link sees details and who's going; admins also see who is listed", async () => {

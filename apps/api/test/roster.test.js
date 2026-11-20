@@ -80,8 +80,11 @@ test("add and remove one person", async () => {
   assert.equal((await roster(owner, "kabir")).people.length, 0);
 });
 
+const dropLead = (id) => db.prepare("DELETE FROM ride_rsvps WHERE ride_id = ? AND user_id = (SELECT organiser_id FROM rides WHERE id = ?)").run(id, id);
+
 test("the rider flow: tap I'm in, type Amit, pick Amit Daga, done. No sign-in.", async () => {
   const ride = (await call("POST", `/api/clubs/${owner.clubId}/rides`, { cookie: owner.cookie, payload: { title: "Sunday ride", starts_at: inDays(2), meeting_point: "Tulip Chowk", status: "published" } })).json().ride;
+  dropLead(ride.id); // these tests are about everyone else joining
   const names = async (q) => (await call("GET", `/api/r/${ride.code}/names?q=${q}`)).json().names;
   const amits = await names("Amit");
   assert.deepEqual(amits.map((n) => n.name), ["Amit Daga", "Amit Kumar"]);
@@ -119,6 +122,7 @@ test.after(async () => { await app.close(); db.close(); rmSync(tempDir, { recurs
 
 test("someone new gives a mobile number: a number already on the list joins as that person", async () => {
   const ride = (await call("POST", `/api/clubs/${owner.clubId}/rides`, { cookie: owner.cookie, payload: { title: "Phone check", starts_at: inDays(3), meeting_point: "Gate 1", status: "published" } })).json().ride;
+  dropLead(ride.id); // these tests are about everyone else joining
   await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Shrikant Joshi", phone: "98333 44455" } });
   assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant" } })).statusCode, 400, "number required for someone new");
   const res = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant", phone: "+91 98333 44455" } });

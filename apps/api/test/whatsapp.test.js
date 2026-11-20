@@ -89,6 +89,7 @@ test("a published ride is posted to the club's group, through the club's own ses
   assert.equal(msg.jid, (await wa(a)).json().whatsapp.group.jid);
   assert.match(msg.text, /New ride: Nandi Hills long ride/);
   assert.match(msg.text, /\nOrganiser: [^\n]+\nLead: Priya S\./, "the club organises, the admin leads");
+  assert.match(msg.text, /\*1 \/ 20 going\*\n1\. Priya S\. \(lead\)/, "the lead is on the list from the first post");
   assert.match(msg.text, new RegExp(`https://paceup.example/r/${rideCode}`));
 });
 
@@ -112,14 +113,18 @@ test("an activity can post to a different group than the club default; only the 
 });
 
 test("RSVPs never wait on WhatsApp, and a burst becomes one rider-list post", async () => {
+  // The lead steps out first so we can see them come back as new further down.
+  assert.equal((await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: a.cookie, payload: { status: "cancelled" } })).statusCode, 200);
   for (const r of riders) assert.equal((await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: r.cookie, payload: { status: "going" } })).statusCode, 200);
   const queued = pending(a.clubId);
-  assert.equal(queued.length, 1, "three RSVPs, one queued post");
+  assert.equal(queued.length, 1, "four RSVP changes, one queued post");
   assert.ok(new Date(queued[0].not_before).getTime() > Date.now(), "waits for the burst to settle");
   makeDue(); const before = sent.length; await worker.tick();
   assert.equal(sent.length, before + 1);
   assert.match(sent.at(-1).text, /\*3 \/ 20 going\*/);
-  assert.match(sent.at(-1).text, /1\. Arjun R\.\n2\. Meera I\.\n3\. Karthik N\./);
+  assert.match(sent.at(-1).text, /1\. Arjun R\. 🆕\n2\. Meera I\. 🆕\n3\. Karthik N\. 🆕/);
+  assert.match(sent.at(-1).text, /📍 Hebbal flyover\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\./, "every list post carries the full details");
+  assert.match(sent.at(-1).text, /Dropped out: Priya S\./);
 
   await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: riders[1].cookie, payload: { status: "cancelled" } });
   await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: a.cookie, payload: { status: "going" } });
@@ -150,6 +155,17 @@ test("when WhatsApp is down, posts wait; failures retry with backoff", async () 
   makeDue(); await worker.tick();
   assert.equal(pending(a.clubId).length, 0);
   assert.match(sent.at(-1).text, /\*4 \/ 20 going\*/);
+});
+
+test("a change post repeats everything: details, Organiser, Lead, notes, who's going and the link", async () => {
+  await call("PATCH", `/api/clubs/${a.clubId}/rides/${rideId}`, { cookie: a.cookie, payload: { meeting_point: "Hebbal flyover, Gate 3", notes: "Bring lights." } });
+  assert.deepEqual(pending(a.clubId).map((r) => r.kind), ["ride_updated"]);
+  makeDue(); await worker.tick();
+  const text = sent.at(-1).text;
+  assert.match(text, /^✏️ \*Ride changed: Nandi Hills long ride\*\n/);
+  assert.match(text, /📍 Hebbal flyover, Gate 3\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/);
+  assert.match(text, /\(lead\)/);
+  assert.match(text, new RegExp(`Join or drop out 👇\nhttps://paceup.example/r/${rideCode}$`));
 });
 
 test("hourly cap holds posts back instead of dropping them", async () => {

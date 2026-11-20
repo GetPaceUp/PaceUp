@@ -225,14 +225,16 @@ export class WhatsAppWorker {
     if (item.kind === "ride_cancelled") return { text: rideCancelledText(ride) };
     if (ride.status !== "published") return { skip: `ride is ${ride.status}` };
     if (new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "ride already started" };
-    if (item.kind === "ride_published") return { text: ridePublishedText(ride) };
-    if (item.kind === "ride_updated") return { text: rideUpdatedText(ride) };
     // Stable key per person for the "new"/"dropped out" diff: user id, roster id, or the RSVP id for a guest.
     const riders = participants(ride.id).map((p) => ({ id: p.user_id || p.roster_id || p.id, user_id: p.user_id, name: p.name }));
-    const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind = 'rider_list' AND status = 'sent' ORDER BY sent_at DESC LIMIT 1").get(ride.id);
+    const payload = JSON.stringify({ riders });
+    // Every post carries the full details and the going list.
+    if (item.kind === "ride_published") return { text: ridePublishedText(ride, riders), payload };
+    if (item.kind === "ride_updated") return { text: rideUpdatedText(ride, riders), payload };
+    const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind IN ('rider_list', 'ride_published', 'ride_updated') AND status = 'sent' AND payload IS NOT NULL ORDER BY sent_at DESC LIMIT 1").get(ride.id);
     const previous = prevRow?.payload ? JSON.parse(prevRow.payload).riders : null;
     if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id)) return { skip: "list unchanged since last post" };
-    return { text: riderListText(ride, riders, previous), payload: JSON.stringify({ riders }) };
+    return { text: riderListText(ride, riders, previous), payload };
   }
 
   /** Send whatever is due, one post per club per pass, within each club's limits. */

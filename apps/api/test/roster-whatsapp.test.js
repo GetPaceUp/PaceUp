@@ -130,7 +130,7 @@ test("the WhatsApp rider list is still right for roster picks and guests", async
   await worker.tick(); await settle(); await worker.tick();
   const list = sent.find((m) => /going/.test(m.text));
   assert.ok(list, JSON.stringify(sent.map((m) => m.text)));
-  assert.match(list.text, /1\. Kavya\n2\. Guest R\./);
+  assert.match(list.text, /1\. Club O\. \(lead\)\n2\. Kavya\n3\. Guest R\./);
 });
 
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
