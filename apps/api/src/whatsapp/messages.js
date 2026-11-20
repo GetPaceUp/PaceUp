@@ -36,9 +36,16 @@ function details(ride) {
 }
 
 /** The full activity details. Every post carries all of them: people don't scroll up. */
+const dayText = (iso) => new Date(iso).toLocaleDateString("en-GB", { timeZone: TZ(), weekday: "short", day: "numeric", month: "short" });
+const timeText = (iso) => new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ(), hour: "numeric", minute: "2-digit" });
+/** "Xavier's · 5:45 AM": a meeting point with its time, used when there is a midway point. */
+export const pointLabel = (ride, n) => n === 2 ? `${ride.meeting_point_2} · ${timeText(ride.meeting_at_2)}` : `${ride.meeting_point} · ${timeText(ride.starts_at)}`;
+
 function body(ride) {
-  const lines = [whenText(ride.starts_at), `📍 ${ride.meeting_point}`];
-  if (ride.map_url) lines.push(`🗺️ ${ride.map_url}`);
+  // With a midway point, each point carries its own time.
+  const lines = ride.meeting_point_2
+    ? [dayText(ride.starts_at), `📍 ${pointLabel(ride, 1)}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : []), `📍 ${pointLabel(ride, 2)}`, ...(ride.map_url_2 ? [`🗺️ ${ride.map_url_2}`] : [])]
+    : [whenText(ride.starts_at), `📍 ${ride.meeting_point}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : [])];
   if (details(ride)) lines.push(details(ride));
   // The club organises; the admin who created it leads.
   if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
@@ -48,7 +55,7 @@ function body(ride) {
 }
 
 /**
- * Who's going. riders: [{id, name, user_id}] in RSVP order (id is the member's user id, or the
+ * Who's going. riders: [{id, name, user_id, join_point}] in RSVP order (id is the member's user id, or the
  * RSVP id for a guest); previous: the same shape from the last post, or null (no 🆕 marks).
  */
 function going(ride, riders, previous) {
@@ -57,10 +64,19 @@ function going(ride, riders, previous) {
   const count = ride.capacity ? `${riders.length} / ${ride.capacity}` : `${riders.length}`;
   const full = Boolean(ride.capacity && riders.length >= ride.capacity);
   const lines = [`*${count} going*${full ? " · FULL" : ""}`];
-  riders.forEach((r, i) => {
+  const line = (r, i) => {
     const tags = [r.user_id && r.user_id === ride.organiser_id ? "(lead)" : null, previous && !before.has(r.id) ? "🆕" : null].filter(Boolean).join(" ");
-    lines.push(`${i + 1}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`);
-  });
+    return `${i}. ${shortName(r.name)}${tags ? ` ${tags}` : ""}`;
+  };
+  if (ride.meeting_point_2 && riders.length) {
+    // Grouped by where people join, numbered straight through, so the lead knows who waits where.
+    let n = 0;
+    for (const point of [1, 2]) {
+      const here = riders.filter((r) => (r.join_point === 2 ? 2 : 1) === point);
+      lines.push(`*${pointLabel(ride, point)} (${here.length})*`);
+      for (const r of here) lines.push(line(r, ++n));
+    }
+  } else riders.forEach((r, i) => lines.push(line(r, i + 1)));
   if (!riders.length) lines.push("No one yet.");
   const left = previous ? previous.filter((r) => !now.has(r.id)).map((r) => shortName(r.name)) : [];
   if (left.length) lines.push("", `Dropped out: ${left.join(", ")}`);
