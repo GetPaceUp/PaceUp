@@ -117,14 +117,20 @@ test("forgot password by WhatsApp: code, new password, signed in; nothing reveal
   assert.deepEqual(unknown.json(), known.json());
   assert.equal(sentTo("919899988877"), 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct WHERE to_phone = '919876543210' AND text LIKE '%reset%'").get().n, 0, "phone-only accounts have no password to reset");
-  assert.equal((await finish({ phone: "9899988877", code: "123456", password: "a-brand-new-password" })).statusCode, 400, "unknown number fails like a wrong code");
+  const failUnknown = await finish({ phone: "9899988877", code: "123456", password: "a-brand-new-password" });
+  assert.equal(failUnknown.statusCode, 400, "unknown number fails like a wrong code");
 
   const text = db.prepare("SELECT text FROM whatsapp_direct WHERE to_phone = '919822233344' ORDER BY created_at DESC, rowid DESC LIMIT 1").get().text;
   assert.match(text, /password reset code/);
   const code = text.match(/\*(\d{6})\*/)[1];
 
   assert.equal((await finish({ phone: "9822233344", code, password: "short" })).statusCode, 400, "password length is checked");
-  assert.equal((await finish({ phone: "9822233344", code: code === "000000" ? "111111" : "000000", password: "a-brand-new-password" })).statusCode, 400);
+  const failWrong = await finish({ phone: "9822233344", code: code === "000000" ? "111111" : "000000", password: "a-brand-new-password" });
+  assert.equal(failWrong.statusCode, 400);
+  assert.equal(failWrong.json().error, failUnknown.json().error, "a wrong code looks the same as an unknown number");
+  // An admin-issued link outstanding at the time must stop working once the WhatsApp reset succeeds.
+  const ownerId = owner.user.id;
+  db.prepare("INSERT INTO password_resets (id, user_id, token_hash, created_by, expires_at, created_at) VALUES ('pr-old', ?, 'x', ?, ?, ?)").run(ownerId, ownerId, new Date(Date.now() + 3600000).toISOString(), new Date().toISOString());
   // A sign-in code can't be used to reset, and the old password still works until the reset succeeds.
   assert.equal((await sign("strong-password-123")).statusCode, 200);
 
@@ -132,6 +138,7 @@ test("forgot password by WhatsApp: code, new password, signed in; nothing reveal
   assert.equal(done.statusCode, 200, done.body);
   assert.equal(done.json().user.email, "owner@example.com");
   assert.ok(done.headers["set-cookie"], "signed in");
+  assert.ok(db.prepare("SELECT used_at FROM password_resets WHERE id = 'pr-old'").get().used_at, "outstanding admin link is revoked");
   assert.equal((await sign("strong-password-123")).statusCode, 401, "old password stops working");
   assert.equal((await sign("a-brand-new-password")).statusCode, 200);
   assert.equal((await call("GET", "/api/auth/me", { cookie: owner.cookie })).statusCode, 401, "other sessions are signed out");

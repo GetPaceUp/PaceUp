@@ -101,7 +101,7 @@ export function ForgotPassword({ onDone, onBack }) {
       <input id="fp-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} required autoFocus />
       {error && <p className="error" role="alert">{error}</p>}
       <button className="primary-button" type="submit" disabled={busy}>{busy ? "Sending…" : "Send code on WhatsApp"}</button>
-      <p className="panel-copy">No mobile number on your account yet? Ask your club admin to send you a reset link.</p>
+      <p className="panel-copy">No mobile number on your account yet? Ask your club admin to send you a reset link. Club admins and owners can ask the PaceUp team.</p>
       <p className="auth-switch"><button type="button" className="text-button" onClick={onBack}>Back to sign in</button></p>
     </form>
   );

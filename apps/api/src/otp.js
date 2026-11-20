@@ -130,13 +130,21 @@ export function startPasswordReset(phone, ip = null) {
 export async function finishPasswordReset(phone, code, password, ip = null) {
   if (typeof password !== "string" || password.length < 10 || password.length > 128) throw new DomainError(400, "Use a password between 10 and 128 characters.");
   const user = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
-  // Same generic failure for an unknown number as for a wrong code.
-  const row = checkCode(phone, code, "reset", { consume: false, userId: user?.id ?? "-" });
+  // One message for every failure (wrong code, expired, unknown number), so this endpoint
+  // can't be used to tell which numbers have a resettable account.
+  let row;
+  try { row = checkCode(phone, code, "reset", { consume: false, userId: user?.id ?? "-" }); }
+  catch (error) {
+    if (error instanceof DomainError) throw new DomainError(400, "That code isn't right or has expired. Ask for a new one.");
+    throw error;
+  }
   const passwordHash = await bcrypt.hash(password, 12);
   db.transaction(() => {
     const claimed = db.prepare("UPDATE login_codes SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?").run(iso(), row.id, iso()).changes === 1;
     if (!claimed) throw new DomainError(400, "That code has expired. Ask for a new one.");
     db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, user.id);
+    // Any admin-issued reset link still outstanding must not be able to overwrite this password later.
+    db.prepare("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL").run(iso(), user.id);
     revokeAllSessions(user.id);
     audit({ actorUserId: user.id, action: "password_reset.used_by_whatsapp", targetUserId: user.id, ip });
   }).immediate();
