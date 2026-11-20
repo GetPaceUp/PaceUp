@@ -88,8 +88,10 @@ function ClubRow({ club, onChange }) {
 }
 
 function CreateClub({ onCreated }) {
-  const empty = { name: "", city: "", activity: "", directoryId: "", adminPhone: "", adminName: "" };
+  const empty = { name: "", city: "", activity: "", otherActivity: "", directoryId: "", adminPhone: "", adminName: "" };
   const [f, setF] = useState(empty);
+  const [types, setTypes] = useState(["Cycling", "Running", "Trekking", "Triathlon", "Swimming", "Walking", "Multi-sport"]);
+  useEffect(() => { api("/api/platform/directory/activities").then((d) => setTypes(d.activities.map((a) => a.name))).catch(() => {}); }, []);
   const [busy, setBusy] = useState(false), [msg, setMsg] = useState({}), [link, setLink] = useState(null);
   const [sug, setSug] = useState([]), [showSug, setShowSug] = useState(false), [active, setActive] = useState(0);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -101,12 +103,14 @@ function CreateClub({ onCreated }) {
   function pick(c) {
     setShowSug(false);
     if (c.on_paceup) { setMsg({ error: `${c.name} is already on PaceUp. Find it under All clubs.` }); return; }
-    setMsg({}); setF({ ...f, name: c.name, city: c.city || "", activity: c.activity || "", directoryId: c.directory_id });
+    setMsg({}); setF({ ...f, name: c.name, city: c.city || "", activity: c.activity_type || "", otherActivity: c.activity_type === "Other" ? c.activity || "" : "", directoryId: c.directory_id });
   }
   async function submit(e) {
     e.preventDefault(); setBusy(true); setMsg({}); setLink(null);
     try {
-      const d = await api("/api/platform/clubs", { method: "POST", body: JSON.stringify(Object.fromEntries(Object.entries(f).filter(([, v]) => v))) });
+      const { otherActivity, ...rest } = f;
+      const body = { ...rest, activity: f.activity === "Other" ? otherActivity.trim() || "Other" : f.activity };
+      const d = await api("/api/platform/clubs", { method: "POST", body: JSON.stringify(Object.fromEntries(Object.entries(body).filter(([, v]) => v))) });
       setMsg({ ok: `${d.club.name} is on PaceUp. ${d.owner.name} is its owner.` });
       setLink(d.owner_link); setF(empty); onCreated();
     } catch (err) { setMsg({ error: err.message }); } finally { setBusy(false); }
@@ -132,7 +136,12 @@ function CreateClub({ onCreated }) {
       </div>
       {f.directoryId && <p className="panel-copy">Filled in from the directory. Change anything that's wrong.</p>}
       <div className="two-col"><div><label htmlFor="cc-city">City</label><input id="cc-city" value={f.city} onChange={set("city")} maxLength={80} /></div>
-        <div><label htmlFor="cc-act">Activity</label><input id="cc-act" value={f.activity} onChange={set("activity")} maxLength={80} placeholder="e.g. Running" /></div></div>
+        <div><label htmlFor="cc-act">Activity</label><select id="cc-act" value={f.activity} onChange={set("activity")}>
+          <option value="">Pick one</option>
+          {types.map((t) => <option key={t} value={t}>{t}</option>)}
+          <option value="Other">Other</option>
+        </select>
+        {f.activity === "Other" && <input id="cc-act-other" aria-label="Other activity" className="cc-act-other" value={f.otherActivity} onChange={set("otherActivity")} maxLength={80} placeholder="Type the activity" />}</div></div>
       <p className="eyebrow cc-owner-label">CLUB OWNER</p>
       <p className="panel-copy">The owner links the club's own WhatsApp number. Codes and posts for this club come only from that number. Leave empty to own the club yourself.</p>
       <label htmlFor="cc-admin">Owner's name <span className="optional">(if they're new to PaceUp)</span></label><input id="cc-admin" value={f.adminName} onChange={set("adminName")} maxLength={80} />
