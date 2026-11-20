@@ -36,4 +36,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - run: git push origin HEAD:refs/heads/live --force-with-lease
+        with:
+          fetch-depth: 0
+      # Fast-forward only: live is always an earlier main commit.
+      - run: git push origin HEAD:refs/heads/live
