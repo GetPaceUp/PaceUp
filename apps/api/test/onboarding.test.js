@@ -70,7 +70,7 @@ test("Super Admin creates a club from the directory and gets the owner's one-tim
   link = body.owner_link;
   assert.match(link.url, /\/start\/[\w-]{20,}$/);
   assert.match(link.text, /I've set up \*Sunrise Striders\* on \*PaceUp\*/);
-  assert.ok(link.text.includes(link.url) && link.text.startsWith("Hi Priya 👋") && link.text.endsWith("– Boss, PaceUp"));
+  assert.ok(link.text.includes(link.url) && link.text.startsWith("Hi Priya 👋") && link.text.includes("– Boss, PaceUp\n\n🔒 _Your club's member data stays private to your club. We never share it or use it for anything else._") && link.text.endsWith("for anything else._"));
   assert.ok(new Date(link.expires_at).getTime() - Date.now() > 6.9 * 86400000, "valid 7 days");
   assert.equal(link.phone, "919822011111");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct").get().n, 0, "nothing is sent from any club's number");
