@@ -207,3 +207,6 @@ label.check input { width: auto; margin: 0; }
 .regulars-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.regulars-head h3{font:700 20px Manrope,sans-serif;margin:0}
 .month-pick{display:inline-flex;gap:4px}.month-pick button{background:none;border:0;padding:4px 6px;font-weight:700;font-size:13px;font-family:inherit;color:#7a867e;cursor:pointer;min-height:0}.month-pick button.on{color:#d36640}
 .regulars .people b{font-variant-numeric:tabular-nums}
+
+/* "by Feet and Pedals" endorsement: small, never louder than PaceUp */
+.endorse{font-style:normal;font-weight:600;letter-spacing:.4px;text-transform:none;color:#8b968f;margin-left:4px}.endorse-line{margin:18px 0 0;text-align:center;font-size:11px;color:#8b968f;letter-spacing:.3px}

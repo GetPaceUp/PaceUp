@@ -1,0 +1,44 @@
+# PaceUp web server (Caddy). This file is the source of truth: the deploy agent
+# (deploy/server-config.sh) installs it as /etc/caddy/Caddyfile after `caddy validate`,
+# checks the live site still answers, and puts the previous file back if it does not.
+# Certificates are automatic (Let's Encrypt) once a name's DNS points at this VM.
+
+(paceup_app) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	@api path /api/* /health
+	handle @api {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle {
+		root * /opt/paceup/apps/web/dist
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Primary address.
+getpaceup.com {
+	import paceup_app
+}
+
+# Current address. Keeps serving until the switch, then becomes a redirect.
+paceup.feetandpedals.com {
+	import paceup_app
+}
+
+# Other names: permanent redirect to the primary, keeping the path (old /r/<code> links keep working).
+www.getpaceup.com, getpaceup.in, www.getpaceup.in, getpaceup.info, www.getpaceup.info {
+	redir https://getpaceup.com{uri} permanent
+}
+
+paceup.folksonforks.com {
+	redir https://paceup.feetandpedals.com{uri} permanent
+}

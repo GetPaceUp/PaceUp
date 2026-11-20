@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
       - run: npm test --workspace @paceup/api
+      - run: bash deploy/test-server-config.sh
       - run: npm run build
 
   # Only a commit that passed every check above is promoted. The VM deploy agent follows `live`,
