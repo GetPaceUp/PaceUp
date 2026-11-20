@@ -172,7 +172,7 @@ test("someone new adds themselves to the club list; next time they just pick the
   const newbie = phone();
   const joined = await newbie.rsvp(code, { status: "going", name: "zoya khan", phone: ph("zoya khan") });
   assert.equal(joined.statusCode, 200, joined.body);
-  assert.deepEqual(joined.json().ride.my_rsvp, { id: joined.json().ride.my_rsvp.id, name: "Zoya Khan", listed: true });
+  assert.deepEqual(joined.json().ride.my_rsvp, { id: joined.json().ride.my_rsvp.id, name: "Zoya Khan", listed: true, join_point: 1 });
   const row = db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND name = 'Zoya Khan'").get(clubId);
   assert.equal(row.self_added, 1);
   const names = (await call("GET", `/api/r/${code}/names?q=zoya`)).json().names;
@@ -262,3 +262,34 @@ test("bad input is rejected", async () => {
 });
 
 test.after(async () => { await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
+
+test("midway meeting point: place and time together, after the start; people say where they join", async () => {
+  const at = (iso, min) => new Date(new Date(iso).getTime() + min * 60000).toISOString();
+  const start = inDays(5);
+  const base = { title: "Pathways ride", starts_at: start, meeting_point: "Xavier's", status: "published" };
+  const post = (extra) => call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...base, ...extra } });
+  assert.equal((await post({ meeting_point_2: "Tulip Chowk" })).statusCode, 400, "a midway point needs a time");
+  assert.equal((await post({ meeting_point_2: "Tulip Chowk", meeting_at_2: at(start, -10) })).statusCode, 400, "not before the start");
+  const ride = (await post({ meeting_point_2: "Tulip Chowk", meeting_at_2: at(start, 15), map_url_2: "https://maps.app.goo.gl/x" })).json().ride;
+  assert.equal(ride.meeting_point_2, "Tulip Chowk");
+  assert.equal(ride.participants[0].join_point, 1, "the lead starts at the first point");
+
+  const guest = phone();
+  const joined = await guest.rsvp(ride.code, { status: "going", name: "Kabir Singh", phone: "98333 12345", join_point: 2 });
+  assert.equal(joined.statusCode, 200, joined.body);
+  assert.equal(joined.json().ride.my_rsvp.join_point, 2);
+  // Switching point keeps your place on the list; no name needed.
+  const second = phone();
+  await second.rsvp(ride.code, { status: "going", name: "Lata Rao", phone: "98333 54321" });
+  const moved = await guest.rsvp(ride.code, { status: "going", join_point: 1 });
+  assert.deepEqual(moved.json().ride.participants.map((p) => [p.name, p.join_point]), [["Priya Sharma", 1], ["Kabir Singh", 1], ["Lata Rao", 1]]);
+  await guest.rsvp(ride.code, { status: "going", join_point: 2 });
+
+  // Removing the midway point puts everyone back at the start.
+  const cleared = await call("PATCH", `/api/clubs/${clubId}/rides/${ride.id}`, { cookie: owner.cookie, payload: { meeting_point_2: null } });
+  assert.equal(cleared.json().ride.meeting_point_2, null);
+  assert.equal(cleared.json().ride.meeting_at_2, null);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ? AND join_point = 2").get(ride.id).n, 0);
+  // Without a midway point, join_point 2 is ignored.
+  assert.equal((await second.rsvp(ride.code, { status: "going", join_point: 2 })).json().ride.my_rsvp.join_point, 1);
+});

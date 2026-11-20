@@ -115,3 +115,32 @@ test("an AM/PM answer is never taken as the place, and 'meet' alone isn't a requ
   assert.match(r2, /Where are we meeting/);
   say("cancel");
 });
+
+test("a midway point by WhatsApp: in the first message, asked for when its time is missing, or dropped", () => {
+  const reply = say("Create a ride tomorrow 5:45am from Xavier's, midway Tulip Chowk 6am, 35 km");
+  assert.match(reply, /📍 Xavier's\n📍 Midway: Tulip Chowk · 6:00 AM/);
+  assert.match(say("yes"), /Ride created!/);
+  let ride = db.prepare("SELECT * FROM rides WHERE club_id = ? ORDER BY created_at DESC").get(club.clubId);
+  assert.equal(ride.meeting_point_2, "Tulip Chowk");
+  assert.equal((new Date(ride.meeting_at_2) - new Date(ride.starts_at)) / 60000, 15);
+
+  // "6:15" without AM/PM is read as the one after the start.
+  assert.match(say("Create a ride tomorrow 5:45am from Xavier's, midway point: Tulip Chowk at 6:15"), /Midway: Tulip Chowk · 6:15 AM/);
+  assert.match(say("cancel"), /Discarded/);
+  // No time: asked for it.
+  assert.match(say("Create a ride tomorrow 5:45am from Xavier's, midway Tulip Chowk"), /What time do you meet at Tulip Chowk/);
+  assert.match(say("midway Tulip Chowk 6:20 am"), /Midway: Tulip Chowk · 6:20 AM[\s\S]*Reply \*YES\*/);
+  const dropped = say("no midway");
+  assert.doesNotMatch(dropped, /Midway/);
+  assert.match(say("yes"), /Ride created!/);
+  ride = db.prepare("SELECT * FROM rides WHERE club_id = ? ORDER BY created_at DESC").get(club.clubId);
+  assert.equal(ride.meeting_point_2, null);
+});
+
+test("a template keeps its midway point, timed from the start", async () => {
+  await call("POST", `/api/clubs/${club.clubId}/templates`, { cookie: club.cookie, payload: { name: "Pathways", title: "Pathways Loop", category: "cycling", meeting_point: "Xavier's", meeting_point_2: "Tulip Chowk", midway_offset_min: 15 } });
+  assert.match(say("Pathways tomorrow 5:45 am"), /📍 Midway: Tulip Chowk · 6:00 AM/);
+  assert.match(say("yes"), /Ride created!/);
+  const ride = db.prepare("SELECT * FROM rides WHERE club_id = ? ORDER BY created_at DESC").get(club.clubId);
+  assert.equal(ride.meeting_point_2, "Tulip Chowk");
+});

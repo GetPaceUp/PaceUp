@@ -589,6 +589,20 @@ export const migrations = [
       // Each background service (the WhatsApp worker) records the commit it runs, for /health and the deploy check.
       db.exec("CREATE TABLE service_status (name TEXT PRIMARY KEY, version TEXT NOT NULL, started_at TEXT NOT NULL, seen_at TEXT NOT NULL)");
     }
+  },
+  {
+    id: 24,
+    name: "midway_meeting_point",
+    up(db) {
+      // People often join on the way: an optional second meeting point with its own time.
+      // Each RSVP says where that person joins (1 = the start, 2 = the midway point).
+      db.exec(`
+        ALTER TABLE rides ADD COLUMN meeting_point_2 TEXT;
+        ALTER TABLE rides ADD COLUMN meeting_at_2 TEXT;
+        ALTER TABLE rides ADD COLUMN map_url_2 TEXT;
+        ALTER TABLE ride_rsvps ADD COLUMN join_point INTEGER NOT NULL DEFAULT 1;
+      `);
+    }
   }
 ];
 

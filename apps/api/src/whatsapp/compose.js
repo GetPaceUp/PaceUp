@@ -152,6 +152,16 @@ export function parseActivity(text, { now = new Date(), tz = "Asia/Kolkata" } = 
     state.text = ` ${value} `; // time, date, distance, spots: parse the value below
   }
 
+  // "midway Tulip Chowk 6am" / "midway point: Tulip Chowk at 6:00": a second meeting point with its own time.
+  take(state, /\b(?:mid-?way|2nd|second)(?:\s+(?:meeting\s+)?point)?\s*(?:at|is|:|=|-)?\s*([^,;\n]+)/i, (m) => {
+    const sub = { text: ` ${m[1]} `, original: state.original, out: {}, hint: null };
+    parseTime(sub);
+    const place = cleanLocation(sub.text.replace(/\b(?:at|by|@)\s*$/i, ""));
+    if (place.length < 2 || !/\p{L}/u.test(place)) return false;
+    state.out.midway = place.slice(0, 200);
+    if (sub.out.time) state.out.midway_time = sub.out.time;
+    else if (sub.out.time_ambiguous) state.out.midway_time_ambiguous = sub.out.time_ambiguous;
+  });
   take(state, /\btitle\s*[:=-]\s*([^,\n]+)/i, (m) => { state.out.title = m[1].trim().slice(0, 120); });
   take(state, /"([^"]{2,120})"/, (m) => { state.out.title = m[1].trim(); });
   take(state, /\bnotes?\s*[:=-]\s*(.+)$/i, (m) => { state.out.notes = m[1].trim().slice(0, 2000); });
