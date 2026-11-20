@@ -495,6 +495,69 @@ export const migrations = [
         CREATE INDEX idx_login_codes_phone ON login_codes(phone, created_at);
       `);
     }
+  },
+  {
+    id: 21,
+    name: "club_directory_and_own_numbers",
+    up(db) {
+      // Clubs on their own WhatsApp numbers: a directory of clubs across India (public part: name,
+      // city, activity; the rest is the Super Admin's prospect record), one-time owner sign-in links,
+      // the club admin who owns the club's number, and linking by a pairing code.
+      db.exec(`
+        CREATE TABLE club_directory (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          name_key TEXT NOT NULL,
+          city TEXT,
+          city_key TEXT NOT NULL DEFAULT '',
+          state TEXT,
+          activity TEXT,
+          kind TEXT,
+          website TEXT,
+          instagram TEXT,
+          facebook TEXT,
+          other_links TEXT,
+          phone TEXT,
+          email TEXT,
+          source_name TEXT,
+          source_id TEXT,
+          public_page_link TEXT,
+          extra_json TEXT,
+          status TEXT NOT NULL DEFAULT 'prospect' CHECK (status IN ('prospect', 'contacted', 'pilot', 'live')),
+          notes TEXT,
+          hidden INTEGER NOT NULL DEFAULT 0,
+          club_id TEXT REFERENCES clubs(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (name_key, city_key)
+        );
+        CREATE INDEX idx_directory_name ON club_directory(name_key);
+        CREATE INDEX idx_directory_club ON club_directory(club_id);
+        ALTER TABLE clubs ADD COLUMN city TEXT;
+        ALTER TABLE clubs ADD COLUMN activity TEXT;
+        ALTER TABLE clubs ADD COLUMN number_owner_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+        CREATE TABLE owner_links (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          claimed_at TEXT,
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_owner_links_club ON owner_links(club_id, created_at);
+        ALTER TABLE whatsapp_connections ADD COLUMN pairing_phone TEXT;
+        ALTER TABLE whatsapp_connections ADD COLUMN pairing_code TEXT;
+      `);
+      // Existing clubs: the owner owns the number, except the pilot club whose number the Super Admin linked.
+      for (const c of db.prepare("SELECT c.id, (SELECT user_id FROM club_memberships WHERE club_id = c.id AND role = 'owner' ORDER BY created_at LIMIT 1) AS owner FROM clubs c").all()) {
+        const linked = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND phone IS NOT NULL").get(c.id);
+        if (!linked && c.owner) db.prepare("UPDATE clubs SET number_owner_id = ? WHERE id = ?").run(c.owner, c.id);
+      }
+    }
   }
 ];
 

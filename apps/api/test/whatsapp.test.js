@@ -25,6 +25,8 @@ async function joinAs(owner, name, email) {
 
 const a = await registerOwner("Priya Sharma", "priya@example.com", "Club A");
 const b = await registerOwner("Bala Owner", "bala@example.com", "Club B");
+// These clubs' numbers are linked by the Super Admin (like the pilot club); own-number clubs are in onboarding.test.js.
+db.prepare("UPDATE clubs SET number_owner_id = NULL").run();
 const riders = [await joinAs(a, "Arjun Rao", "arjun@example.com"), await joinAs(a, "Meera Iyer", "meera@example.com"), await joinAs(a, "Karthik Nair", "karthik@example.com")];
 const asSuper = async (club, fn) => { // only the Super Admin links or unlinks the number
   db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(club.user.id);

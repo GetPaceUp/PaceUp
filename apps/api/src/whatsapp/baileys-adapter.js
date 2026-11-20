@@ -16,7 +16,7 @@ for (const level of ["info", "warn", "log"]) {
 
 export const baileysAdapter = {
   name: "baileys",
-  async connect(clubId, { authDir, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
+  async connect(clubId, { authDir, pairingPhone = null, onQr, onPairingCode = () => {}, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
     mkdirSync(authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     let version;
@@ -69,8 +69,17 @@ export const baileysAdapter = {
         if (text) onMessage({ id: m.key.id, from: jid, fromAlt: m.key.remoteJidAlt || null, text });
       }
     });
+    let codeAsked = false;
     sock.ev.on("connection.update", (update) => {
-      if (update.qr) onQr(update.qr);
+      if (update.qr) {
+        onQr(update.qr);
+        // Linking by phone number: once the socket is ready for pairing, ask WhatsApp for the 8-character code.
+        if (pairingPhone && !codeAsked && !sock.authState?.creds?.registered) {
+          codeAsked = true;
+          sock.requestPairingCode(pairingPhone).then((code) => onPairingCode(String(code).replace(/^(.{4})(.{4})$/, "$1-$2")))
+            .catch((error) => quiet.warn({ err: error?.message }, "pairing code request failed"));
+        }
+      }
       if (update.connection === "open") {
         const phone = (sock.user?.id || "").split(":")[0].split("@")[0];
         onOpen({ phone });

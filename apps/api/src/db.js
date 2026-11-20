@@ -204,7 +204,14 @@ export function getPlatformRole(userId) { return db.prepare("SELECT platform_rol
 export function getPlatformOverview() {
   return {
     counts: { clubs: db.prepare("SELECT COUNT(*) AS count FROM clubs").get().count, users: db.prepare("SELECT COUNT(*) AS count FROM users").get().count, memberships: db.prepare("SELECT COUNT(*) AS count FROM club_memberships").get().count },
-    clubs: db.prepare("SELECT c.id,c.name,c.slug,c.created_at,COUNT(cm.user_id) AS member_count FROM clubs c LEFT JOIN club_memberships cm ON cm.club_id=c.id GROUP BY c.id ORDER BY c.created_at DESC").all(),
+    clubs: db.prepare(`SELECT c.id,c.name,c.slug,c.city,c.activity,c.created_at,
+        (SELECT COUNT(*) FROM club_memberships cm WHERE cm.club_id=c.id) AS member_count,
+        (SELECT u.name FROM club_memberships cm INNER JOIN users u ON u.id=cm.user_id WHERE cm.club_id=c.id AND cm.role='owner' ORDER BY cm.created_at LIMIT 1) AS owner_name,
+        (SELECT u.name FROM users u WHERE u.id=c.number_owner_id) AS number_owner_name,
+        wc.status AS wa_status, wc.desired AS wa_desired,
+        (SELECT MAX(created_at) FROM owner_links ol WHERE ol.club_id=c.id) AS owner_link_at,
+        (SELECT MAX(claimed_at) FROM owner_links ol WHERE ol.club_id=c.id) AS owner_signed_in_at
+      FROM clubs c LEFT JOIN whatsapp_connections wc ON wc.club_id=c.id ORDER BY c.created_at DESC`).all(),
     users: db.prepare(`SELECT u.id,u.name,CASE WHEN u.email LIKE '%@${PHONE_EMAIL_DOMAIN}' THEN NULL ELSE u.email END AS email,u.phone,u.platform_role,u.created_at,COUNT(cm.club_id) AS club_count FROM users u LEFT JOIN club_memberships cm ON cm.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC`).all()
   };
 }

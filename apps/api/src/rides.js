@@ -261,7 +261,14 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       if (displayName.length < 2 || displayName.length > 60) throw new DomainError(400, "Enter your name (2 to 60 characters).");
       const mobile = cleanPhone(phone);
       if (!mobile) throw new DomainError(400, "Enter your mobile number, so the club knows who you are.");
-      const byPhone = db.prepare("SELECT id, name FROM club_roster WHERE club_id = ? AND phone = ?").get(ride.club_id, mobile);
+      const byPhone = db.prepare("SELECT id, name, source FROM club_roster WHERE club_id = ? AND phone = ?").get(ride.club_id, mobile);
+      // Only a WhatsApp nickname was known for this number: the name they type now replaces it.
+      // A name an admin typed or imported is kept.
+      if (byPhone?.source === "whatsapp" && nameKey(displayName) !== nameKey(byPhone.name)
+          && !db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(ride.club_id, nameKey(displayName), byPhone.id)) {
+        db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = 'manual', self_added = 1, updated_at = ? WHERE id = ?").run(displayName, nameKey(displayName), now, byPhone.id);
+        byPhone.name = displayName;
+      }
       const byName = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND name_key = ?").get(ride.club_id, nameKey(displayName));
       if (byPhone) { who.roster_id = byPhone.id; displayName = byPhone.name; }
       else if (byName && byName.phone) throw new DomainError(409, `Someone called ${byName.name} is already on the club list with another number. Add your surname so people can tell you apart.`);
