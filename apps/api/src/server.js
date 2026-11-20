@@ -308,13 +308,15 @@ export async function buildApp(options = {}) {
   app.patch("/api/clubs/:clubId", {
     schema: { params: { type: "object", properties: { clubId: id }, required: ["clubId"] },
       body: { type: "object", properties: { name: str(200) }, required: ["name"] } },
-    preHandler: [app.authenticate, requireClubRole(["owner", "admin"])]
+    // Only the Super Admin renames a club (it ties to the directory and the club's links); club admins can't.
+    preHandler: [app.authenticate, requirePlatformAdmin]
   }, async (request, reply) => {
     const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
     const slug = makeSlug(name);
     if (name.length < 2 || name.length > 80 || !slug) return reply.code(400).send({ error: "Club name must be 2–80 characters and contain letters or numbers." });
     try {
       const club = updateClub(request.params.clubId, name, slug);
+      if (!club) return reply.code(404).send({ error: "Club not found." });
       return { club };
     } catch (error) {
       if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return reply.code(409).send({ error: "That club URL is already in use. Choose another name." });

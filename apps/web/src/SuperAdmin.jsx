@@ -55,6 +55,8 @@ function ClubRow({ club, onChange }) {
   const [cls, label] = clubStage(club);
   const newLink = async () => { setErr(""); try { setLink((await api(`/api/platform/clubs/${club.id}/owner-link`, { method: "POST" })).owner_link); setOpen("link"); onChange?.(); } catch (e) { setErr(e.message); } };
   const openOwner = async () => { setOpen(open === "owner" ? "" : "owner"); setErr(""); try { setAdmins(await api(`/api/platform/clubs/${club.id}/admins`)); } catch (e) { setErr(e.message); } };
+  const [newName, setNewName] = useState(club.name);
+  const rename = async (e) => { e.preventDefault(); setErr(""); try { const r = await fetch(`/api/clubs/${club.id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newName }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || "Could not rename the club."); setOpen(""); onChange?.(); } catch (e2) { setErr(e2.message); } };
   const setOwner = async (userId) => { try { setAdmins(await api(`/api/platform/clubs/${club.id}/number-owner`, { method: "PUT", body: JSON.stringify({ userId: userId || null }) })); onChange?.(); } catch (e) { setErr(e.message); } };
   return <div className="club-item">
     <div className="club-item-head">
@@ -62,11 +64,16 @@ function ClubRow({ club, onChange }) {
       <span className={`stage stage-${cls}`}>{label}</span>
     </div>
     <div className="club-item-actions">
+      <button type="button" className="secondary-button small-button" onClick={() => { setNewName(club.name); setOpen(open === "rename" ? "" : "rename"); }}>Rename</button>
       <button type="button" className="secondary-button small-button" onClick={() => setOpen(open === "groups" ? "" : "groups")}>{open === "groups" ? "Close groups" : "Groups"}</button>
       <button type="button" className="secondary-button small-button" onClick={openOwner}>Number owner{club.number_owner_name ? `: ${club.number_owner_name}` : ""}</button>
       {club.wa_status !== "connected" && <button type="button" className="secondary-button small-button" onClick={newLink}>New owner link</button>}
     </div>
     {err && <p className="error" role="alert">{err}</p>}
+    {open === "rename" && <form className="inline-form" onSubmit={rename}>
+      <div className="field-grow"><label className="field-label" htmlFor={`rn-${club.id}`}>Club name</label><input id={`rn-${club.id}`} value={newName} onChange={(e) => setNewName(e.target.value)} minLength={2} maxLength={80} required autoFocus /></div>
+      <button type="submit">Save</button>
+    </form>}
     {open === "groups" && <GroupPicker url={`/api/platform/clubs/${club.id}/whatsapp-groups`} />}
     {open === "link" && link && <OwnerLinkCard link={link} />}
     {open === "owner" && admins && <div className="platform-groups">
