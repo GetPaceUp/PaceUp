@@ -188,6 +188,7 @@ export default function App() {
             {mode === "login" && !forgot && <p className="auth-switch"><button type="button" className="text-button" onClick={() => setForgot(true)}>Forgot password?</button></p>}
             </>}
             <p className="auth-switch">{mode === "register" ? "Already have an account?" : "New to PaceUp?"} <button type="button" className="text-button" onClick={() => { setMode(mode === "register" ? "login" : "register"); setError(""); }}>{mode === "register" ? "Sign in" : "Create an account"}</button></p>
+            <p className="endorse-line">PaceUp by Feet and Pedals</p>
           </section>
         </section>
       ) : (
@@ -223,7 +224,7 @@ export default function App() {
           {page !== "members" && clubs.find((club) => club.id === selectedClub) && <ClubRides club={clubs.find((club) => club.id === selectedClub)} />}
         </section>
       )}
-      <footer><span>PACEUP</span><span>Built for every kind of active community.</span></footer>
+      <footer><span>PACEUP <em className="endorse">by Feet and Pedals</em></span><span>Built for every kind of active community.</span></footer>
     </main>
   );
 }

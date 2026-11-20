@@ -467,7 +467,7 @@ export function RidePage({ code }) {
     <main className="page-shell ride-shell">
       <nav className="topbar"><a className="wordmark" href="/" aria-label="PaceUp home"><span className="mark">P</span> paceup</a><span className="topbar-note">{ride?.club.name.toUpperCase() || ""}</span></nav>
       {children}
-      <footer><span>PACEUP</span><span>Built for every kind of active community.</span></footer>
+      <footer><span>PACEUP <em className="endorse">by Feet and Pedals</em></span><span>Built for every kind of active community.</span></footer>
     </main>
   );
   if (state === "loading") return shell(<p className="empty-state">Loading…</p>);

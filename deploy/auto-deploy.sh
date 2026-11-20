@@ -35,6 +35,8 @@ healthy() {
   done
   log "health check failed (wanted ${want:-ok}): ${body:-no answer}"; return 1
 }
+# Repo-owned server settings (Caddyfile, link address): see deploy/server-config.sh. Cheap no-op when unchanged.
+server_config() { [ -x "$APP/deploy/server-config.sh" ] && APP="$APP" RUN_AS="$RUN_AS" SYSTEMCTL="$SYSTEMCTL" "$APP/deploy/server-config.sh"; return 0; }
 restart_all() { "$SYSTEMCTL" restart paceup-api && sleep 3 && "$SYSTEMCTL" restart paceup-whatsapp; }
 build() { # $1 = old sha, $2 = new sha (npm ci only when the lockfile changed)
   if [ -n "$(cd "$APP" && run git diff --name-only "$1" "$2" -- package-lock.json)" ]; then (cd "$APP" && run npm ci) || return 1; fi
@@ -48,7 +50,7 @@ main() {
   run git fetch -q origin live || { log "fetch failed, will retry"; exit 0; }
   local cur new short failed_file
   cur=$(run git rev-parse HEAD); new=$(run git rev-parse origin/live)
-  [ "$cur" = "$new" ] && exit 0
+  [ "$cur" = "$new" ] && { server_config; exit 0; }
   short=${new:0:7}; failed_file="$STATE_DIR/deploy-last-failed-sha"
   [ -f "$failed_file" ] && [ "$(cat "$failed_file")" = "$new" ] && exit 0   # already failed once; wait for a newer commit
   if ! run git merge-base --is-ancestor "$cur" "$new"; then
@@ -63,7 +65,7 @@ main() {
   if run git merge --ff-only "$new" >/dev/null && build "$cur" "$new" && restart_all && healthy "$short"; then
     rm -f "$failed_file"
     notify "✅ PaceUp updated to $short (site and WhatsApp worker). Health check passed. Backup: $(basename "$backup")"
-    log "deployed $short"; exit 0
+    log "deployed $short"; server_config; exit 0
   fi
 
   log "deploy of $short failed, rolling the code back to ${cur:0:7}"
