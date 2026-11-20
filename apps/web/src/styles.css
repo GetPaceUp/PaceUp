@@ -138,3 +138,6 @@ label.check input { width: auto; margin: 0; }
 .platform-mobile-count{display:none}@media(max-width:600px){.platform-mobile-count{display:inline}}
 @media(max-width:600px){.platform-stats{grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}.platform-stats .workspace{padding:12px;gap:4px}.platform-stats strong{font-size:22px}.platform-stats span{font-size:9px;letter-spacing:1px}}
 @media(max-width:600px){.platform-user-row .platform-mobile-count{display:inline}}
+/* Header buttons: a link styled as a button (Super Admin) matches a real one (Sign out) */
+.head-actions{align-items:center}.head-actions a.secondary-button,.head-actions button.secondary-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:46px;padding:13px 18px;border-radius:8px;font:inherit;font-weight:700;line-height:1.2;text-decoration:none}
+@media(max-width:480px){.dashboard-head:has(.head-actions){flex-wrap:wrap}.dashboard-head .head-actions{flex:1 1 100%;justify-content:stretch}.dashboard-head .head-actions>*{flex:1 1 0}}

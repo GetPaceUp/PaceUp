@@ -469,6 +469,32 @@ export const migrations = [
         CREATE INDEX idx_group_adds_pending ON whatsapp_group_adds(status, created_at);
       `);
     }
+  },
+  {
+    id: 20,
+    name: "login_codes_reset_purpose",
+    up(db) {
+      // Self-serve password reset sends a WhatsApp code with its own purpose. The CHECK on
+      // login_codes only allows login/attach, so the table is rebuilt (nothing references it).
+      db.exec(`
+        CREATE TABLE login_codes_v2 (
+          id TEXT PRIMARY KEY,
+          phone TEXT NOT NULL,
+          code_hash TEXT NOT NULL,
+          purpose TEXT NOT NULL CHECK (purpose IN ('login', 'attach', 'reset')),
+          user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          ip TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO login_codes_v2 SELECT id, phone, code_hash, purpose, user_id, attempts, expires_at, used_at, ip, created_at FROM login_codes;
+        DROP TABLE login_codes;
+        ALTER TABLE login_codes_v2 RENAME TO login_codes;
+        CREATE INDEX idx_login_codes_phone ON login_codes(phone, created_at);
+      `);
+    }
   }
 ];
 
