@@ -13,6 +13,7 @@ import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
 import { markClubLive } from "../directory.js";
+import { queueNoShowNudges } from "../no-shows.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -295,6 +296,14 @@ export class WhatsAppWorker {
     }
   }
 
+  /** The Lead's one reminder to mark no-shows (checked at most once a minute). */
+  nudgeNoShows() {
+    if (this.nudgedAt && Date.now() - this.nudgedAt < 60000) return;
+    this.nudgedAt = Date.now();
+    try { queueNoShowNudges(); }
+    catch (error) { this.log.warn?.(`[whatsapp] could not queue no-show reminders: ${error.message}`); }
+  }
+
   finish(item, status, reason, attempts = item.attempts) {
     db.prepare("UPDATE outbox SET status = ?, last_error = ?, attempts = ? WHERE id = ?").run(status, reason ? String(reason).slice(0, 500) : null, attempts, item.id);
   }
@@ -303,7 +312,7 @@ export class WhatsAppWorker {
   async tick() {
     if (this.busy) return;
     this.busy = true;
-    try { this.checkIn(); await this.reconcile(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
+    try { this.checkIn(); await this.reconcile(); this.nudgeNoShows(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
     catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
     finally { this.busy = false; }
   }

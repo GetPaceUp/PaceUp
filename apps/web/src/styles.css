@@ -179,3 +179,13 @@ label.check input { width: auto; margin: 0; }
 .start-step{display:grid;gap:12px}.step-head{display:flex;align-items:center;gap:10px;font-size:16px}.step-num{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#e46f45;color:#fff;font-weight:700;font-size:13px}.step-num.off{background:#e2e6df;color:#4b564f}.step-next{opacity:.8}
 .digits-input{width:150px;font:700 22px "DM Sans",sans-serif;letter-spacing:8px}
 @media(max-width:480px){.start-page{margin:22px auto}.club-item-head{flex-direction:column}}
+/* No-shows (admins only) */
+.ns-badge{margin-left:8px;font-size:11px;font-weight:700;border-radius:10px;padding:2px 8px;background:#f2f4ef;color:#6b786f;white-space:nowrap}.ns-badge.flag{background:#fde8e8;color:#b03a3a}
+.noshow{display:grid;gap:10px;border-top:1px solid #edf0eb;padding-top:14px;scroll-margin-top:12px}.noshow h3{font:700 20px Manrope,sans-serif;margin:0}
+.att{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.att button{display:flex;align-items:center;gap:12px;width:100%;border:1.5px solid #dce2da;border-radius:12px;padding:13px 14px;font-weight:700;font-size:15px;font-family:inherit;background:#fff;color:#18231c;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.att .mk{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;flex:none;background:#e9f5eb;color:#2f6b3f}
+.att button.out{border-color:#e7a3a3;background:#fdf0f0;color:#9b2c2c}.att button.out .mk{background:#d64545;color:#fff}.att button.out .nm{text-decoration:line-through;text-decoration-thickness:1.5px}
+.att .nm{flex:1;min-width:0;overflow-wrap:anywhere}.att .st{font-size:12px;font-weight:600;color:#b03a3a}
+.att-sum{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#4c5a50}.att-sum .saved{color:#2f6b3f;font-weight:700}
+.pill-mark{background:#fff4ee;color:#c25a32}.tag.tag-out{color:#9b2c2c;background:#fde8e8}
