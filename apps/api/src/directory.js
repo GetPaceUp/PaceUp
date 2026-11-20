@@ -154,7 +154,8 @@ export function importDirectory(csvText) {
         }
         stats.updated++;
       } else {
-        id = rec.source_id && !db.prepare("SELECT 1 FROM club_directory WHERE id = ?").get(rec.source_id) ? rec.source_id : randomUUID();
+        // The file's own id is kept when it's short enough to use in a link; otherwise a new one.
+        id = rec.source_id && rec.source_id.length <= 64 && !db.prepare("SELECT 1 FROM club_directory WHERE id = ?").get(rec.source_id) ? rec.source_id : randomUUID();
         db.prepare(`INSERT INTO club_directory (id, name_key, city_key, ${IMPORTED.join(", ")}, created_at, updated_at)
           VALUES (@id, @name_key, @city_key, ${IMPORTED.map((f) => `@${f}`).join(", ")}, @ts, @ts)`).run({ ...rec, id, ts });
         stats.added++;

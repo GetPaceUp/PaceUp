@@ -76,7 +76,7 @@ function Signups({ onChange }) {
               : <button type="button" className="secondary-button" onClick={() => setConfirm(r.id)}>Remove club</button>}
           </span></div>
       : <div className="signup-row" key={r.id}><span className="su-av" style={{ background: "#7b877f" }}>{r.name[0]}</span>
-          <span><b>{r.name}</b> asked to admin <b>{r.club_name}</b><small>{phoneText(r.phone)} · {r.owner_told ? "owner told on WhatsApp" : "owner not told (club's WhatsApp not linked)"} · {when(r.created_at)}</small></span>
+          <span><b>{r.name}</b> asked to admin <b>{r.club_name}</b><small>{phoneText(r.phone)} · {r.owner_told ? "owner told on WhatsApp" : "owner told once the club's WhatsApp is back"} · {when(r.created_at)}</small></span>
           <span className="act"><span className="su-pill su-wait">ADMIN REQUEST</span></span></div>)}
   </section>;
 }

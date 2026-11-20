@@ -111,6 +111,24 @@ test("a directory club with no city or activity asks the owner for them", async 
   assert.deepEqual(db.prepare("SELECT city, activity FROM clubs WHERE id = ?").get(res.json().club_id), { city: "Nagpur", activity: "Walking" });
 });
 
+test("an admin request made while the club's WhatsApp is offline reaches the owner when it reconnects", async () => {
+  const { tellOwner } = await import("../src/signup.js");
+  db.prepare("UPDATE whatsapp_connections SET status = 'reconnecting' WHERE club_id = ?").run(priya.clubId);
+  await call("POST", "/api/signup/request-access", { payload: { clubId: priya.clubId, name: "Kiran Rao", phone: "98470 66666" } });
+  const sent = () => db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct WHERE text LIKE '%Kiran Rao%'").get().n;
+  assert.equal(sent(), 0);
+  db.prepare("UPDATE whatsapp_connections SET status = 'connected' WHERE club_id = ?").run(priya.clubId);
+  assert.equal(tellOwner(priya.clubId), 1);
+  assert.equal(sent(), 1);
+  assert.equal(tellOwner(priya.clubId), 0, "told once");
+});
+
+test("adding a club whose name is in the directory only for another city doesn't take that entry", async () => {
+  const res = await call("POST", "/api/signup", { payload: { clubName: "Hill Walkers", city: "Mumbai", activity: "Walking", name: "Neha Joshi", phone: "98220 55511" } });
+  assert.equal(res.statusCode, 201, res.body);
+  assert.equal(db.prepare("SELECT club_id FROM club_directory WHERE name = 'Hill Walkers'").get().club_id, null, "the Kolkata entry is untouched");
+});
+
 test("a held club not linked within 24 hours is released, with its directory entry and account", async () => {
   const res = await call("POST", "/api/signup", { payload: { directoryId: dirId("Ridge Runners"), name: "Anil Verma", phone: "98160 77777" } });
   assert.equal(res.statusCode, 201, res.body);
@@ -154,8 +172,8 @@ test("the PaceUp Admin sees every sign-up and can remove one; a linked number is
   assert.equal(striders.signup_status, "live");
   assert.equal(striders.number_matches_directory, true);
   assert.equal(list.clubs.find((c) => c.name === "Lake Swimmers").in_directory, false);
-  assert.equal(list.requests[0].name, "Meera Iyer");
-  assert.equal(list.requests[0].owner_told, true);
+  const meera = list.requests.find((r) => r.name === "Meera Iyer");
+  assert.equal(meera.owner_told, true);
   assert.equal((await call("GET", "/api/platform/signups", { cookie: priya.cookie })).statusCode, 403);
   assert.equal((await call("DELETE", `/api/platform/signups/${boss.clubId}`, { cookie: boss.cookie })).statusCode, 404, "only self-signed-up clubs");
 

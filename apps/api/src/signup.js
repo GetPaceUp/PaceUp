@@ -91,7 +91,8 @@ export function createSignupClub({ directoryId, clubName, city, activity, name, 
     const a = String(activity || "").trim().slice(0, 80);
     if (!a) throw new DomainError(400, "Pick what your club does.");
     // The same name in the directory: claim that entry instead of making a second copy.
-    const d = db.prepare("SELECT * FROM club_directory WHERE name_key = ? AND hidden = 0 ORDER BY (city_key = ?) DESC LIMIT 1").get(clubKey(n), c.toLowerCase());
+    // Only the same name in the same city is this club; elsewhere it's a different club with the same name.
+    const d = db.prepare("SELECT * FROM club_directory WHERE name_key = ? AND city_key = ? AND hidden = 0 LIMIT 1").get(clubKey(n), c.toLowerCase());
     if (d?.club_id) throw taken(d.club_id);
     club = { name: n, city: c, activity: a, directoryId: d?.id || null, dir: d || null };
   }
@@ -133,6 +134,24 @@ export function signupLinked(clubId) {
   db.prepare("UPDATE clubs SET signup_status = 'live', signup_live_at = ? WHERE id = ? AND signup_status = 'pending'").run(t, clubId);
   db.prepare(`UPDATE users SET signup_unverified = 0 WHERE signup_unverified = 1 AND phone = (SELECT phone FROM whatsapp_connections WHERE club_id = ?)
     AND id IN (SELECT user_id FROM club_memberships WHERE club_id = ? AND role = 'owner')`).run(clubId, clubId);
+  tellOwner(clubId);
+}
+
+/** Admin requests not yet passed on (the club's WhatsApp was offline): sent from the club's own number once it's back. */
+export function tellOwner(clubId) {
+  const club = db.prepare("SELECT name, signup_status FROM clubs WHERE id = ?").get(clubId);
+  if (!club || club.signup_status === "pending" || club.signup_status === "removed") return 0;
+  const owner = db.prepare("SELECT u.phone FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = ? AND cm.role = 'owner'").get(clubId);
+  const connected = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND status = 'connected' AND desired = 'on'").get(clubId);
+  if (!owner?.phone || !connected) return 0;
+  const waiting = db.prepare("SELECT * FROM club_access_requests WHERE club_id = ? AND owner_told = 0 AND created_at > ?").all(clubId, iso(Date.now() - 7 * 86400000));
+  for (const r of waiting) {
+    const text = `*${r.name}* (${prettyPhone(r.phone)}) asked to help run *${club.name}* on PaceUp.\n\nTo make them a club admin, open ${appUrl()}/#members and add this number.\n\nDon't know them? Just ignore this.`;
+    db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), clubId, owner.phone, text, iso(Date.now() + HOLD_MS), iso());
+    db.prepare("UPDATE club_access_requests SET owner_told = 1 WHERE id = ?").run(r.id);
+  }
+  return waiting.length;
 }
 
 function deleteClub(clubId) {
@@ -198,16 +217,10 @@ export function requestAccess({ clubId, name, phone: rawPhone, userId = null }) 
   if (!phone) throw new DomainError(400, "Enter your mobile number with the country code, e.g. +91 98765 43210.");
   const asked = db.prepare("SELECT 1 FROM club_access_requests WHERE club_id = ? AND phone = ? AND created_at > ?").get(clubId, phone, iso(Date.now() - HOLD_MS));
   if (asked) return { sent: true };
-  const owner = db.prepare("SELECT u.phone FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id WHERE cm.club_id = ? AND cm.role = 'owner'").get(clubId);
-  const connected = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND status = 'connected' AND desired = 'on'").get(clubId);
-  const tell = Boolean(owner?.phone && connected && !club.pending);
   db.transaction(() => {
-    db.prepare("INSERT INTO club_access_requests (id, club_id, name, phone, owner_told, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(randomUUID(), clubId, person, phone, tell ? 1 : 0, iso());
-    if (tell) {
-      const text = `*${person}* (${prettyPhone(phone)}) asked to help run *${club.name}* on PaceUp.\n\nTo make them a club admin, open ${appUrl()}/#members and add this number.\n\nDon't know them? Just ignore this.`;
-      db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(randomUUID(), clubId, owner.phone, text, iso(Date.now() + HOLD_MS), iso());
-    }
+    db.prepare("INSERT INTO club_access_requests (id, club_id, name, phone, owner_told, created_at) VALUES (?, ?, ?, ?, 0, ?)").run(randomUUID(), clubId, person, phone, iso());
+    // Told now if the club's WhatsApp is up; otherwise as soon as it reconnects.
+    tellOwner(clubId);
   }).immediate();
   return { sent: true };
 }
