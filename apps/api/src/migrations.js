@@ -621,6 +621,36 @@ export const migrations = [
       const now = new Date().toISOString();
       db.prepare("UPDATE rides SET absent_nudge_at = ? WHERE starts_at <= ?").run(now, now);
     }
+  },
+  {
+    id: 26,
+    name: "outbox_regulars",
+    up(db) {
+      // A new kind of group post: the monthly "Most regular" shout-out. SQLite can't change a CHECK,
+      // so the outbox is copied into a new table with the wider list.
+      db.exec(`
+        CREATE TABLE outbox_v2 (
+          id TEXT PRIMARY KEY,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          ride_id TEXT REFERENCES rides(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('ride_published', 'rider_list', 'ride_updated', 'ride_cancelled', 'test', 'regulars')),
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed', 'skipped')),
+          not_before TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          payload TEXT,
+          created_at TEXT NOT NULL,
+          sent_at TEXT
+        );
+        INSERT INTO outbox_v2 (id, club_id, ride_id, kind, status, not_before, attempts, last_error, payload, created_at, sent_at)
+          SELECT id, club_id, ride_id, kind, status, not_before, attempts, last_error, payload, created_at, sent_at FROM outbox;
+        DROP TABLE outbox;
+        ALTER TABLE outbox_v2 RENAME TO outbox;
+        CREATE INDEX idx_outbox_due ON outbox(status, not_before);
+        CREATE INDEX idx_outbox_club_sent ON outbox(club_id, status, sent_at);
+        CREATE UNIQUE INDEX idx_outbox_one_pending_list ON outbox(ride_id) WHERE kind = 'rider_list' AND status = 'pending';
+      `);
+    }
   }
 ];
 

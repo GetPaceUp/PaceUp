@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NoShowMarker, NoShowBadge } from "./NoShows.jsx";
+import { MostRegular } from "./Regulars.jsx";
 
 export const api = async (url, options = {}) => {
   const response = await fetch(url, {
@@ -285,6 +286,7 @@ export function ClubRides({ club }) {
           </div>
         ))}
       </div>
+      {admin && <MostRegular club={club} />}
     </section>
   );
 }

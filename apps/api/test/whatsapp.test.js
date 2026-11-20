@@ -100,6 +100,21 @@ test("a published ride is posted to the club's group, through the club's own ses
   assert.match(msg.text, new RegExp(`https://paceup.example/r/${rideCode}`));
 });
 
+test("the monthly Most regular shout-out goes to the club's default group from its own number", async () => {
+  const month = new Date().toISOString().slice(0, 7);
+  const ride = db.prepare("SELECT * FROM rides WHERE id = ?").get(rideId);
+  db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(new Date(Date.now() - 3600000).toISOString(), rideId);
+  try {
+    const res = await call("POST", `/api/clubs/${a.clubId}/regulars/post`, { cookie: a.cookie, payload: { month } });
+    assert.equal(res.statusCode, 200, res.body);
+    makeDue(); await worker.tick();
+    const msg = sent.at(-1);
+    assert.equal(msg.clubId, a.clubId);
+    assert.equal(msg.jid, (await wa(a)).json().whatsapp.group.jid);
+    assert.match(msg.text, /Most regular in \w+\*\n1\. Priya S\. · 1/);
+  } finally { db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(ride.starts_at, rideId); }
+});
+
 test("an activity can post to a different group than the club default; only the club's groups are allowed", async () => {
   const info = (await wa(a)).json().whatsapp;
   const other = info.groups.find((g) => g.jid !== info.group.jid);
