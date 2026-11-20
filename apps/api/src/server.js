@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { codeVersion } from "./version.js";
 import { registerRideRoutes } from "./rides.js";
+import { registerRegularsRoutes } from "./regulars.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
 import { registerClubAdminRoutes, checkOwnerLink, useOwnerLink } from "./clubs-admin.js";
@@ -161,6 +162,7 @@ export async function buildApp(options = {}) {
       ...(w ? { worker_version: w.version, worker_seen_s: Math.round((Date.now() - new Date(w.seen_at).getTime()) / 1000) } : {}) };
   });
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
+  registerRegularsRoutes(app, { requireClubRole });
   registerRosterRoutes(app, { requireClubRole });
   registerTemplateRoutes(app, { requireClubRole });
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
