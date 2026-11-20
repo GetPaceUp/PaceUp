@@ -141,12 +141,44 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
   );
 }
 
+/** First visit after /start: one friendly step, no warnings. */
+function SignupWelcome({ wa, busy, act, onLater, onOther }) {
+  const starting = wa.desired === "on";
+  if (!starting) return <div className="wa-welcome">
+    <p className="wa-welcome-emoji" aria-hidden="true">🎉</p>
+    <h3 className="wa-welcome-title">You're in!</h3>
+    <p className="wa-welcome-lead">Connect your club's WhatsApp and your activities post themselves, with the going list kept up to date.</p>
+    <button type="button" className="primary-button wa-welcome-btn" disabled={busy} onClick={() => wa.owner_phone ? act("/connect", "POST", { phone: wa.owner_phone }) : onOther()}>Connect WhatsApp</button>
+    <p className="wa-welcome-small">Takes a minute. Unlink anytime.</p>
+    <button type="button" className="text-button wa-welcome-later" onClick={onLater}>Do this later</button>
+  </div>;
+  return <div className="wa-welcome">
+    {wa.pairing_phone
+      ? <>
+          <h3 className="wa-welcome-title">Type this code in WhatsApp</h3>
+          {wa.pairing_code
+            ? <div className="wa-welcome-card">
+                <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
+                <ol className="wa-steps"><li>WhatsApp › Settings › <b>Linked devices</b></li><li><b>Link a device</b> › <b>Link with phone number</b></li><li>Type the code</li></ol>
+              </div>
+            : <p className="wa-welcome-small">Getting your code…</p>}
+          <p className="wa-welcome-small">For {prettyPhone(wa.pairing_phone)} · <button type="button" className="text-button" disabled={busy} onClick={async () => { if (await act("/disconnect")) onOther(); }}>Other number</button> · <button type="button" className="text-button" disabled={busy} onClick={() => act("/connect", "POST", {})}>Scan QR</button></p>
+        </>
+      : <>
+          <h3 className="wa-welcome-title">Scan with the club phone</h3>
+          {wa.qr ? <div className="wa-welcome-card"><img className="wa-qr" src={wa.qr} alt="WhatsApp link code" /><ol className="wa-steps"><li>WhatsApp › Settings › <b>Linked devices</b></li><li><b>Link a device</b>, then point at this code</li></ol></div> : <p className="wa-welcome-small">Getting your code…</p>}
+        </>}
+    <button type="button" className="text-button wa-welcome-later" disabled={busy} onClick={() => act("/disconnect")}>Cancel</button>
+  </div>;
+}
+
 export function WhatsAppPanel({ clubId }) {
   const [wa, setWa] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmOff, setConfirmOff] = useState(false);
   const [notice, setNotice] = useState("");
+  const [later, setLater] = useState(false);
   const base = `/api/clubs/${clubId}/whatsapp`;
   const timer = useRef();
 
@@ -175,6 +207,24 @@ export function WhatsAppPanel({ clubId }) {
   const starting = wa.desired === "on" && !connected;
   const manager = Boolean(wa.can_manage_number); // the club owner, or the PaceUp Admin
   const owner = wa.club_owner;
+
+  if (wa.signup_pending && !connected && manager && !later) return (
+    <section className="admin-panel wa-panel" id="connect">
+      <SignupWelcome wa={wa} busy={busy} act={act} onLater={() => setLater(true)} onOther={() => setLater(true)} />
+      {error && <p className="error" role="alert">{error}</p>}
+    </section>
+  );
+  const justLinked = connected && manager && !wa.groups_linked && new URLSearchParams(window.location.search).has("welcome");
+  if (justLinked) return (
+    <section className="admin-panel wa-panel" id="connect">
+      <div className="wa-welcome">
+        <p className="wa-welcome-emoji" aria-hidden="true">✅</p>
+        <h3 className="wa-welcome-title">Connected!</h3>
+        <p className="wa-welcome-lead">Last bit: tick the WhatsApp group your club posts in.</p>
+        <GroupPicker url={`${base}/all-groups`} onSaved={load} />
+      </div>
+    </section>
+  );
 
   return (
     <section className="admin-panel wa-panel" id="connect">
