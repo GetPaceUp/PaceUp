@@ -2,7 +2,7 @@ import SuperAdmin from "./SuperAdmin.jsx";
 import { ClubRides, RidePage } from "./Rides.jsx";
 import { WhatsAppPanel } from "./WhatsApp.jsx";
 import { RosterPanel, MembersCard } from "./Roster.jsx";
-import { PhoneAuth, AddPhone, phoneText } from "./Auth.jsx";
+import { PhoneAuth, AddPhone, ForgotPassword, phoneText } from "./Auth.jsx";
 import { PeoplePanel } from "./People.jsx";
 import { ResetPage } from "./PasswordReset.jsx";
 import { useEffect, useState } from "react";
@@ -170,7 +170,10 @@ export default function App() {
                 if (inviteToken) { window.history.replaceState({}, "", "/"); setInviteToken(""); setNotice("Welcome! You've joined the club."); }
               }} />
               <p className="auth-switch"><button type="button" className="text-button" onClick={() => { setUseEmail(true); setError(""); }}>Use email and password instead</button></p>
-            </> : <>
+            </> : mode === "login" && forgot ? <ForgotPassword onBack={() => setForgot(false)} onDone={(data) => {
+              if (returnToNext()) return;
+              setUser(data.user); setClubs(data.clubs); setSelectedClub(data.clubs[0]?.id || ""); setForgot(false); setNotice("Password updated. You're signed in.");
+            }} /> : <>
             <form className="create-form" onSubmit={handleSubmit}>
               {mode === "register" && <><label htmlFor="name">Your name</label><input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Full name" minLength={2} maxLength={80} autoComplete="name" required /></>}
               <label htmlFor="email">Email address</label><input id="email" type="email" value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@example.com" autoComplete="email" required />
@@ -180,7 +183,6 @@ export default function App() {
             </form>
             <p className="auth-switch"><button type="button" className="text-button" onClick={() => setUseEmail(false)}>Use mobile number instead</button></p>
             {mode === "login" && !forgot && <p className="auth-switch"><button type="button" className="text-button" onClick={() => setForgot(true)}>Forgot password?</button></p>}
-            {mode === "login" && forgot && <p className="panel-copy forgot-note">Ask your club admin to send you a reset link from PaceUp. Club admins and owners can ask the PaceUp team. The link lets you choose a new password and works once.</p>}
             </>}
             <p className="auth-switch">{mode === "register" ? "Already have an account?" : "New to PaceUp?"} <button type="button" className="text-button" onClick={() => { setMode(mode === "register" ? "login" : "register"); setError(""); }}>{mode === "register" ? "Sign in" : "Create an account"}</button></p>
           </section>

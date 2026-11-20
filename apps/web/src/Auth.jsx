@@ -67,6 +67,60 @@ export function PhoneAuth({ mode, inviteToken, onDone }) {
   );
 }
 
+/** Forgot password: a code on WhatsApp, then a new password. Works with no email and no admin. */
+export function ForgotPassword({ onDone, onBack }) {
+  const [step, setStep] = useState("phone");
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [resendIn, setResendIn] = useCountdown();
+
+  async function send(e) {
+    e?.preventDefault(); setError(""); setBusy(true);
+    try { await api("/api/auth/password-reset/start", { method: "POST", body: JSON.stringify({ phone }) }); setStep("code"); setResendIn(30); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function finish(e) {
+    e.preventDefault(); setError("");
+    if (password !== confirm) { setError("The two passwords don't match."); return; }
+    setBusy(true);
+    try { onDone(await api("/api/auth/password-reset/finish", { method: "POST", body: JSON.stringify({ phone, code, password }) })); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+
+  if (step === "phone") return (
+    <form className="create-form" onSubmit={send}>
+      <h3>Forgot your password?</h3>
+      <p className="panel-copy">Enter the mobile number on your PaceUp account. We'll send a 6-digit code on WhatsApp, then you choose a new password.</p>
+      <label htmlFor="fp-phone">Mobile number</label>
+      <input id="fp-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} required autoFocus />
+      {error && <p className="error" role="alert">{error}</p>}
+      <button className="primary-button" type="submit" disabled={busy}>{busy ? "Sending…" : "Send code on WhatsApp"}</button>
+      <p className="panel-copy">No mobile number on your account yet? Ask your club admin to send you a reset link. Club admins and owners can ask the PaceUp team.</p>
+      <p className="auth-switch"><button type="button" className="text-button" onClick={onBack}>Back to sign in</button></p>
+    </form>
+  );
+  return (
+    <form className="create-form" onSubmit={finish}>
+      <p className="panel-copy">If <b>{phone}</b> is on a PaceUp account, a code is on its way on WhatsApp. <button type="button" className="text-button" onClick={() => { setStep("phone"); setCode(""); setError(""); }}>Change</button></p>
+      <label htmlFor="fp-code">6-digit code</label>
+      <input id="fp-code" className="otp-input" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="••••••" required autoFocus />
+      <label htmlFor="fp-password">New password</label>
+      <input id="fp-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={10} maxLength={128} autoComplete="new-password" placeholder="At least 10 characters" required />
+      <label htmlFor="fp-confirm">Type it again</label>
+      <input id="fp-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={10} maxLength={128} autoComplete="new-password" required />
+      {error && <p className="error" role="alert">{error}</p>}
+      <button className="primary-button" type="submit" disabled={busy || code.length !== 6}>{busy ? "Saving…" : "Set password and sign in"}</button>
+      <p className="panel-copy">No code? {resendIn > 0 ? `You can ask again in ${resendIn}s.` : <button type="button" className="text-button" disabled={busy} onClick={() => send()}>Send again</button>}</p>
+    </form>
+  );
+}
+
 /** For accounts made with email: add a mobile number to sign in with WhatsApp codes. */
 export function AddPhone({ onAdded }) {
   const [open, setOpen] = useState(false);

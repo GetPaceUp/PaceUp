@@ -102,4 +102,55 @@ test("an email account adds its mobile number, then signs in with it", async () 
   assert.equal(signedIn.json().user.email, "owner@example.com");
 });
 
+test("forgot password by WhatsApp: code, new password, signed in; nothing reveals who has an account", async () => {
+  const resetStart = (phone) => call("POST", "/api/auth/password-reset/start", { payload: { phone } });
+  const finish = (payload) => call("POST", "/api/auth/password-reset/finish", { payload });
+  const sentTo = (phone) => db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct WHERE to_phone = ?").get(phone).n;
+  const sign = async (password) => call("POST", "/api/auth/login", { payload: { email: "owner@example.com", password } });
+
+  // A number with no account and a phone-only account both get the same answer as a real one, with no message.
+  allowResend();
+  const known = await resetStart("+91 98222 33344");
+  const unknown = await resetStart("9899988877");
+  const phoneOnly = await resetStart("9876543210");
+  assert.deepEqual([known.statusCode, unknown.statusCode, phoneOnly.statusCode], [200, 200, 200]);
+  assert.deepEqual(unknown.json(), known.json());
+  assert.equal(sentTo("919899988877"), 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_direct WHERE to_phone = '919876543210' AND text LIKE '%reset%'").get().n, 0, "phone-only accounts have no password to reset");
+  const failUnknown = await finish({ phone: "9899988877", code: "123456", password: "a-brand-new-password" });
+  assert.equal(failUnknown.statusCode, 400, "unknown number fails like a wrong code");
+
+  const text = db.prepare("SELECT text FROM whatsapp_direct WHERE to_phone = '919822233344' ORDER BY created_at DESC, rowid DESC LIMIT 1").get().text;
+  assert.match(text, /password reset code/);
+  const code = text.match(/\*(\d{6})\*/)[1];
+
+  assert.equal((await finish({ phone: "9822233344", code, password: "short" })).statusCode, 400, "password length is checked");
+  const failWrong = await finish({ phone: "9822233344", code: code === "000000" ? "111111" : "000000", password: "a-brand-new-password" });
+  assert.equal(failWrong.statusCode, 400);
+  assert.equal(failWrong.json().error, failUnknown.json().error, "a wrong code looks the same as an unknown number");
+  // An admin-issued link outstanding at the time must stop working once the WhatsApp reset succeeds.
+  const ownerId = owner.user.id;
+  db.prepare("INSERT INTO password_resets (id, user_id, token_hash, created_by, expires_at, created_at) VALUES ('pr-old', ?, 'x', ?, ?, ?)").run(ownerId, ownerId, new Date(Date.now() + 3600000).toISOString(), new Date().toISOString());
+  // A sign-in code can't be used to reset, and the old password still works until the reset succeeds.
+  assert.equal((await sign("strong-password-123")).statusCode, 200);
+
+  const done = await finish({ phone: "98222 33344", code, password: "a-brand-new-password" });
+  assert.equal(done.statusCode, 200, done.body);
+  assert.equal(done.json().user.email, "owner@example.com");
+  assert.ok(done.headers["set-cookie"], "signed in");
+  assert.ok(db.prepare("SELECT used_at FROM password_resets WHERE id = 'pr-old'").get().used_at, "outstanding admin link is revoked");
+  assert.equal((await sign("strong-password-123")).statusCode, 401, "old password stops working");
+  assert.equal((await sign("a-brand-new-password")).statusCode, 200);
+  assert.equal((await call("GET", "/api/auth/me", { cookie: owner.cookie })).statusCode, 401, "other sessions are signed out");
+  assert.equal((await finish({ phone: "9822233344", code, password: "another-new-password-1" })).statusCode, 400, "a code works once");
+});
+
+test("a login code can't be used to reset a password", async () => {
+  allowResend();
+  await start("9822233344");
+  const code = lastCode("919822233344");
+  const res = await call("POST", "/api/auth/password-reset/finish", { payload: { phone: "9822233344", code, password: "yet-another-password-1" } });
+  assert.equal(res.statusCode, 400);
+});
+
 test.after(async () => { await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });

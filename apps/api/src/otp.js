@@ -2,7 +2,8 @@
 // No email needed. Codes live 5 minutes, allow 5 tries, and only a hash is stored.
 // Existing email accounts keep working and can attach a phone the same way.
 import { randomUUID, randomInt, createHash, timingSafeEqual } from "node:crypto";
-import { db, DomainError, PHONE_EMAIL_DOMAIN, registerWithInvitation, getUserById, listClubsForUser } from "./db.js";
+import bcrypt from "bcryptjs";
+import { db, DomainError, PHONE_EMAIL_DOMAIN, registerWithInvitation, getUserById, listClubsForUser, getPlatformRole, revokeAllSessions, audit } from "./db.js";
 import { cleanPhone } from "./roster.js";
 import { joinClubsByPhone, rosterNameFor } from "./clubs-admin.js";
 
@@ -32,7 +33,11 @@ function senderClub(phone) {
   `).get(phone)?.club_id;
 }
 
-export function startCode(phone, { purpose = "login", userId = null, ip = null } = {}) {
+/**
+ * deliver=false records the code and counts it against the limits but sends nothing. Password
+ * reset uses it for numbers with no account, so the answer and the throttling look the same.
+ */
+export function startCode(phone, { purpose = "login", userId = null, ip = null, deliver = true } = {}) {
   return db.transaction(() => {
     const recent = db.prepare("SELECT created_at FROM login_codes WHERE phone = ? AND created_at > ? ORDER BY created_at DESC").all(phone, iso(Date.now() - 24 * 60 * 60 * 1000));
     if (recent[0] && Date.now() - new Date(recent[0].created_at).getTime() < RESEND_GAP_MS) throw new DomainError(429, "We just sent a code. Wait 30 seconds before asking for another.");
@@ -47,8 +52,13 @@ export function startCode(phone, { purpose = "login", userId = null, ip = null }
     db.prepare("UPDATE login_codes SET used_at = ? WHERE phone = ? AND used_at IS NULL").run(iso(now), phone);
     db.prepare("INSERT INTO login_codes (id, phone, code_hash, purpose, user_id, expires_at, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(randomUUID(), phone, codeHash(phone, code).toString("hex"), purpose, userId, iso(now + CODE_TTL_MS), ip, iso(now));
-    db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), club, phone, `*${code}* is your PaceUp code. It expires in 5 minutes. Never share it with anyone.`, iso(now + CODE_TTL_MS), iso(now));
+    if (deliver) {
+      const text = purpose === "reset"
+        ? `*${code}* is your PaceUp password reset code. It expires in 5 minutes. Never share it with anyone. If you didn't ask for it, ignore this message.`
+        : `*${code}* is your PaceUp code. It expires in 5 minutes. Never share it with anyone.`;
+      db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(randomUUID(), club, phone, text, iso(now + CODE_TTL_MS), iso(now));
+    }
     return { sent: true, expires_in: CODE_TTL_MS / 1000 };
   }).immediate();
 }
@@ -103,6 +113,42 @@ function createPhoneAccount({ phone, user, inviteToken, hashToken }) {
   joinClubsByPhone(created.id, phone);
   db.prepare("UPDATE login_codes SET used_at = ? WHERE phone = ? AND used_at IS NULL").run(iso(), phone);
   return { user: getUserById(created.id), created: true };
+}
+
+/**
+ * Forgot password, by WhatsApp. Always answers the same whether or not the number has an
+ * account, so it can't be used to find out who is on PaceUp. Only accounts with a real
+ * password get a code: phone-only accounts have none and already sign in with a code.
+ */
+export function startPasswordReset(phone, ip = null) {
+  const user = db.prepare("SELECT id, email, password_hash FROM users WHERE phone = ?").get(phone);
+  const resettable = Boolean(user && user.password_hash !== "!" && !user.email.endsWith(`@${PHONE_EMAIL_DOMAIN}`));
+  return startCode(phone, { purpose: "reset", userId: resettable ? user.id : null, ip, deliver: resettable });
+}
+
+/** Checks the code, sets the new password and ends every other sign-in of that account. */
+export async function finishPasswordReset(phone, code, password, ip = null) {
+  if (typeof password !== "string" || password.length < 10 || password.length > 128) throw new DomainError(400, "Use a password between 10 and 128 characters.");
+  const user = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone);
+  // One message for every failure (wrong code, expired, unknown number), so this endpoint
+  // can't be used to tell which numbers have a resettable account.
+  let row;
+  try { row = checkCode(phone, code, "reset", { consume: false, userId: user?.id ?? "-" }); }
+  catch (error) {
+    if (error instanceof DomainError) throw new DomainError(400, "That code isn't right or has expired. Ask for a new one.");
+    throw error;
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
+  db.transaction(() => {
+    const claimed = db.prepare("UPDATE login_codes SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?").run(iso(), row.id, iso()).changes === 1;
+    if (!claimed) throw new DomainError(400, "That code has expired. Ask for a new one.");
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, user.id);
+    // Any admin-issued reset link still outstanding must not be able to overwrite this password later.
+    db.prepare("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL").run(iso(), user.id);
+    revokeAllSessions(user.id);
+    audit({ actorUserId: user.id, action: "password_reset.used_by_whatsapp", targetUserId: user.id, ip });
+  }).immediate();
+  return getUserById(user.id);
 }
 
 const RANK = { member: 1, admin: 2, owner: 3 };
@@ -161,6 +207,21 @@ export function registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit 
       if (result.needs_signup) return { needs_signup: true, name_hint: result.name_hint };
       setSession(reply, result.user);
       return reply.code(result.created ? 201 : 200).send({ user: result.user, clubs: listClubsForUser(result.user.id) });
+    } catch (error) { return domain(reply, error); }
+  });
+
+  // Forgot password: a code on WhatsApp, then a new password. No email and no admin needed.
+  app.post("/api/auth/password-reset/start", { config: limit(10), schema: { body: phoneBody } }, async (req, reply) => {
+    try { startPasswordReset(normalizePhone(req.body.phone), req.ip); return { sent: true, expires_in: CODE_TTL_MS / 1000 }; } catch (error) { return domain(reply, error); }
+  });
+  app.post("/api/auth/password-reset/finish", {
+    config: limit(10),
+    schema: { body: { type: "object", properties: { phone: { type: "string", maxLength: 30 }, code, password: { type: "string", maxLength: 128 } }, required: ["phone", "code", "password"] } }
+  }, async (req, reply) => {
+    try {
+      const user = await finishPasswordReset(normalizePhone(req.body.phone), String(req.body.code).trim(), req.body.password, req.ip);
+      setSession(reply, user);
+      return { user: { ...user, super_admin: getPlatformRole(user.id) === "super_admin" }, clubs: listClubsForUser(user.id) };
     } catch (error) { return domain(reply, error); }
   });
 

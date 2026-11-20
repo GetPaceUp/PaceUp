@@ -26,15 +26,20 @@ async function joinAs(owner, name, email) {
 const a = await registerOwner("Priya Sharma", "priya@example.com", "Club A");
 const b = await registerOwner("Bala Owner", "bala@example.com", "Club B");
 const riders = [await joinAs(a, "Arjun Rao", "arjun@example.com"), await joinAs(a, "Meera Iyer", "meera@example.com"), await joinAs(a, "Karthik Nair", "karthik@example.com")];
+const asSuper = async (club, fn) => { // only the Super Admin links or unlinks the number
+  db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(club.user.id);
+  try { return await fn(); } finally { db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(club.user.id); }
+};
 const wa = (club, method = "GET", suffix = "", payload) => call(method, `/api/clubs/${club.clubId}/whatsapp${suffix}`, { cookie: club.cookie, payload });
 const inDays = (d) => new Date(Date.now() + d * 86400000).toISOString();
 let rideCode, rideId;
 
 test("pairing: connect shows a QR, scanning connects and lists the number's groups", async () => {
   assert.equal((await call("GET", `/api/clubs/${a.clubId}/whatsapp`, { cookie: riders[0].cookie })).statusCode, 404, "members can't see the club's WhatsApp");
-  assert.equal((await wa(a, "POST", "/connect")).json().whatsapp.desired, "on");
+  assert.equal((await asSuper(a, () => wa(a, "POST", "/connect"))).json().whatsapp.desired, "on");
   await worker.tick();
-  const pairing = (await wa(a)).json().whatsapp;
+  assert.equal((await wa(a)).json().whatsapp.qr, null, "the link code is for the Super Admin, not club admins");
+  const pairing = (await asSuper(a, () => wa(a))).json().whatsapp;
   assert.equal(pairing.status, "pairing");
   assert.match(pairing.qr, /^data:image\/png;base64,/);
 
@@ -248,12 +253,25 @@ test("unlinking from the phone or disconnecting in PaceUp stops posting cleanly"
   let s = (await wa(a)).json().whatsapp;
   assert.equal(s.status, "logged_out");
   assert.equal(s.desired, "off");
-  await wa(a, "POST", "/connect"); await worker.tick(); fakeSessions.get(a.clubId).scan(); await settle();
-  await wa(a, "POST", "/disconnect"); await worker.tick();
+  await asSuper(a, () => wa(a, "POST", "/connect")); await worker.tick(); fakeSessions.get(a.clubId).scan(); await settle();
+  await asSuper(a, () => wa(a, "POST", "/disconnect")); await worker.tick();
   s = (await wa(a)).json().whatsapp;
   assert.equal(s.status, "disconnected");
   assert.equal(s.group, null);
   assert.equal(fakeSessions.has(a.clubId), false);
+});
+
+test("message counts, the link code, connect and disconnect are Super Admin only", async () => {
+  db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(a.user.id);
+  const club = (await wa(a)).json().whatsapp;
+  assert.equal(club.stats, undefined, "a club admin's response has no stats at all");
+  assert.equal((await wa(a, "POST", "/connect")).statusCode, 403, "club admins can't link the number");
+  assert.equal((await wa(a, "POST", "/disconnect")).statusCode, 403, "or unlink it");
+  assert.equal((await wa(a, "PATCH", "/settings", { quiet_hours: false })).json().whatsapp.stats, undefined, "action responses leave stats out too");
+  db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(a.user.id);
+  const sup = (await wa(a)).json().whatsapp;
+  assert.deepEqual(Object.keys(sup.stats).sort(), ["failed_24h", "last_sent_at", "pending", "sent_24h"]);
+  db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(a.user.id);
 });
 
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
