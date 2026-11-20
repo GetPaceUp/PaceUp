@@ -86,21 +86,21 @@ function going(ride, riders, previous) {
 function post(header, ride, riders, previous, cta) {
   const list = going(ride, riders, previous);
   // Join link before the list, so it stays near the top however long the list gets.
-  return [header, ...body(ride), "", list.full ? "Spots open up if someone drops out 👇" : cta, rideLink(ride), ...list.lines].join("\n");
+  return [header, ...body(ride), "", list.full ? "👉 *Full.* Tap the link to grab a spot if someone drops out. No need to copy this list." : cta, rideLink(ride), ...list.lines].join("\n");
 }
 
 export function ridePublishedText(ride, riders = []) {
-  return post(`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, ride, riders, null, "Tap to say you're in 👇");
+  return post(`${emoji(ride)} *New ${noun(ride)}: ${ride.title}*`, ride, riders, null, "👉 *Tap the link to join.* No need to copy this list, it updates itself.");
 }
 
 /** After people join or drop out: the same full post, with the list marked 🆕 / Dropped out. */
 export function riderListText(ride, riders, previous) {
-  return post(`${emoji(ride)} *${ride.title}*`, ride, riders, previous, "Join or drop out 👇");
+  return post(`${emoji(ride)} *${ride.title}*`, ride, riders, previous, "👉 *Tap the link to join or drop out.* No need to copy this list, it updates itself.");
 }
 
 /** Time or place changed: the same full post, headed as a change. */
 export function rideUpdatedText(ride, riders = []) {
-  return post(`✏️ *${cap(noun(ride))} changed: ${ride.title}*`, ride, riders, null, "Join or drop out 👇");
+  return post(`✏️ *${cap(noun(ride))} changed: ${ride.title}*`, ride, riders, null, "👉 *Tap the link to join or drop out.* No need to copy this list, it updates itself.");
 }
 
 export function rideCancelledText(ride) {
