@@ -213,20 +213,22 @@ export default function App() {
               {editingName && (isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner")
                 ? <form className="inline-form" onSubmit={saveClub}><div className="field-grow"><label htmlFor="club-name">Club name</label><input id="club-name" value={clubName} onChange={(e) => setClubName(e.target.value)} maxLength={80} minLength={2} required autoFocus /></div><button type="submit">Save</button><button type="button" className="secondary-button" onClick={() => { setClubName(clubs.find((club) => club.id === selectedClub)?.name || ""); setEditingName(false); setError(""); }}>Cancel</button></form>
                 : <div className="inline-form club-name-view"><div className="field-grow"><span className="field-label">Club name</span><strong className="club-name-text">{clubs.find((club) => club.id === selectedClub)?.name}</strong></div>{(isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner") && <button type="button" className="secondary-button" onClick={() => { setNotice(""); setEditingName(true); }}>Edit name</button>}</div>}
-              {page === "members"
-                ? <RosterPanel clubId={selectedClub} onBack={() => openPage("home")} />
-                : <>
-                  <div className="admin-grid">
-                    <PeoplePanel clubId={selectedClub} members={members} me={user.id} isOwner={isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner"} onChange={() => loadClubData(selectedClub)} />
-                  </div>
-                  <MembersCard clubId={selectedClub} onOpen={() => openPage("members")} />
-                  <WhatsAppPanel clubId={selectedClub} />
-                </>}
+              {page === "members" && <RosterPanel clubId={selectedClub} onBack={() => openPage("home")} />}
             </>}
           </section>
           {error && <p className="error" role="alert">{error}</p>}
           {notice && <p className="success-note" role="status">{notice}</p>}
+          {/* Activities (Create activity + Most regular) come first: that's what admins open PaceUp for. Club admin tools follow. */}
           {page !== "members" && clubs.find((club) => club.id === selectedClub) && <ClubRides club={clubs.find((club) => club.id === selectedClub)} />}
+          {page !== "members" && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && (
+            <section className="workspace club-tools">
+              <div className="admin-grid">
+                <PeoplePanel clubId={selectedClub} members={members} me={user.id} isOwner={isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner"} onChange={() => loadClubData(selectedClub)} />
+              </div>
+              <MembersCard clubId={selectedClub} onOpen={() => openPage("members")} />
+              <WhatsAppPanel clubId={selectedClub} />
+            </section>
+          )}
         </section>
       )}
       <footer><span>PACEUP <em className="endorse">by Feet and Pedals</em></span><span>Built for every kind of active community.</span></footer>
