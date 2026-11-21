@@ -688,6 +688,35 @@ export const migrations = [
         CREATE INDEX idx_access_requests_created ON club_access_requests(created_at);
       `);
     }
+  },
+  {
+    id: 29,
+    name: "push_alerts",
+    up(db) {
+      // Phone alerts for club owners, admins and the PaceUp Admin (web push from the installed app).
+      // app_settings keeps this server's own push keys, made on first use. push_queue is filled inside
+      // the same transaction as the event, by the API or the WhatsApp worker; the API sends it.
+      db.exec(`
+        CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE push_subscriptions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          endpoint TEXT NOT NULL UNIQUE,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_push_subscriptions_user ON push_subscriptions(user_id);
+        CREATE TABLE push_queue (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          url TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {

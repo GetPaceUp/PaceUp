@@ -18,6 +18,7 @@ import { registerClubAdminRoutes, checkOwnerLink, useOwnerLink } from "./clubs-a
 import { registerDirectoryRoutes } from "./directory.js";
 import { registerSignupRoutes, releaseStaleSignups } from "./signup.js";
 import { registerTemplateRoutes } from "./templates.js";
+import { registerPushRoutes, sendQueuedPushes } from "./push.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
@@ -41,6 +42,7 @@ const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 const hashToken = (token) => createHash("sha256").update(token).digest("hex");
 
 export async function buildApp(options = {}) {
+  const sendPushes = options.sendPushes ?? true;
   const app = Fastify({
     logger: options.logger ?? {
       level: options.logLevel ?? "info",
@@ -166,6 +168,7 @@ export async function buildApp(options = {}) {
   registerRegularsRoutes(app, { requireClubRole });
   registerRosterRoutes(app, { requireClubRole });
   registerTemplateRoutes(app, { requireClubRole });
+  registerPushRoutes(app);
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
   registerWhatsAppRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin, rateLimit: options.authRateLimit });
 
@@ -229,8 +232,11 @@ export async function buildApp(options = {}) {
   registerSignupRoutes(app, { setSession, requirePlatformAdmin, authLimit, signedInUser });
   // Clubs held at /start for 14 days without linking WhatsApp are released for the real owner.
   const releaseTimer = setInterval(() => { try { releaseStaleSignups(); } catch (error) { app.log.error(error); } }, 10 * 60 * 1000);
+  // Phone alerts queued by the API or the WhatsApp worker go out within a few seconds.
+  const pushTimer = sendPushes ? setInterval(() => { sendQueuedPushes().catch((error) => app.log.error(error)); }, 5000) : null;
+  pushTimer?.unref();
   releaseTimer.unref();
-  app.addHook("onClose", async () => clearInterval(releaseTimer));
+  app.addHook("onClose", async () => { clearInterval(releaseTimer); clearInterval(pushTimer); });
 
   // ---- a new club's owner signs in once with the link the Super Admin shared (the club has no number yet)
   const ownerToken = { type: "string", minLength: 20, maxLength: 100 };
