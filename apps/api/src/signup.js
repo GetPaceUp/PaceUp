@@ -34,14 +34,15 @@ export function publicSearch(q, limit = 8) {
   if (key.length < 2) return [];
   const onPaceup = db.prepare(`SELECT c.id FROM clubs c WHERE COALESCE(c.signup_status, '') != 'removed'`).all()
     .map((r) => clubState(r.id)).filter((c) => c && clubKey(c.name).includes(key))
-    .sort((a, b) => Number(!clubKey(a.name).startsWith(key)) - Number(!clubKey(b.name).startsWith(key)) || a.name.localeCompare(b.name)).slice(0, 3);
+    .sort((a, b) => Number(!clubKey(a.name).startsWith(key)) - Number(!clubKey(b.name).startsWith(key)) || a.name.localeCompare(b.name));
+  const onPaceupKeys = new Set(onPaceup.map((c) => clubKey(c.name)));
   const dir = db.prepare(`SELECT d.id, d.name, d.city, d.activity, d.club_id FROM club_directory d
       WHERE d.hidden = 0 AND d.club_id IS NULL AND d.name_key LIKE ?
       ORDER BY (d.name_key LIKE ?) DESC, length(d.name_key), d.name LIMIT ?`).all(`%${key}%`, `${key}%`, limit)
     .map((d) => ({ directory_id: d.id, name: d.name, city: d.city, activity: d.activity, activity_type: activityType(d.activity), on_paceup: false }))
     // A directory copy of a club that's already on PaceUp can't be set up again (same name), so don't offer it.
-    .filter((d) => !onPaceup.some((c) => clubKey(c.name) === clubKey(d.name)));
-  return [...onPaceup, ...dir].slice(0, limit);
+    .filter((d) => !onPaceupKeys.has(clubKey(d.name)));
+  return [...onPaceup.slice(0, 3), ...dir].slice(0, limit);
 }
 
 /** One directory club, for the claim campaign's "Set up PaceUp" link (/start?club=<id>). */
