@@ -3,6 +3,7 @@
 // members are never told, and it never appears in group posts.
 import { randomUUID } from "node:crypto";
 import { db, DomainError } from "./db.js";
+import { queuePush } from "./push.js";
 
 const HOUR = 60 * 60 * 1000;
 /** Marking stays open this long after the start, then the list locks. */
@@ -95,11 +96,14 @@ export function queueNoShowNudges(now = Date.now()) {
   for (const ride of due) {
     db.transaction(() => {
       db.prepare("UPDATE rides SET absent_nudge_at = ? WHERE id = ?").run(iso(now), ride.id);
-      if (new Date(ride.starts_at).getTime() < now - NUDGE_GIVE_UP_MS || !ride.lead_phone) return;
-      const conn = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND desired = 'on' AND phone IS NOT NULL").get(ride.club_id);
-      if (!conn) return;
+      if (new Date(ride.starts_at).getTime() < now - NUDGE_GIVE_UP_MS) return;
       const others = db.prepare("SELECT COUNT(*) AS n FROM ride_rsvps WHERE ride_id = ? AND status = 'going' AND (user_id IS NULL OR user_id != ?)").get(ride.id, ride.organiser_id || "").n;
       if (!others) return;
+      // Phone alert too, for a Lead who turned alerts on (works even without the club's WhatsApp).
+      if (ride.organiser_id) queuePush(ride.organiser_id, { title: `Hope ${ride.title} went well 🙌`, body: "Anyone who didn't turn up? Tap to mark them.", url: `/r/${ride.share_code}?absent` });
+      if (!ride.lead_phone) return;
+      const conn = db.prepare("SELECT 1 FROM whatsapp_connections WHERE club_id = ? AND desired = 'on' AND phone IS NOT NULL").get(ride.club_id);
+      if (!conn) return;
       db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
         .run(randomUUID(), ride.club_id, ride.lead_phone, nudgeText(ride), iso(Math.min(now + 6 * HOUR, new Date(ride.starts_at).getTime() + ABSENT_LOCK_MS)), iso(now));
       queued++;

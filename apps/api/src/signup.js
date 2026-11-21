@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { db, DomainError, PHONE_EMAIL_DOMAIN, getUserById, listClubsForUser, revokeAllSessions, audit } from "./db.js";
 import { cleanName, cleanPhone } from "./roster.js";
 import { createClub } from "./clubs-admin.js";
+import { queuePush, superAdminIds, clubOwnerIds } from "./push.js";
 import { cleanClubName, cleanCity, clubKey, activityType, ACTIVITY_TYPES } from "./directory.js";
 
 export const HOLD_MS = 14 * 24 * 3600 * 1000;
@@ -125,6 +126,7 @@ export function createSignupClub({ directoryId, clubName, city, activity, name, 
     const snap = club.dir && (({ status, name, name_key, city, city_key, activity }) => JSON.stringify({ status, name, name_key, city, city_key, activity }))(club.dir);
     db.prepare("UPDATE clubs SET signup_status = 'pending', signup_at = ?, signup_dir_snapshot = ? WHERE id = ?").run(iso(), snap, made.club.id);
     audit({ actorUserId: ownerId, action: "club.self_signup", targetUserId: ownerId, newValue: made.club.name, ip });
+    queuePush(superAdminIds(), { title: "New club sign-up", body: `${made.club.name} just joined PaceUp.`, url: "/superadmin" });
     return { user: getUserById(ownerId), club: made.club, created };
   }).immediate();
 }
@@ -222,6 +224,7 @@ export function requestAccess({ clubId, name, phone: rawPhone, userId = null }) 
     db.prepare("INSERT INTO club_access_requests (id, club_id, name, phone, owner_told, created_at) VALUES (?, ?, ?, ?, 0, ?)").run(randomUUID(), clubId, person, phone, iso());
     // Told now if the club's WhatsApp is up; otherwise as soon as it reconnects.
     tellOwner(clubId);
+    queuePush(clubOwnerIds(clubId), { title: club.name || "Your club", body: `${person} wants to help run your club on PaceUp.`, url: "/#members" });
   }).immediate();
   return { sent: true };
 }

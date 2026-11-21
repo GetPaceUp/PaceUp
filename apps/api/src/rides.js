@@ -7,6 +7,7 @@ import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList, clubGroups } from "./whatsapp/outbox.js";
 import { suggestNames, cleanName, cleanPhone, nameKey } from "./roster.js";
+import { queuePush } from "./push.js";
 import { absentWindow, noShowIds, noShowCounts, setNoShow, ABSENT_LOCK_MS } from "./no-shows.js";
 
 const nowIso = () => new Date().toISOString();
@@ -284,6 +285,11 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       if (!row || row.status !== "going") return view();
       db.prepare("UPDATE ride_rsvps SET status = 'cancelled', updated_at = ? WHERE id = ?").run(now, row.id);
       enqueueRiderList(ride);
+      // Phone alert for the Lead (if they turned alerts on), unless the Lead dropped out themselves.
+      if (ride.organiser_id && row.user_id !== ride.organiser_id) {
+        const who = db.prepare("SELECT COALESCE(u.name, ro.name, rs.participant_name) AS name FROM ride_rsvps rs LEFT JOIN users u ON u.id = rs.user_id LEFT JOIN club_roster ro ON ro.id = rs.roster_id WHERE rs.id = ?").get(row.id)?.name || "Someone";
+        queuePush(ride.organiser_id, { title: ride.title, body: `${who} dropped out.`, url: `/r/${ride.share_code}` });
+      }
       return view();
     }
 

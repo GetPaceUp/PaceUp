@@ -6,6 +6,7 @@ import { PhoneAuth, AddPhone, ForgotPassword, phoneText } from "./Auth.jsx";
 import { PeoplePanel } from "./People.jsx";
 import { ResetPage } from "./PasswordReset.jsx";
 import { StartPage, SignupPage } from "./Start.jsx";
+import AlertsCard from "./AlertsCard.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "" };
@@ -202,6 +203,7 @@ export default function App() {
             <div><p className="eyebrow">YOUR PACEUP</p><h2>Welcome, {user.name.split(" ")[0]}</h2><p className="hero-copy">{user.phone ? phoneText(user.phone) : user.email}</p>{!user.phone && <AddPhone onAdded={(u) => setUser(u)} />}</div>
             <div className="head-actions">{isSuper && <a className="secondary-button" href="/superadmin">PaceUp Admin</a>}<button type="button" className="secondary-button" onClick={logout}>Sign out</button></div>
           </div>
+          {(isSuper || clubs.some((club) => ["owner", "admin"].includes(club.role))) && <AlertsCard key={user.id} isSuper={isSuper} />}
           {inviteToken && <section className="workspace invite-accept"><h3>You've been invited to a PaceUp club</h3><p>Accept the invitation using the account signed in above.</p><button onClick={acceptInvite}>Accept invitation</button></section>}
           <section className="workspace">
             <div className="section-heading"><div><p className="eyebrow">CLUB ADMINISTRATION</p><h2>Your clubs</h2></div><span className="count">{clubs.length} {clubs.length === 1 ? "CLUB" : "CLUBS"}</span></div>
