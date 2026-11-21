@@ -63,7 +63,9 @@ test("the club number may be an admin's own phone: everyday chat is left alone",
   assert.equal(say("hi, are you coming tonight?"), null, "no draft open: ordinary messages get no reply");
   assert.equal(say("see you tomorrow at 6"), null);
   assert.match(say("PaceUp"), /I can create Trail Crew activities/);
-  assert.match(say("Plan a hike Saturday 5:30 AM from Nandi Hills base"), /Reply \*YES\* to publish/);
+  // A weekday two days out, so the test never lands on "today, time already passed".
+  const later = new Date(Date.now() + 2 * 86400000).toLocaleDateString("en-US", { weekday: "long", timeZone: "Asia/Kolkata" });
+  assert.match(say(`Plan a hike ${later} 5:30 AM from Nandi Hills base`), /Reply \*YES\* to publish/);
   assert.match(say("ok"), /didn't catch a change/, "'ok' never publishes");
   assert.match(say("✅"), /Hike created!/);
 });
