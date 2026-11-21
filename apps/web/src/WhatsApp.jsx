@@ -153,6 +153,7 @@ function CodeSteps({ wa, busy, act, onOther }) {
   }
   return <>
     <h3 className="wa-welcome-title">Your code</h3>
+    <p className="wa-welcome-lead">Nothing is sent to you. Type this code into WhatsApp.</p>
     {wa.pairing_code
       ? <div className="wa-welcome-card">
           <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
@@ -173,9 +174,17 @@ function CodeSteps({ wa, busy, act, onOther }) {
 }
 
 /** First visit after /start: one friendly step, no warnings. */
-function SignupWelcome({ wa, busy, act, onLater, onOther, timedOut }) {
+function SignupWelcome({ wa, busy, act, onLater, onOther, timedOut, didntLink }) {
   const starting = wa.desired === "on";
   const connect = () => (!isPhone() ? act("/connect", "POST", {}) : wa.owner_phone ? act("/connect", "POST", { phone: wa.owner_phone }) : onOther());
+  // WhatsApp ended the link before it finished (code not accepted, or the phone said no): say so, offer both ways.
+  if (didntLink) return <div className="wa-welcome">
+    <p className="wa-welcome-emoji" aria-hidden="true">🔄</p>
+    <h3 className="wa-welcome-title">That didn't link</h3>
+    <p className="wa-welcome-lead">Let's try again. The code shows here, and you type it into WhatsApp.</p>
+    <button type="button" className="primary-button wa-welcome-btn wa-go" disabled={busy} onClick={connect}>Try again</button>
+    <button type="button" className="text-button wa-welcome-later" onClick={onOther}>Use a different number</button>
+  </div>;
   if (timedOut) return <div className="wa-welcome">
     <p className="wa-welcome-emoji" aria-hidden="true">⏱️</p>
     <h3 className="wa-welcome-title">That code timed out</h3>
@@ -247,6 +256,7 @@ export function WhatsAppPanel({ clubId }) {
   const [cls, label] = STATUS[wa.status === "pairing" && wa.pairing_phone ? "entering" : wa.status] || STATUS.disconnected;
   const codeExpired = wa.desired !== "on" && Boolean(wa.pairing_phone) && /expired/.test(wa.last_error || "");
   const timedOut = wa.desired !== "on" && /expired/.test(wa.last_error || "");
+  const didntLink = wa.desired !== "on" && !timedOut && /unlinked PaceUp/.test(wa.last_error || "");
   const connected = wa.status === "connected";
   const starting = wa.desired === "on" && !connected;
   const manager = Boolean(wa.can_manage_number); // the club owner, or the PaceUp Admin
@@ -254,7 +264,7 @@ export function WhatsAppPanel({ clubId }) {
 
   if (wa.signup_pending && !connected && manager && !later) return (
     <section className="admin-panel wa-panel" id="connect">
-      <SignupWelcome wa={wa} busy={busy} act={act} timedOut={timedOut} onLater={() => setLater(true)} onOther={() => setLater(true)} />
+      <SignupWelcome wa={wa} busy={busy} act={act} timedOut={timedOut} didntLink={didntLink} onLater={() => setLater(true)} onOther={() => setLater(true)} />
       {error && <p className="error" role="alert">{error}</p>}
     </section>
   );
