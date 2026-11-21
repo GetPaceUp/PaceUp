@@ -15,10 +15,8 @@ const iso = (ms = Date.now()) => new Date(ms).toISOString();
 const appUrl = () => (process.env.APP_BASE_URL || "http://localhost:5173").replace(/\/$/, "");
 const prettyPhone = (p) => (p?.startsWith("91") && p.length === 12 ? `+91 ${p.slice(2, 7)} ${p.slice(7)}` : `+${p}`);
 
-// The PaceUp Admin's own clubs never show up in the public search, so the platform isn't tied to any one club.
-const HOUSE = `EXISTS (SELECT 1 FROM club_memberships hm INNER JOIN users hu ON hu.id = hm.user_id
-  WHERE hm.club_id = c.id AND hm.role = 'owner' AND hu.platform_role = 'super_admin')`;
-const isHouseClub = (clubId) => Boolean(db.prepare(`SELECT 1 FROM clubs c WHERE c.id = ? AND ${HOUSE}`).get(clubId));
+// Every club on PaceUp, the PaceUp Admin's own included, shows up the same way: name, city, activity.
+// Hiding one made it look missing, and its owner got "Add it" instead of "already here".
 
 function clubState(clubId) {
   const c = db.prepare("SELECT c.id, c.name, c.city, c.activity, c.signup_status FROM clubs c WHERE c.id = ?").get(clubId);
@@ -34,14 +32,17 @@ function clubState(clubId) {
 export function publicSearch(q, limit = 8) {
   const key = clubKey(q);
   if (key.length < 2) return [];
-  const onPaceup = db.prepare(`SELECT c.id FROM clubs c WHERE COALESCE(c.signup_status, '') != 'removed' AND NOT ${HOUSE}`).all()
+  const onPaceup = db.prepare(`SELECT c.id FROM clubs c WHERE COALESCE(c.signup_status, '') != 'removed'`).all()
     .map((r) => clubState(r.id)).filter((c) => c && clubKey(c.name).includes(key))
-    .sort((a, b) => Number(!clubKey(a.name).startsWith(key)) - Number(!clubKey(b.name).startsWith(key)) || a.name.localeCompare(b.name)).slice(0, 3);
+    .sort((a, b) => Number(!clubKey(a.name).startsWith(key)) - Number(!clubKey(b.name).startsWith(key)) || a.name.localeCompare(b.name));
+  const onPaceupKeys = new Set(onPaceup.map((c) => clubKey(c.name)));
   const dir = db.prepare(`SELECT d.id, d.name, d.city, d.activity, d.club_id FROM club_directory d
       WHERE d.hidden = 0 AND d.club_id IS NULL AND d.name_key LIKE ?
-      ORDER BY (d.name_key LIKE ?) DESC, length(d.name_key), d.name LIMIT ?`).all(`%${key}%`, `${key}%`, limit)
-    .map((d) => ({ directory_id: d.id, name: d.name, city: d.city, activity: d.activity, activity_type: activityType(d.activity), on_paceup: false }));
-  return [...onPaceup, ...dir].slice(0, limit);
+      ORDER BY (d.name_key LIKE ?) DESC, length(d.name_key), d.name LIMIT ?`).all(`%${key}%`, `${key}%`, limit + onPaceupKeys.size)
+    .map((d) => ({ directory_id: d.id, name: d.name, city: d.city, activity: d.activity, activity_type: activityType(d.activity), on_paceup: false }))
+    // A directory copy of a club that's already on PaceUp can't be set up again (same name), so don't offer it.
+    .filter((d) => !onPaceupKeys.has(clubKey(d.name))).slice(0, limit);
+  return [...onPaceup.slice(0, 3), ...dir].slice(0, limit);
 }
 
 /** One directory club, for the claim campaign's "Set up PaceUp" link (/start?club=<id>). */
@@ -49,7 +50,6 @@ export function publicClub(directoryId) {
   const d = db.prepare("SELECT id, name, city, activity, club_id FROM club_directory WHERE id = ? AND hidden = 0").get(directoryId);
   if (!d) throw new DomainError(404, "We couldn't find that club. Search for it by name.");
   if (d.club_id) {
-    if (isHouseClub(d.club_id)) throw new DomainError(404, "We couldn't find that club. Search for it by name.");
     const state = clubState(d.club_id);
     if (state) return state;
   }
@@ -57,7 +57,6 @@ export function publicClub(directoryId) {
 }
 
 function taken(clubId) {
-  if (isHouseClub(clubId)) return new DomainError(409, "That name is already taken on PaceUp. Add your city to the name, e.g. \"Striders Pune\".");
   const state = clubState(clubId);
   return Object.assign(new DomainError(409, state?.pending
     ? `Someone started setting up ${state.name} a short while ago. If it isn't finished within 24 hours, it's free to set up again.`
@@ -210,7 +209,7 @@ export function removeSignupClub(clubId, actorId) {
 /** Someone wants to help run a club that's already on PaceUp: its owner is told from the club's own number. */
 export function requestAccess({ clubId, name, phone: rawPhone, userId = null }) {
   const club = clubState(clubId);
-  if (!club || isHouseClub(clubId)) throw new DomainError(404, "We couldn't find that club.");
+  if (!club) throw new DomainError(404, "We couldn't find that club.");
   let person = cleanName(name), phone = cleanPhone(rawPhone);
   if (userId) { const u = getUserById(userId); person = u.name; phone = db.prepare("SELECT phone FROM users WHERE id = ?").get(userId)?.phone || phone; }
   if (person.length < 2) throw new DomainError(400, "Enter your name.");

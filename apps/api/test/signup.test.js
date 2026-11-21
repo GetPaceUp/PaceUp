@@ -16,7 +16,7 @@ const { call, registerOwner } = makeClient(app);
 const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
-// The PaceUp Admin and their own club, which never shows up in the public search.
+// The PaceUp Admin and their own club, which shows up in the public search like any other club.
 const boss = await registerOwner("Boss Owner", "boss@example.com", "House Club");
 db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(boss.user.id);
 const CSV = [
@@ -32,14 +32,17 @@ const dirId = (name) => db.prepare("SELECT id FROM club_directory WHERE name = ?
 
 let priya;
 
-test("anyone can search the directory: only name, city, activity; the PaceUp Admin's club stays out", async () => {
+test("anyone can search the directory: only name, city, activity; the PaceUp Admin's club shows as on PaceUp", async () => {
   const res = await call("GET", "/api/signup/clubs?q=sunrise");
   assert.equal(res.statusCode, 200);
   const [c] = res.json().clubs;
   assert.deepEqual(Object.keys(c).sort(), ["activity", "activity_type", "city", "directory_id", "name", "on_paceup"]);
   assert.deepEqual([c.name, c.city, c.on_paceup], ["Sunrise Striders", "Pune", false]);
-  assert.equal((await call("GET", "/api/signup/clubs?q=house")).json().clubs.length, 0, "house club hidden");
-  assert.equal((await call("GET", `/api/signup/clubs/${dirId("House Club")}`)).statusCode, 404);
+  const house = (await call("GET", "/api/signup/clubs?q=house")).json().clubs;
+  assert.deepEqual(house.map((c) => [c.name, c.on_paceup, c.pending]), [["House Club", true, false]], "shown once, as already on PaceUp");
+  assert.deepEqual(Object.keys(house[0]).sort(), ["activity", "city", "club_id", "name", "on_paceup", "pending"], "no owner details");
+  const one0 = (await call("GET", `/api/signup/clubs/${dirId("House Club")}`)).json().club;
+  assert.equal(one0.on_paceup, true);
   const one = (await call("GET", `/api/signup/clubs/${dirId("Hill Walkers")}`)).json().club;
   assert.equal(one.activity_type, "Trekking");
 });
@@ -75,7 +78,9 @@ test("a number already on PaceUp has to sign in first; signed-in people set up w
   const c = db.prepare("SELECT name, city, activity, signup_status FROM clubs WHERE id = ?").get(mine.json().club_id);
   assert.deepEqual(c, { name: "Night Owls", city: "Bengaluru", activity: "Other: Skating", signup_status: "pending" });
   assert.equal((await call("POST", "/api/signup", { payload: { clubName: "X", city: "Pune", activity: "Running", name: "A B", phone: "98220 55555" } })).statusCode, 400);
-  assert.equal((await call("POST", "/api/signup", { payload: { clubName: "House Club", city: "Delhi", activity: "Cycling", name: "A B", phone: "98220 55555" } })).json().club, undefined, "the house club is never revealed");
+  const dup = await call("POST", "/api/signup", { payload: { clubName: "House Club", city: "Delhi", activity: "Cycling", name: "A B", phone: "98220 55555" } });
+  assert.equal(dup.statusCode, 409);
+  assert.equal(dup.json().club.on_paceup, true, "told it's already on PaceUp, not asked to rename");
 });
 
 test("linking WhatsApp makes the club live and verifies an owner who linked their own number", async () => {
@@ -100,7 +105,7 @@ test("asking to help run a club that's on PaceUp tells its owner from the club's
   assert.match(msg.text, /\*Meera Iyer\* \(\+91 98470 55555\) asked to help run \*Sunrise Striders\*/);
   await call("POST", "/api/signup/request-access", { payload: { clubId: priya.clubId, name: "Meera Iyer", phone: "98470 55555" } });
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_access_requests").get().n, 1, "asking twice tells the owner once");
-  assert.equal((await call("POST", "/api/signup/request-access", { payload: { clubId: boss.clubId, name: "X Y", phone: "98470 55556" } })).statusCode, 404);
+  assert.equal((await call("POST", "/api/signup/request-access", { payload: { clubId: boss.clubId, name: "X Y", phone: "98470 55556" } })).statusCode, 200, "the PaceUp Admin's own club takes requests like any other");
 });
 
 test("a directory club with no city or activity asks the owner for them", async () => {
