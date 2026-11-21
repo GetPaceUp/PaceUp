@@ -18,9 +18,9 @@ export function StartPage({ token }) {
   async function submit(event) {
     event.preventDefault(); setError(""); setSaving(true);
     try {
-      await post("/api/start", { token, last4: digits });
-      // A full page load (not just a hash change) so the dashboard opens signed in.
-      window.location.replace("/?welcome=1#connect");
+      const d = await post("/api/start", { token, last4: digits });
+      // A full page load (not just a hash change) so the dashboard opens signed in, on this link's club.
+      window.location.replace(`/?welcome=1${d.club_id ? `&club=${encodeURIComponent(d.club_id)}` : ""}#connect`);
     } catch (e) {
       setError(e.message);
       if (e.status === 410) setState("invalid");

@@ -125,7 +125,7 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
   const [phone, setPhone] = useState(lastPhone ? prettyPhone(lastPhone) : "+91 ");
   return (
     <div className="wa-connect">
-      <p className="wa-warn">Use the club's own number, not your personal one.</p>
+      <p className="panel-copy">Link the number that's in your club's WhatsApp group.</p>
       <div className="seg" role="tablist" aria-label="How to link">
         <button type="button" role="tab" aria-selected={how === "code"} className={how === "code" ? "on" : ""} onClick={() => setHow("code")}>On this phone</button>
         <button type="button" role="tab" aria-selected={how === "qr"} className={how === "qr" ? "on" : ""} onClick={() => setHow("qr")}>Scan QR</button>
@@ -141,34 +141,77 @@ function ConnectNumber({ busy, onConnect, lastPhone, expired }) {
   );
 }
 
+const isPhone = () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(max-width: 800px)").matches);
+const scrollToActivities = () => document.querySelector(".rides-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+/** The link code on the same phone as WhatsApp: copy it, jump to WhatsApp, three pictured steps. */
+function CodeSteps({ wa, busy, act, onOther }) {
+  const [copied, setCopied] = useState(false);
+  const raw = String(wa.pairing_code || "").replace(/-/g, "");
+  async function copy() {
+    try { await navigator.clipboard.writeText(raw); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch { setCopied(false); }
+  }
+  return <>
+    <h3 className="wa-welcome-title">Your code</h3>
+    {wa.pairing_code
+      ? <div className="wa-welcome-card">
+          <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
+          <div className="wa-code-actions">
+            <button type="button" className="secondary-button" onClick={copy}>{copied ? "Copied ✓" : "Copy code"}</button>
+            <a className="button-link wa-button" href="whatsapp://">Open WhatsApp</a>
+          </div>
+          <ol className="wa-picsteps">
+            <li><span className="wa-pic" aria-hidden="true">⋮</span><span>Tap <b>⋮</b> (or <b>Settings</b> on iPhone)</span></li>
+            <li><span className="wa-pic" aria-hidden="true">🔗</span><span><b>Linked devices</b> › <b>Link a device</b></span></li>
+            <li><span className="wa-pic" aria-hidden="true">#</span><span><b>Link with phone number</b>, paste the code</span></li>
+          </ol>
+          <p className="wa-welcome-small">Good for 5 minutes</p>
+        </div>
+      : <p className="wa-welcome-small">Getting your code…</p>}
+    <p className="wa-welcome-small">For {prettyPhone(wa.pairing_phone)} · <button type="button" className="text-button" disabled={busy} onClick={async () => { if (await act("/disconnect")) onOther(); }}>Other number</button> · <button type="button" className="text-button" disabled={busy} onClick={() => act("/connect", "POST", {})}>On a laptop? Scan a QR instead</button></p>
+  </>;
+}
+
 /** First visit after /start: one friendly step, no warnings. */
-function SignupWelcome({ wa, busy, act, onLater, onOther }) {
+function SignupWelcome({ wa, busy, act, onLater, onOther, timedOut }) {
   const starting = wa.desired === "on";
+  const connect = () => (!isPhone() ? act("/connect", "POST", {}) : wa.owner_phone ? act("/connect", "POST", { phone: wa.owner_phone }) : onOther());
+  if (timedOut) return <div className="wa-welcome">
+    <p className="wa-welcome-emoji" aria-hidden="true">⏱️</p>
+    <h3 className="wa-welcome-title">That code timed out</h3>
+    <p className="wa-welcome-lead">No problem. Here's a fresh one.</p>
+    <button type="button" className="primary-button wa-welcome-btn wa-go" disabled={busy} onClick={() => act("/connect", "POST", wa.pairing_phone ? { phone: wa.pairing_phone } : {})}>{wa.pairing_phone ? "Get a new code" : "Show a new QR"}</button>
+    <button type="button" className="text-button wa-welcome-later" onClick={onOther}>Use a different number</button>
+  </div>;
   if (!starting) return <div className="wa-welcome">
     <p className="wa-welcome-emoji" aria-hidden="true">🎉</p>
-    <h3 className="wa-welcome-title">You're in!</h3>
-    <p className="wa-welcome-lead">Connect your club's WhatsApp and your activities post themselves, with the going list kept up to date.</p>
-    <button type="button" className="primary-button wa-welcome-btn" disabled={busy} onClick={() => wa.owner_phone ? act("/connect", "POST", { phone: wa.owner_phone }) : onOther()}>Connect WhatsApp</button>
+    <h3 className="wa-welcome-title">You're in{wa.owner_first_name ? `, ${wa.owner_first_name}` : ""}!</h3>
+    <p className="wa-welcome-lead">Link your club's WhatsApp and your activities post themselves.</p>
+    <button type="button" className="primary-button wa-welcome-btn wa-go" disabled={busy} onClick={connect}>Connect WhatsApp</button>
+    <p className="wa-safe">🔒 PaceUp only posts in the group you pick.</p>
     <p className="wa-welcome-small">Takes a minute. Unlink anytime.</p>
-    <button type="button" className="text-button wa-welcome-later" onClick={onLater}>Do this later</button>
+    <button type="button" className="text-button wa-welcome-later" onClick={() => { onLater(); setTimeout(scrollToActivities, 50); }}>Create your first activity first</button>
   </div>;
   return <div className="wa-welcome">
     {wa.pairing_phone
-      ? <>
-          <h3 className="wa-welcome-title">Type this code in WhatsApp</h3>
-          {wa.pairing_code
-            ? <div className="wa-welcome-card">
-                <div className="wa-code" aria-label="Link code">{wa.pairing_code}</div>
-                <ol className="wa-steps"><li>WhatsApp › Settings › <b>Linked devices</b></li><li><b>Link a device</b> › <b>Link with phone number</b></li><li>Type the code</li></ol>
-              </div>
-            : <p className="wa-welcome-small">Getting your code…</p>}
-          <p className="wa-welcome-small">For {prettyPhone(wa.pairing_phone)} · <button type="button" className="text-button" disabled={busy} onClick={async () => { if (await act("/disconnect")) onOther(); }}>Other number</button> · <button type="button" className="text-button" disabled={busy} onClick={() => act("/connect", "POST", {})}>Scan QR</button></p>
-        </>
+      ? <CodeSteps wa={wa} busy={busy} act={act} onOther={onOther} />
       : <>
           <h3 className="wa-welcome-title">Scan with the club phone</h3>
           {wa.qr ? <div className="wa-welcome-card"><img className="wa-qr" src={wa.qr} alt="WhatsApp link code" /><ol className="wa-steps"><li>WhatsApp › Settings › <b>Linked devices</b></li><li><b>Link a device</b>, then point at this code</li></ol></div> : <p className="wa-welcome-small">Getting your code…</p>}
+          {wa.owner_phone && <p className="wa-welcome-small"><button type="button" className="text-button" disabled={busy} onClick={() => act("/connect", "POST", { phone: wa.owner_phone })}>On your phone? Get a code instead</button></p>}
         </>}
     <button type="button" className="text-button wa-welcome-later" disabled={busy} onClick={() => act("/disconnect")}>Cancel</button>
+  </div>;
+}
+
+/** Above Activities until the club's WhatsApp is linked: one line and a way to the link step. */
+export function LinkStrip({ clubId }) {
+  const [wa, setWa] = useState(null);
+  useEffect(() => { setWa(null); api(`/api/clubs/${clubId}/whatsapp`).then(setWa).catch(() => setWa(null)); }, [clubId]);
+  if (!wa || !wa.can_manage_number || wa.status === "connected" || wa.desired === "on") return null;
+  return <div className="wa-strip" role="note">
+    <span>Link WhatsApp to post automatically</span>
+    <button type="button" className="text-button" onClick={() => document.getElementById("connect")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Link</button>
   </div>;
 }
 
@@ -203,6 +246,7 @@ export function WhatsAppPanel({ clubId }) {
   if (!wa) return <section className="admin-panel wa-panel"><h3>WhatsApp</h3><p className="panel-copy">Loading…</p></section>;
   const [cls, label] = STATUS[wa.status === "pairing" && wa.pairing_phone ? "entering" : wa.status] || STATUS.disconnected;
   const codeExpired = wa.desired !== "on" && Boolean(wa.pairing_phone) && /expired/.test(wa.last_error || "");
+  const timedOut = wa.desired !== "on" && /expired/.test(wa.last_error || "");
   const connected = wa.status === "connected";
   const starting = wa.desired === "on" && !connected;
   const manager = Boolean(wa.can_manage_number); // the club owner, or the PaceUp Admin
@@ -210,7 +254,7 @@ export function WhatsAppPanel({ clubId }) {
 
   if (wa.signup_pending && !connected && manager && !later) return (
     <section className="admin-panel wa-panel" id="connect">
-      <SignupWelcome wa={wa} busy={busy} act={act} onLater={() => setLater(true)} onOther={() => setLater(true)} />
+      <SignupWelcome wa={wa} busy={busy} act={act} timedOut={timedOut} onLater={() => setLater(true)} onOther={() => setLater(true)} />
       {error && <p className="error" role="alert">{error}</p>}
     </section>
   );

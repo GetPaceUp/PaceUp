@@ -55,6 +55,17 @@ function Signups({ onChange }) {
   const [data, setData] = useState(null), [err, setErr] = useState(""), [confirm, setConfirm] = useState("");
   const load = () => api("/api/platform/signups").then(setData).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
+  // Opens WhatsApp on the PaceUp Admin's own phone with the help note typed in. They press Send; PaceUp sends nothing.
+  const [helpLink, setHelpLink] = useState(null);
+  const help = async (id) => {
+    setErr("");
+    const tab = window.open("", "_blank");
+    try {
+      const link = (await api(`/api/platform/clubs/${id}/owner-link`, { method: "POST", body: JSON.stringify({ help: true }) })).owner_link;
+      const wa = `https://wa.me/${link.phone}?text=${encodeURIComponent(link.text)}`;
+      if (tab) { tab.opener = null; tab.location.href = wa; setHelpLink(null); } else setHelpLink({ id, link });
+    } catch (e) { tab?.close(); setErr(e.message); }
+  };
   const remove = async (id) => { setErr(""); try { await api(`/api/platform/signups/${id}`, { method: "DELETE" }); setConfirm(""); load(); onChange?.(); } catch (e) { setErr(e.message); } };
   if (!data) return null;
   const rows = [...data.clubs.map((c) => ({ ...c, kind: "club", at: c.signup_at })), ...data.requests.map((r) => ({ ...r, kind: "request", at: r.created_at }))].sort((a, b) => b.at.localeCompare(a.at));
@@ -68,7 +79,9 @@ function Signups({ onChange }) {
             <small>{r.owner_name} · {phoneText(r.owner_phone)} · {when(r.signup_at)}{r.wa_phone && r.wa_phone !== r.owner_phone ? ` · linked ${phoneText(r.wa_phone)}` : ""}</small></span>
           <span className="act">
             {r.signup_status === "pending"
-              ? <span className="su-pill su-wait">WAITING FOR WHATSAPP LINK · RELEASED IN {timeLeft(r.released_at)}</span>
+              ? <><span className="su-pill su-wait">WAITING FOR WHATSAPP · {timeLeft(r.released_at)} LEFT</span>
+                  {r.owner_phone && <button type="button" className="wa-help-btn" onClick={() => help(r.id)}>Help on WhatsApp</button>}
+                  {helpLink?.id === r.id && <a className="button-link wa-button" href={`https://wa.me/${helpLink.link.phone}?text=${encodeURIComponent(helpLink.link.text)}`} target="_blank" rel="noopener noreferrer">Open WhatsApp</a>}</>
               : r.number_matches_directory ? <span className="su-pill su-ok">LIVE · NUMBER MATCHES DIRECTORY</span>
               : <span className="su-pill su-warn">LIVE · CHECK: {r.in_directory ? "NUMBER NOT IN DIRECTORY" : "NEW CLUB"}</span>}
             {confirm === r.id

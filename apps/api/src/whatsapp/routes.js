@@ -24,8 +24,11 @@ const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${"x".repeat(Math.max(0, p.leng
 function signupView(clubId, manager) {
   const c = db.prepare("SELECT signup_status, signup_at, number_owner_id FROM clubs WHERE id = ?").get(clubId);
   if (c?.signup_status !== "pending") return {};
-  const ownerPhone = manager ? db.prepare("SELECT phone FROM users WHERE id = ?").get(c.number_owner_id)?.phone : null;
-  return { signup_pending: true, signup_release_at: new Date(new Date(c.signup_at).getTime() + HOLD_MS).toISOString(), owner_phone: ownerPhone ? `+${ownerPhone}` : null };
+  const owner = manager ? db.prepare("SELECT name, phone FROM users WHERE id = ?").get(c.number_owner_id) : null;
+  return {
+    signup_pending: true, signup_release_at: new Date(new Date(c.signup_at).getTime() + HOLD_MS).toISOString(),
+    owner_phone: owner?.phone ? `+${owner.phone}` : null, owner_first_name: owner?.name ? owner.name.split(" ")[0] : null
+  };
 }
 
 async function view(clubId, userId) {

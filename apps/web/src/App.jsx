@@ -1,6 +1,6 @@
 import SuperAdmin from "./SuperAdmin.jsx";
 import { ClubRides, RidePage } from "./Rides.jsx";
-import { WhatsAppPanel } from "./WhatsApp.jsx";
+import { WhatsAppPanel, LinkStrip } from "./WhatsApp.jsx";
 import { RosterPanel, MembersCard } from "./Roster.jsx";
 import { PhoneAuth, AddPhone, ForgotPassword, phoneText } from "./Auth.jsx";
 import { PeoplePanel } from "./People.jsx";
@@ -219,6 +219,7 @@ export default function App() {
           {error && <p className="error" role="alert">{error}</p>}
           {notice && <p className="success-note" role="status">{notice}</p>}
           {/* Activities (Create activity + Most regular) come first: that's what admins open PaceUp for. Club admin tools follow. */}
+          {page !== "members" && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <LinkStrip clubId={selectedClub} />}
           {page !== "members" && clubs.find((club) => club.id === selectedClub) && <ClubRides club={clubs.find((club) => club.id === selectedClub)} />}
           {page !== "members" && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && (
             <section className="workspace club-tools">
