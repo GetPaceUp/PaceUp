@@ -36,6 +36,20 @@ export function queuePush(userIds, { title, body, url = "/" }) {
 export function superAdminIds() { return db.prepare("SELECT id FROM users WHERE platform_role = 'super_admin'").all().map((r) => r.id); }
 export function clubOwnerIds(clubId) { return db.prepare("SELECT user_id FROM club_memberships WHERE club_id = ? AND role = 'owner'").all(clubId).map((r) => r.user_id); }
 
+function pushOptions() {
+  const keys = vapidKeys();
+  return { vapidDetails: { subject: process.env.APP_BASE_URL || "https://getpaceup.com", publicKey: keys.publicKey, privateKey: keys.privateKey }, TTL: 6 * 3600 };
+}
+let defaultSend = (sub, payload) => webpush.sendNotification(sub, payload, pushOptions());
+/** Tests swap the real push service for a fake. */
+export function setPushSender(fn) { defaultSend = fn; }
+
+/** "Alerts are on": sent once to a phone that just turned alerts on, so they see it works. */
+export async function sendWelcome(sub) {
+  try { await defaultSend(sub, JSON.stringify({ title: "PaceUp alerts are on ✅", body: "We'll only ping you when it matters.", url: "/" })); return true; }
+  catch { return false; }
+}
+
 let sending = false;
 /** Sends everything queued. `send` is swappable for tests. */
 export async function sendQueuedPushes({ send = null } = {}) {
@@ -44,9 +58,7 @@ export async function sendQueuedPushes({ send = null } = {}) {
   try {
     const items = db.prepare("SELECT * FROM push_queue ORDER BY created_at LIMIT 200").all();
     if (!items.length) return 0;
-    const keys = vapidKeys();
-    const options = { vapidDetails: { subject: process.env.APP_BASE_URL || "https://getpaceup.com", publicKey: keys.publicKey, privateKey: keys.privateKey }, TTL: 6 * 3600 };
-    const deliver = send || ((sub, payload) => webpush.sendNotification(sub, payload, options));
+    const deliver = send || defaultSend;
     let sent = 0;
     for (const item of items) {
       db.prepare("DELETE FROM push_queue WHERE id = ?").run(item.id); // at most once: a failed alert is not retried
@@ -80,9 +92,11 @@ export function registerPushRoutes(app) {
     if (!canGetAlerts(userId)) return reply.code(403).send({ error: "Alerts are for club owners and admins." });
     const { endpoint, keys } = request.body;
     if (!/^https:\/\//.test(endpoint)) return reply.code(400).send({ error: "That doesn't look like a phone alert address." });
+    const isNew = !db.prepare("SELECT 1 FROM push_subscriptions WHERE endpoint = ?").get(endpoint);
     db.prepare(`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`)
       .run(randomUUID(), userId, endpoint, keys.p256dh, keys.auth, iso());
+    if (isNew) sendWelcome({ endpoint, keys }).catch(() => {}); // not awaited: the phone gets it a moment later
     return { on: true };
   });
 

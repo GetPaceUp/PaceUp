@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 // for permission when they tap "Turn on", never on page load. iPhone needs PaceUp on the home
 // screen first (the install card handles that), so this card waits until then.
 const KEY = "paceup-alerts-dismissed";
+// Right after PaceUp is installed (or first opened from the home screen) we ask once, up front,
+// in a sheet. After that, the dashboard card is the fallback.
+const SHEET_KEY = "paceup-alerts-sheet-seen";
+const sheetSeen = () => { try { return localStorage.getItem(SHEET_KEY) === "1"; } catch { return false; } };
+const markSheetSeen = () => { try { localStorage.setItem(SHEET_KEY, "1"); } catch {} };
+const installed = () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
 const QUIET_DAYS = 30;
 
 function supported() {
@@ -29,6 +35,7 @@ async function subscribe(publicKey) {
 export default function AlertsCard({ isSuper = false }) {
   const [state, setState] = useState("hidden"); // hidden | ask | on | blocked
   const [key, setKey] = useState("");
+  const [sheet, setSheet] = useState(false);
 
   useEffect(() => {
     if (!supported() || iosNotInstalled() || Notification.permission === "denied") return;
@@ -38,19 +45,44 @@ export default function AlertsCard({ isSuper = false }) {
       if (!alive || !info?.allowed) return;
       setKey(info.publicKey);
       if (Notification.permission === "granted") { subscribe(info.publicKey).catch(() => {}); return; } // already said yes: keep this phone signed up quietly
+      if (installed() && !sheetSeen()) { setSheet(true); setState("ask"); return; }
       try { const t = Number(localStorage.getItem(KEY)); if (t && Date.now() - t < QUIET_DAYS * 864e5) return; } catch {}
       setState("ask");
     })();
-    return () => { alive = false; };
+    // Installed from the browser just now (Android/desktop "Add"): ask straight away.
+    const onInstalled = () => { if (alive && Notification.permission === "default" && !sheetSeen()) { setSheet(true); setState((s) => (s === "hidden" ? "ask" : s)); } };
+    window.addEventListener("paceup-installed", onInstalled);
+    return () => { alive = false; window.removeEventListener("paceup-installed", onInstalled); };
   }, []);
 
   if (state === "hidden") return null;
-  const later = () => { try { localStorage.setItem(KEY, String(Date.now())); } catch {} setState("hidden"); };
+  const later = () => {
+    if (sheet) { markSheetSeen(); setSheet(false); return; } // the dashboard card stays as the fallback
+    try { localStorage.setItem(KEY, String(Date.now())); } catch {} setState("hidden");
+  };
   const turnOn = async () => {
+    markSheetSeen();
     const answer = await Notification.requestPermission();
     if (answer !== "granted") { setState(answer === "denied" ? "blocked" : "hidden"); return; }
     try { await subscribe(key); setState("on"); } catch { setState("blocked"); }
   };
+
+  const close = () => { markSheetSeen(); setSheet(false); };
+  if (sheet) return (
+    <div className="alerts-sheet-backdrop">
+      <section className="alerts-sheet" role="dialog" aria-label="Turn on alerts" aria-live="polite">
+        <span className="alerts-sheet-bell" aria-hidden="true">🔔</span>
+        {state === "ask" && <>
+          <h3>Turn on alerts?</h3>
+          <p>{isSuper ? "Drop-outs, no-show checks and new club sign-ups." : "Know when someone drops out, and when to mark no-shows."}</p>
+          <button type="button" className="primary-button" onClick={turnOn}>Turn on alerts</button>
+          <button type="button" className="text-button alerts-sheet-later" onClick={later}>Not now</button>
+        </>}
+        {state === "on" && <><h3>Alerts are on ✅</h3><p>We'll only ping you when it matters.</p><button type="button" className="primary-button" onClick={close}>Done</button></>}
+        {state === "blocked" && <><h3>Alerts are blocked</h3><p>Allow notifications for PaceUp in your phone settings.</p><button type="button" className="primary-button" onClick={close}>OK</button></>}
+      </section>
+    </div>
+  );
 
   return (
     <section className="alerts-card" aria-live="polite">

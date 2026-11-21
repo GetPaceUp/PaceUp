@@ -38,7 +38,7 @@ export default function InstallPrompt() {
       .catch(() => false);
     const showAs = (k) => isAdmin.then((ok) => { if (ok && alive) timer = setTimeout(() => setKind(k), 1500); });
     const onPrompt = (e) => { e.preventDefault(); setDeferred(e); showAs("android"); };
-    const onInstalled = () => setKind(null);
+    const onInstalled = () => { setKind(null); window.dispatchEvent(new Event("paceup-installed")); };
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
     if (isIosSafari()) showAs("ios");
@@ -52,7 +52,7 @@ export default function InstallPrompt() {
     deferred.prompt();
     const { outcome } = await deferred.userChoice.catch(() => ({}));
     setDeferred(null);
-    if (outcome === "accepted") setKind(null); else close();
+    if (outcome === "accepted") { setKind(null); window.dispatchEvent(new Event("paceup-installed")); } else close();
   };
 
   const desktop = !window.matchMedia?.("(pointer: coarse)").matches;

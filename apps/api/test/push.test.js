@@ -7,7 +7,9 @@ const { tempDir } = useTempDatabase();
 const { buildApp } = await import("../src/server.js");
 const { db } = await import("../src/db.js");
 const { queueNoShowNudges } = await import("../src/no-shows.js");
-const { sendQueuedPushes } = await import("../src/push.js");
+const { sendQueuedPushes, setPushSender } = await import("../src/push.js");
+const welcomed = [];
+setPushSender(async (s, payload) => { welcomed.push([s.endpoint, JSON.parse(payload).title]); });
 const { createSignupClub } = await import("../src/signup.js");
 const app = await buildApp({ logger: false, authRateLimit: 1000, publicRateLimit: 1000, sendPushes: false });
 const { call, registerOwner, invite } = makeClient(app);
@@ -35,6 +37,8 @@ test("only owners, admins and the PaceUp Admin can turn alerts on", async () => 
   assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(1) })).statusCode, 200);
   assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(1) })).statusCode, 200, "same phone again is fine");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").get().n, 1);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(welcomed, [["https://push.example.com/1", "PaceUp alerts are on ✅"]], "a new phone gets one 'alerts are on' ping; the same phone again doesn't");
 });
 
 test("the Lead hears when someone drops out, and gets the no-show check", async () => {
