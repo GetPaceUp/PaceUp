@@ -80,7 +80,7 @@ function Signups({ onChange }) {
           <span className="act">
             {r.signup_status === "pending"
               ? <><span className="su-pill su-wait">WAITING FOR WHATSAPP · {timeLeft(r.released_at)} LEFT</span>
-                  <button type="button" className="wa-help-btn" onClick={() => help(r.id)}>Help on WhatsApp</button>
+                  {r.owner_phone && <button type="button" className="wa-help-btn" onClick={() => help(r.id)}>Help on WhatsApp</button>}
                   {helpLink?.id === r.id && <a className="button-link wa-button" href={`https://wa.me/${helpLink.link.phone}?text=${encodeURIComponent(helpLink.link.text)}`} target="_blank" rel="noopener noreferrer">Open WhatsApp</a>}</>
               : r.number_matches_directory ? <span className="su-pill su-ok">LIVE · NUMBER MATCHES DIRECTORY</span>
               : <span className="su-pill su-warn">LIVE · CHECK: {r.in_directory ? "NUMBER NOT IN DIRECTORY" : "NEW CLUB"}</span>}
