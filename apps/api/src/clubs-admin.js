@@ -78,7 +78,7 @@ const OWNER_LINK_TRIES = 5;
 const tokenHash = (t) => createHash("sha256").update(`owner-link:${t}`).digest("hex");
 const maskPhone = (p) => (p ? `+${p.slice(0, 2)} ${p.slice(2, 7)} •••••` : null);
 
-export function createOwnerLink(clubId, userId, actorId) {
+export function createOwnerLink(clubId, userId, actorId, { help = false } = {}) {
   const user = db.prepare("SELECT id, name, phone FROM users WHERE id = ?").get(userId);
   if (!user?.phone) throw new DomainError(400, "The owner needs a mobile number on PaceUp.");
   const club = db.prepare("SELECT name FROM clubs WHERE id = ?").get(clubId);
@@ -92,6 +92,11 @@ export function createOwnerLink(clubId, userId, actorId) {
   const url = `${appUrl()}/start/${token}`;
   const first = user.name.split(" ")[0];
   const sender = (actorId && db.prepare("SELECT name FROM users WHERE id = ?").get(actorId)?.name?.split(" ")[0]) || "the PaceUp team";
+  // A self-serve owner who got stuck at the WhatsApp step: a short help note with a link back in (any device).
+  if (help) {
+    const text = `Hi ${first} 👋 Saw you started ${club.name} on PaceUp. Nice!\n\nLast step is linking WhatsApp. This link picks up where you left off, on your phone or a laptop:\n${url}\n\nStuck? Just reply here and I'll help.\n– ${sender === "the PaceUp team" ? "PaceUp" : `${sender}, PaceUp`}`;
+    return { url, text, phone: user.phone, name: user.name, expires_at: new Date(now + OWNER_LINK_TTL_MS).toISOString() };
+  }
   // The wording the Super Admin approved for the owner invite (sent by hand from their own WhatsApp).
   const text = `Hi ${first} 👋\n\nI've set up *${club.name}* on *PaceUp*, a simple way to run your club's activities right from WhatsApp.\n\n✅ Post an activity to your group in seconds\n✅ Members tap "I'm in", no app or sign-up\n✅ Live "who's going" list, updated in your group automatically\n\nYour private setup link (works once, valid 7 days):\n${url}\n\nOpen it, confirm the last 4 digits of your mobile, then link your club's WhatsApp number. It takes about 2 minutes.\n\nQuestions? Just reply here.\n\n– ${sender}, PaceUp\n\n🔒 _Your club's data stays private. Never shared._`;
   return { url, text, phone: user.phone, name: user.name, expires_at: new Date(now + OWNER_LINK_TTL_MS).toISOString() };
@@ -243,11 +248,12 @@ export function registerClubAdminRoutes(app, { requireClubRole, requireClubOwner
   });
   const clubParams = { type: "object", properties: { clubId: { type: "string", pattern: "^[0-9a-fA-F-]{36}$" } }, required: ["clubId"] };
   // A fresh owner link (the old one stops working), e.g. when the first was lost or expired.
-  app.post("/api/platform/clubs/:clubId/owner-link", { preHandler: [app.authenticate, requirePlatformAdmin], schema: { params: clubParams } }, async (req, reply) => {
+  // { help: true }: the "Help on WhatsApp" note for a self-serve owner stuck at the WhatsApp step.
+  app.post("/api/platform/clubs/:clubId/owner-link", { preHandler: [app.authenticate, requirePlatformAdmin], schema: { params: clubParams, body: { type: ["object", "null"], properties: { help: { type: "boolean" } } } } }, async (req, reply) => {
     try {
       const owner = db.prepare("SELECT user_id FROM club_memberships WHERE club_id = ? AND role = 'owner' ORDER BY created_at LIMIT 1").get(req.params.clubId);
       if (!owner) throw new DomainError(404, "This club has no owner.");
-      return reply.code(201).send({ owner_link: createOwnerLink(req.params.clubId, owner.user_id, req.user.sub) });
+      return reply.code(201).send({ owner_link: createOwnerLink(req.params.clubId, owner.user_id, req.user.sub, { help: Boolean(req.body?.help) }) });
     } catch (error) { return fail(reply, error); }
   });
   app.get("/api/platform/clubs/:clubId/admins", { preHandler: [app.authenticate, requirePlatformAdmin], schema: { params: clubParams } }, async (req) => clubAdmins(req.params.clubId));

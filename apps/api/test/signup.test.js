@@ -206,3 +206,22 @@ test("removing a sign-up mid-pairing waits for the unlink, then clears its unver
 });
 
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
+
+test("Help on WhatsApp: the PaceUp Admin gets a short note with a one-time link that signs a stuck owner in on any device", async () => {
+  const res = await call("POST", "/api/signup", { payload: { clubName: "Fog Cyclists", city: "Pune", activity: "Cycling", name: "Kavya Rao", phone: "98220 66666" } });
+  assert.equal(res.statusCode, 201, res.body);
+  const clubId = res.json().club_id;
+  const wa = (await call("GET", `/api/clubs/${clubId}/whatsapp`, { cookie: sessionCookie(res) })).json().whatsapp;
+  assert.equal(wa.owner_first_name, "Kavya");
+  assert.equal((await call("POST", `/api/platform/clubs/${clubId}/owner-link`, { cookie: sessionCookie(res), payload: { help: true } })).statusCode, 403, "only the PaceUp Admin");
+  const link = (await call("POST", `/api/platform/clubs/${clubId}/owner-link`, { cookie: boss.cookie, payload: { help: true } })).json().owner_link;
+  assert.equal(link.phone, "919822066666");
+  assert.match(link.text, /^Hi Kavya 👋 Saw you started Fog Cyclists on PaceUp/);
+  assert.match(link.text, /\/start\/[A-Za-z0-9_-]{20,}/);
+  const token = link.url.split("/start/")[1];
+  // On a laptop: no session there yet. The link and the last 4 digits sign them in, on the stuck club.
+  const signed = await call("POST", "/api/start", { payload: { token, last4: "6666" } });
+  assert.equal(signed.statusCode, 200, signed.body);
+  assert.equal(signed.json().club_id, clubId);
+  assert.equal((await call("GET", `/api/clubs/${clubId}/whatsapp`, { cookie: sessionCookie(signed) })).json().whatsapp.signup_pending, true);
+});
