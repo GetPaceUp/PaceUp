@@ -1,8 +1,11 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { useTempDatabase, makeClient } from "./helpers.js";
 
+// Day words ("Saturday", "tomorrow") depend on today, so pin the clock to a Wednesday noon in India.
+// Unpinned, these tests failed on Saturday mornings, when "Saturday 5:30 AM" was already past.
+mock.timers.enable({ apis: ["Date"], now: new Date("2026-11-18T06:30:00Z") });
 const { tempDir } = useTempDatabase();
 const { buildApp } = await import("../src/server.js");
 const { db } = await import("../src/db.js");
@@ -14,7 +17,7 @@ const club = await registerOwner("Club Owner", "owner@example.com", "Trail Crew"
 db.prepare("UPDATE users SET phone = ? WHERE id = ?").run("919800000001", club.user.id);
 const ADMIN = "919800000001@s.whatsapp.net";
 let n = 0;
-const say = (text, from = ADMIN, fromAlt = null) => handleIncoming(club.clubId, { id: `m${++n}`, from, fromAlt, text });
+const say = (text, from = ADMIN, fromAlt = null) => (mock.timers.tick(1000), handleIncoming)(club.clubId, { id: `m${++n}`, from, fromAlt, text });
 
 test.after(async () => { await app.close(); rmSync(tempDir, { recursive: true, force: true }); });
 
