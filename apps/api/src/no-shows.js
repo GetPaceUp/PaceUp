@@ -8,7 +8,7 @@ const HOUR = 60 * 60 * 1000;
 /** Marking stays open this long after the start, then the list locks. */
 export const ABSENT_LOCK_MS = 48 * HOUR;
 /** The Lead's one reminder goes out this long after the start... */
-export const NUDGE_AFTER_MS = 3 * HOUR;
+export const NUDGE_AFTER_MS = 1 * HOUR;
 /** ...unless the activity is older than this (e.g. the worker was down): then it's skipped. */
 const NUDGE_GIVE_UP_MS = 24 * HOUR;
 /** No-show counts cover this many days. */
@@ -79,7 +79,7 @@ export function nudgeText(ride) {
 }
 
 /**
- * Called by the WhatsApp worker. Three hours after an activity starts, its Lead gets one private
+ * Called by the WhatsApp worker. One hour after an activity starts, its Lead gets one private
  * message from the club number with the link to mark no-shows. Each activity is considered once:
  * it is marked as handled even when there is no one to message (no phone, number not linked, or
  * nobody but the Lead on the list). Nothing goes out at night; it waits for the morning.

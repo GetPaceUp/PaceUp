@@ -110,7 +110,7 @@ test("past tab: admins see no-show counts and whether they can still mark", asyn
   assert.ok(asMember.every((r) => !("no_show_count" in r) && !("can_mark" in r)));
 });
 
-test("the Lead gets one WhatsApp reminder 3 hours after the start, never at night", async () => {
+test("the Lead gets one WhatsApp reminder 1 hour after the start, never at night", async () => {
   db.prepare("UPDATE users SET phone = '919811100000' WHERE id = ?").run(owner.user.id);
   db.prepare("INSERT INTO whatsapp_connections (club_id, desired, status, phone, updated_at) VALUES (?, 'on', 'connected', '919800000000', ?)").run(clubId, iso(Date.now()));
   db.prepare("UPDATE rides SET absent_nudge_at = ? WHERE club_id = ?").run(iso(Date.now()), clubId); // earlier tests' activities
@@ -118,9 +118,9 @@ test("the Lead gets one WhatsApp reminder 3 hours after the start, never at nigh
 
   const morning = Date.parse("2026-11-22T04:30:00Z"); // 10:00 in India
   const ride = await pastActivity(0, "Dawn loop");
-  db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(iso(morning - 2 * HOUR), ride.id);
-  assert.equal(queueNoShowNudges(morning), 0, "not yet: under 3 hours");
-  db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(iso(morning - 4 * HOUR), ride.id);
+  db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(iso(morning - 50 * 60000), ride.id);
+  assert.equal(queueNoShowNudges(morning), 0, "not yet: under 1 hour");
+  db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(iso(morning - 70 * 60000), ride.id);
 
   const night = Date.parse("2026-11-22T17:30:00Z"); // 23:00 in India
   assert.equal(queueNoShowNudges(night), 0, "quiet at night");
