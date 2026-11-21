@@ -182,7 +182,7 @@ function SignupWelcome({ wa, busy, act, onLater, onOther, timedOut, didntLink })
     <p className="wa-welcome-emoji" aria-hidden="true">🔄</p>
     <h3 className="wa-welcome-title">That didn't link</h3>
     <p className="wa-welcome-lead">Let's try again. The code shows here, and you type it into WhatsApp.</p>
-    <button type="button" className="primary-button wa-welcome-btn wa-go" disabled={busy} onClick={connect}>Try again</button>
+    <button type="button" className="primary-button wa-welcome-btn wa-go" disabled={busy} onClick={() => (isPhone() && wa.pairing_phone ? act("/connect", "POST", { phone: wa.pairing_phone }) : connect())}>Try again</button>
     <button type="button" className="text-button wa-welcome-later" onClick={onOther}>Use a different number</button>
   </div>;
   if (timedOut) return <div className="wa-welcome">
