@@ -271,3 +271,9 @@ label.check input { width: auto; margin: 0; }
 .alerts-text{display:grid;gap:3px;min-width:0}.alerts-text strong{font:800 15px/1.25 Manrope,sans-serif;color:#17211d}.alerts-text span{font-size:13px;line-height:1.4;color:#5f6c64}
 .alerts-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end}.alerts-actions button{padding:10px 18px;font-size:14px}
 @media(min-width:800px){.install-card{left:auto;right:24px;bottom:24px;max-width:400px;margin:0}}
+.alerts-sheet-backdrop{position:fixed;inset:0;z-index:70;background:rgba(24,35,30,.4);display:flex;align-items:flex-end;justify-content:center;padding:12px 12px calc(12px + env(safe-area-inset-bottom))}
+.alerts-sheet{background:#fff;width:100%;max-width:420px;border-radius:22px;padding:26px 22px 18px;display:grid;gap:8px;text-align:center;box-shadow:0 24px 60px rgba(24,35,30,.25);animation:install-in .25s ease-out}
+.alerts-sheet-bell{width:60px;height:60px;margin:0 auto 6px;border-radius:18px;background:#fff1ea;display:grid;place-items:center;font-size:30px}
+.alerts-sheet h3{font:800 22px/1.2 Manrope,sans-serif;margin:0;color:#17211d}.alerts-sheet p{margin:0 0 6px;color:#5f6c64;font-size:15px;line-height:1.45}
+.alerts-sheet-later{justify-self:center;padding:10px;color:#7a867e;font-size:14px}
+@media(min-width:800px){.alerts-sheet-backdrop{align-items:center}}
