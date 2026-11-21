@@ -38,10 +38,10 @@ export function publicSearch(q, limit = 8) {
   const onPaceupKeys = new Set(onPaceup.map((c) => clubKey(c.name)));
   const dir = db.prepare(`SELECT d.id, d.name, d.city, d.activity, d.club_id FROM club_directory d
       WHERE d.hidden = 0 AND d.club_id IS NULL AND d.name_key LIKE ?
-      ORDER BY (d.name_key LIKE ?) DESC, length(d.name_key), d.name LIMIT ?`).all(`%${key}%`, `${key}%`, limit)
+      ORDER BY (d.name_key LIKE ?) DESC, length(d.name_key), d.name LIMIT ?`).all(`%${key}%`, `${key}%`, limit + onPaceupKeys.size)
     .map((d) => ({ directory_id: d.id, name: d.name, city: d.city, activity: d.activity, activity_type: activityType(d.activity), on_paceup: false }))
     // A directory copy of a club that's already on PaceUp can't be set up again (same name), so don't offer it.
-    .filter((d) => !onPaceupKeys.has(clubKey(d.name)));
+    .filter((d) => !onPaceupKeys.has(clubKey(d.name))).slice(0, limit);
   return [...onPaceup.slice(0, 3), ...dir].slice(0, limit);
 }
 
