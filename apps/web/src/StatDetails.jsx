@@ -34,7 +34,7 @@ function StatSheet({ kind, data, onClose }) {
   if (kind === "clubs") {
     const rows = data.clubs.filter((c) => has(s, c.name, c.city, c.activity, c.owner_name));
     body = rows.map((c) => <div className="sheet-row" key={c.id}>
-      <div className="sheet-row-top"><b>{c.name}</b>{c.wa_status === "connected" ? <span className="stage stage-live">WhatsApp ✓</span> : <span className="stage stage-off">No WhatsApp</span>}</div>
+      <div className="sheet-row-top"><b>{c.name}</b>{c.wa_status === "connected" ? <span className="stage stage-live">WhatsApp ✓</span> : c.wa_desired === "on" ? <span className="stage stage-wait">Linking WhatsApp</span> : <span className="stage stage-off">No WhatsApp</span>}</div>
       <small>{[c.city, c.activity].filter(Boolean).join(" · ") || "No city yet"}</small>
       <small>{c.owner_name ? `Owner ${c.owner_name}` : "No owner yet"} · {c.member_count} member{c.member_count === 1 ? "" : "s"} · since {day(c.created_at)}</small>
     </div>);
