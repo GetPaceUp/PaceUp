@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ResetLinkButton } from "./PasswordReset.jsx";
 import { GroupPicker } from "./WhatsApp.jsx";
+import PlatformStats from "./StatDetails.jsx";
 export default function SuperAdmin() {
  const [data,setData]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[busy,setBusy]=useState("");
  async function load(){setLoading(true);setError("");try{const r=await fetch("/api/platform/overview",{credentials:"include"});if(r.status===401){window.location.href="/";return;}if(!r.ok)throw new Error((await r.json()).error||"Access denied");setData(await r.json());}catch(e){setError(e.message);}finally{setLoading(false);}}
@@ -9,7 +10,7 @@ export default function SuperAdmin() {
  return <main className="page-shell platform-shell"><nav className="topbar"><a className="wordmark" href="/"><span className="mark">P</span> paceup</a><span className="topbar-note">PLATFORM CONTROL</span></nav><section className="dashboard"><div className="dashboard-head"><div><p className="eyebrow">PACEUP ADMIN CONSOLE</p><h2>PaceUp Admin</h2><p className="hero-copy">Central platform administration.</p></div><a className="secondary-button" href="/">Club dashboard</a></div>
  {loading&&<p className="empty-state">Loading…</p>}{error&&<p className="error">{error}</p>}
  {!loading&&!data&&!error&&<section className="workspace"><h3>Platform owner access required</h3><p className="panel-copy">Set PACEUP_SUPERADMIN_EMAIL to your registered account email in the production environment and restart the API.</p></section>}
- {data&&<><div className="platform-stats">{Object.entries(data.counts).map(([k,v])=><div className="workspace" key={k}><span>{k.toUpperCase()}</span><strong>{v}</strong></div>)}</div>
+ {data&&<><PlatformStats data={data} />
  <Signups onChange={load} /><CreateClub onCreated={load} /><section className="workspace platform-section"><h2>All clubs</h2><div className="club-list">{data.clubs.map(c=><ClubRow key={c.id} club={c} onChange={load} />)}</div></section>
  <Directory />
  <section className="workspace platform-section"><h2>Users and platform roles</h2><div className="platform-table"><div className="platform-row platform-user-header"><span>User</span><span>Clubs</span><span>Role</span><span>Action</span></div>{data.users.map(u=><div className="platform-row platform-user-row" key={u.id}><span><strong>{u.name}</strong><small>{u.email || (u.phone ? "+" + u.phone : "")}</small></span><span>{u.club_count}<span className="platform-mobile-count"> club{u.club_count === 1 ? "" : "s"}</span></span><span>{u.platform_role === "super_admin" ? "PaceUp Admin" : "User"}</span><span><button className="secondary-button" disabled={busy===u.id} onClick={()=>role(u.id,u.platform_role==="super_admin"?"user":"super_admin")}>{busy===u.id?"Saving…":u.platform_role==="super_admin"?"Remove PaceUp Admin":"Make PaceUp Admin"}</button><ResetLinkButton endpoint={"/api/platform/users/"+u.id+"/password-reset"} name={u.name} /></span></div>)}</div></section>

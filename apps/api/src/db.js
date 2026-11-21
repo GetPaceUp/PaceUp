@@ -213,7 +213,11 @@ export function getPlatformOverview() {
         (SELECT MAX(created_at) FROM owner_links ol WHERE ol.club_id=c.id) AS owner_link_at,
         (SELECT MAX(claimed_at) FROM owner_links ol WHERE ol.club_id=c.id) AS owner_signed_in_at
       FROM clubs c LEFT JOIN whatsapp_connections wc ON wc.club_id=c.id ORDER BY c.created_at DESC`).all(),
-    users: db.prepare(`SELECT u.id,u.name,CASE WHEN u.email LIKE '%@${PHONE_EMAIL_DOMAIN}' THEN NULL ELSE u.email END AS email,u.phone,u.platform_role,u.created_at,COUNT(cm.club_id) AS club_count FROM users u LEFT JOIN club_memberships cm ON cm.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC`).all()
+    users: db.prepare(`SELECT u.id,u.name,CASE WHEN u.email LIKE '%@${PHONE_EMAIL_DOMAIN}' THEN NULL ELSE u.email END AS email,u.phone,u.platform_role,u.created_at,COUNT(cm.club_id) AS club_count FROM users u LEFT JOIN club_memberships cm ON cm.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC`).all(),
+    // Who belongs to which club, for the tappable Memberships card.
+    memberships: db.prepare(`SELECT cm.club_id,c.name AS club_name,cm.user_id,u.name,u.phone,cm.role,cm.created_at
+      FROM club_memberships cm INNER JOIN clubs c ON c.id=cm.club_id INNER JOIN users u ON u.id=cm.user_id
+      ORDER BY c.name COLLATE NOCASE, CASE cm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.name COLLATE NOCASE`).all()
   };
 }
 
