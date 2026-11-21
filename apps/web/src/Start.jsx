@@ -200,7 +200,7 @@ export function SignupPage() {
           {asked
             ? <section className="workspace su-card"><b className="su-h">Done! 👍</b><p className="panel-copy">We've asked the owner.</p></section>
             : club.pending
-              ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone else is on it. Check back tomorrow.</p></section>
+              ? <section className="workspace su-card"><b className="su-h">{club.name} is being set up</b><p className="panel-copy">Someone else is on it.</p></section>
               : <form className="workspace su-card" onSubmit={askAccess}>
                   {whoFields}
                   {error && <p className="error" role="alert">{error}</p>}

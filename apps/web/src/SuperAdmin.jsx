@@ -48,7 +48,7 @@ function OwnerLinkCard({ link }) {
 }
 
 const when = (t) => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-const hoursLeft = (t) => Math.max(1, Math.round((new Date(t).getTime() - Date.now()) / 3600000));
+const timeLeft = (t) => { const h = Math.max(1, Math.round((new Date(t).getTime() - Date.now()) / 3600000)); return h < 48 ? `${h} H` : `${Math.round(h / 24)} DAYS`; };
 
 /** Clubs that set themselves up at getpaceup.com/start, and requests to help run a club. */
 function Signups({ onChange }) {
@@ -68,7 +68,7 @@ function Signups({ onChange }) {
             <small>{r.owner_name} · {phoneText(r.owner_phone)} · {when(r.signup_at)}{r.wa_phone && r.wa_phone !== r.owner_phone ? ` · linked ${phoneText(r.wa_phone)}` : ""}</small></span>
           <span className="act">
             {r.signup_status === "pending"
-              ? <span className="su-pill su-wait">WAITING FOR WHATSAPP LINK · RELEASED IN {hoursLeft(r.released_at)} H</span>
+              ? <span className="su-pill su-wait">WAITING FOR WHATSAPP LINK · RELEASED IN {timeLeft(r.released_at)}</span>
               : r.number_matches_directory ? <span className="su-pill su-ok">LIVE · NUMBER MATCHES DIRECTORY</span>
               : <span className="su-pill su-warn">LIVE · CHECK: {r.in_directory ? "NUMBER NOT IN DIRECTORY" : "NEW CLUB"}</span>}
             {confirm === r.id
