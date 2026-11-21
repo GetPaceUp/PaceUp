@@ -227,7 +227,7 @@ export async function buildApp(options = {}) {
     } catch { return null; }
   }
   registerSignupRoutes(app, { setSession, requirePlatformAdmin, authLimit, signedInUser });
-  // Clubs held at /start for 24 hours without linking WhatsApp are released for the real owner.
+  // Clubs held at /start for 14 days without linking WhatsApp are released for the real owner.
   const releaseTimer = setInterval(() => { try { releaseStaleSignups(); } catch (error) { app.log.error(error); } }, 10 * 60 * 1000);
   releaseTimer.unref();
   app.addHook("onClose", async () => clearInterval(releaseTimer));

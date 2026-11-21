@@ -1,14 +1,16 @@
 // Self-serve club sign-up at /start: a club owner finds their club in the directory (or adds it),
 // gives their name and mobile, and links the club's own WhatsApp number. Nobody can send them a
 // code first (a new club has no number yet, and no club's number ever sends for another club), so
-// linking the number is what makes the club real. Until then the club is held for 24 hours.
+// linking the number is what makes the club real. Until then the club is held for 14 days, so an owner
+// who gets stuck at the WhatsApp step can come back (or be helped) without losing the club.
 import { randomUUID } from "node:crypto";
 import { db, DomainError, PHONE_EMAIL_DOMAIN, getUserById, listClubsForUser, revokeAllSessions, audit } from "./db.js";
 import { cleanName, cleanPhone } from "./roster.js";
 import { createClub } from "./clubs-admin.js";
 import { cleanClubName, cleanCity, clubKey, activityType, ACTIVITY_TYPES } from "./directory.js";
 
-export const HOLD_MS = 24 * 3600 * 1000;
+export const HOLD_MS = 14 * 24 * 3600 * 1000;
+const DAY_MS = 24 * 3600 * 1000;
 const MAX_PENDING_PER_USER = 3;
 const MAX_PENDING_TOTAL = 200;
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
@@ -59,7 +61,7 @@ export function publicClub(directoryId) {
 function taken(clubId) {
   const state = clubState(clubId);
   return Object.assign(new DomainError(409, state?.pending
-    ? `Someone started setting up ${state.name} a short while ago. If it isn't finished within 24 hours, it's free to set up again.`
+    ? `Someone started setting up ${state.name} a short while ago. If it isn't finished, the PaceUp team can free it up.`
     : `${state?.name || "This club"} is already on PaceUp.`), { club: state });
 }
 
@@ -147,7 +149,7 @@ export function tellOwner(clubId) {
   for (const r of waiting) {
     const text = `*${r.name}* (${prettyPhone(r.phone)}) asked to help run *${club.name}* on PaceUp.\n\nTo make them a club admin, open ${appUrl()}/#members and add this number.\n\nDon't know them? Just ignore this.`;
     db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), clubId, owner.phone, text, iso(Date.now() + HOLD_MS), iso());
+      .run(randomUUID(), clubId, owner.phone, text, iso(Date.now() + DAY_MS), iso());
     db.prepare("UPDATE club_access_requests SET owner_told = 1 WHERE id = ?").run(r.id);
   }
   return waiting.length;
@@ -173,7 +175,7 @@ function deleteClub(clubId) {
   }
 }
 
-/** Pending clubs not linked within 24 hours are released; removed clubs go once their number is unlinked. */
+/** Pending clubs not linked within 14 days are released; removed clubs go once their number is unlinked. */
 export function releaseStaleSignups(now = Date.now()) {
   return db.transaction(() => {
     const stale = db.prepare(`SELECT c.id FROM clubs c LEFT JOIN whatsapp_connections wc ON wc.club_id = c.id
@@ -214,7 +216,7 @@ export function requestAccess({ clubId, name, phone: rawPhone, userId = null }) 
   if (userId) { const u = getUserById(userId); person = u.name; phone = db.prepare("SELECT phone FROM users WHERE id = ?").get(userId)?.phone || phone; }
   if (person.length < 2) throw new DomainError(400, "Enter your name.");
   if (!phone) throw new DomainError(400, "Enter your mobile number with the country code, e.g. +91 98765 43210.");
-  const asked = db.prepare("SELECT 1 FROM club_access_requests WHERE club_id = ? AND phone = ? AND created_at > ?").get(clubId, phone, iso(Date.now() - HOLD_MS));
+  const asked = db.prepare("SELECT 1 FROM club_access_requests WHERE club_id = ? AND phone = ? AND created_at > ?").get(clubId, phone, iso(Date.now() - DAY_MS));
   if (asked) return { sent: true };
   db.transaction(() => {
     db.prepare("INSERT INTO club_access_requests (id, club_id, name, phone, owner_told, created_at) VALUES (?, ?, ?, ?, 0, ?)").run(randomUUID(), clubId, person, phone, iso());

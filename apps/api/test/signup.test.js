@@ -91,8 +91,8 @@ test("linking WhatsApp makes the club live and verifies an owner who linked thei
   assert.equal(db.prepare("SELECT signup_status FROM clubs WHERE id = ?").get(priya.clubId).signup_status, "live");
   assert.equal(db.prepare("SELECT signup_unverified FROM users WHERE phone = '919822012345'").get().signup_unverified, 0);
   assert.equal((await wa("GET")).json().whatsapp.signup_pending, undefined);
-  // Released only if not linked: a live club stays even after 24 hours.
-  releaseStaleSignups(Date.now() + 25 * 3600 * 1000);
+  // Released only if not linked: a live club stays even after 14 days.
+  releaseStaleSignups(Date.now() + 15 * 24 * 3600 * 1000);
   assert.ok(db.prepare("SELECT 1 FROM clubs WHERE id = ?").get(priya.clubId));
 });
 
@@ -134,13 +134,14 @@ test("adding a club whose name is in the directory only for another city doesn't
   assert.equal(db.prepare("SELECT club_id FROM club_directory WHERE name = 'Hill Walkers'").get().club_id, null, "the Kolkata entry is untouched");
 });
 
-test("a held club not linked within 24 hours is released, with its directory entry and account", async () => {
+test("a held club not linked within 14 days is released, with its directory entry and account", async () => {
   const res = await call("POST", "/api/signup", { payload: { directoryId: dirId("Ridge Runners"), name: "Anil Verma", phone: "98160 77777" } });
   assert.equal(res.statusCode, 201, res.body);
   const clubId = res.json().club_id;
   assert.equal(db.prepare("SELECT status FROM club_directory WHERE name = 'Ridge Runners'").get().status, "pilot");
-  assert.equal(releaseStaleSignups(Date.now() + 23 * 3600 * 1000), 0);
-  releaseStaleSignups(Date.now() + 25 * 3600 * 1000);
+  assert.equal(releaseStaleSignups(Date.now() + 25 * 3600 * 1000), 0, "still held the next day, so the owner can come back");
+  assert.equal(releaseStaleSignups(Date.now() + 13 * 24 * 3600 * 1000), 0);
+  releaseStaleSignups(Date.now() + 15 * 24 * 3600 * 1000);
   assert.equal(db.prepare("SELECT 1 FROM clubs WHERE id = ?").get(clubId), undefined);
   assert.deepEqual(db.prepare("SELECT status, club_id, city, activity FROM club_directory WHERE name = 'Ridge Runners'").get(), { status: "prospect", club_id: null, city: "Shimla", activity: "Running" }, "the directory entry is exactly as it was");
   assert.equal(db.prepare("SELECT 1 FROM users WHERE phone = '919160777777' OR phone = '919816077777'").get(), undefined);

@@ -6,6 +6,7 @@ import { getConnection, enqueueTest, outboxStats, memberGroups, knownGroups, clu
 import { audit } from "../db.js";
 import { isClubOwner } from "../clubs-admin.js";
 import { cleanPhone } from "../roster.js";
+import { HOLD_MS } from "../signup.js";
 
 const ADMIN = ["owner", "admin"];
 const iso = (ms) => new Date(ms).toISOString();
@@ -24,7 +25,7 @@ function signupView(clubId, manager) {
   const c = db.prepare("SELECT signup_status, signup_at, number_owner_id FROM clubs WHERE id = ?").get(clubId);
   if (c?.signup_status !== "pending") return {};
   const ownerPhone = manager ? db.prepare("SELECT phone FROM users WHERE id = ?").get(c.number_owner_id)?.phone : null;
-  return { signup_pending: true, signup_release_at: new Date(new Date(c.signup_at).getTime() + 24 * 3600 * 1000).toISOString(), owner_phone: ownerPhone ? `+${ownerPhone}` : null };
+  return { signup_pending: true, signup_release_at: new Date(new Date(c.signup_at).getTime() + HOLD_MS).toISOString(), owner_phone: ownerPhone ? `+${ownerPhone}` : null };
 }
 
 async function view(clubId, userId) {
