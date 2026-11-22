@@ -24,8 +24,10 @@ function toKey(base64) {
   const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
-async function subscribe(publicKey) {
+async function subscribe(publicKey, { fresh = false } = {}) {
   const reg = await navigator.serviceWorker.ready;
+  // "Try again" starts over with a brand-new phone address, in case the old one went dead at the push service.
+  if (fresh) await (await reg.pushManager.getSubscription())?.unsubscribe().catch(() => {});
   const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(publicKey) });
   const json = sub.toJSON();
   const res = await fetch("/api/push/subscribe", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }) });
@@ -83,7 +85,7 @@ export default function AlertsCard({ isSuper = false }) {
   };
   const retry = async () => {
     setNote("");
-    try { await subscribe(key); setState("on"); } catch (e) { setNote(e.message); setState("error"); }
+    try { await subscribe(key, { fresh: true }); setState("on"); } catch (e) { setNote(e.message); setState("error"); }
   };
 
   const close = () => { markSheetSeen(); setSheet(false); };
