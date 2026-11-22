@@ -44,10 +44,29 @@ let defaultSend = (sub, payload) => webpush.sendNotification(sub, payload, pushO
 /** Tests swap the real push service for a fake. */
 export function setPushSender(fn) { defaultSend = fn; }
 
+/**
+ * Sends one alert to one phone and records what the push service answered (status, error),
+ * so a missing alert can be explained. Phones the service says are gone (404/410) are forgotten.
+ */
+export async function deliverTo(sub, payload, send = defaultSend) {
+  const endpoint = sub.endpoint;
+  let status = null, error = null;
+  try {
+    const res = await send({ endpoint, keys: sub.keys }, payload);
+    status = res?.statusCode ?? 201;
+  } catch (e) {
+    status = e?.statusCode ?? null;
+    error = String(e?.body || e?.message || e).slice(0, 300);
+    console.error(`[push] ${new URL(endpoint).host} ${status ?? "no response"}: ${error}`);
+  }
+  if ([404, 410].includes(status)) db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
+  else db.prepare("UPDATE push_subscriptions SET last_sent_at = ?, last_status = ?, last_error = ? WHERE endpoint = ?").run(iso(), status, error, endpoint);
+  return { service: new URL(endpoint).host, ok: !error, status, error };
+}
+
 /** "Alerts are on": sent once to a phone that just turned alerts on, so they see it works. */
 export async function sendWelcome(sub) {
-  try { await defaultSend(sub, JSON.stringify({ title: "PaceUp alerts are on ✅", body: "We'll only ping you when it matters.", url: "/" })); return true; }
-  catch { return false; }
+  return (await deliverTo(sub, JSON.stringify({ title: "PaceUp alerts are on ✅", body: "We'll only ping you when it matters.", url: "/" }))).ok;
 }
 
 let sending = false;
@@ -64,12 +83,7 @@ export async function sendQueuedPushes({ send = null } = {}) {
       db.prepare("DELETE FROM push_queue WHERE id = ?").run(item.id); // at most once: a failed alert is not retried
       const payload = JSON.stringify({ title: item.title, body: item.body, url: item.url });
       for (const s of db.prepare("SELECT * FROM push_subscriptions WHERE user_id = ?").all(item.user_id)) {
-        try {
-          await deliver({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload);
-          sent++;
-        } catch (error) {
-          if ([404, 410].includes(error?.statusCode)) db.prepare("DELETE FROM push_subscriptions WHERE id = ?").run(s.id);
-        }
+        if ((await deliverTo({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, deliver)).ok) sent++;
       }
     }
     return sent;
@@ -98,6 +112,25 @@ export function registerPushRoutes(app) {
       .run(randomUUID(), userId, endpoint, keys.p256dh, keys.auth, iso());
     if (isNew) sendWelcome({ endpoint, keys }).catch(() => {}); // not awaited: the phone gets it a moment later
     return { on: true };
+  });
+
+  // "Send test alert": goes to every phone this person turned alerts on, and says what each push service answered.
+  app.post("/api/push/test", { preHandler: [app.authenticate] }, async (request, reply) => {
+    const userId = request.user.sub;
+    if (!canGetAlerts(userId)) return reply.code(403).send({ error: "Alerts are for club owners and admins." });
+    const subs = db.prepare("SELECT * FROM push_subscriptions WHERE user_id = ?").all(userId);
+    const payload = JSON.stringify({ title: "Test alert from PaceUp 👋", body: "If you can see this, alerts work on this phone.", url: "/" });
+    const results = [];
+    for (const s of subs) results.push(await deliverTo({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload));
+    return { phones: subs.length, results };
+  });
+
+  // PaceUp Admin: every phone with alerts on, and what its push service said last time.
+  app.get("/api/push/status", { preHandler: [app.authenticate] }, async (request, reply) => {
+    if (!db.prepare("SELECT 1 FROM users WHERE id = ? AND platform_role = 'super_admin'").get(request.user.sub)) return reply.code(403).send({ error: "PaceUp Admin only." });
+    const rows = db.prepare(`SELECT u.name, s.endpoint, s.created_at, s.last_sent_at, s.last_status, s.last_error
+      FROM push_subscriptions s INNER JOIN users u ON u.id = s.user_id ORDER BY s.created_at DESC`).all();
+    return { subject: process.env.APP_BASE_URL || "https://getpaceup.com", phones: rows.map(({ endpoint, ...r }) => ({ ...r, service: new URL(endpoint).host })) };
   });
 
   app.post("/api/push/unsubscribe", {

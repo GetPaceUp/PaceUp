@@ -780,6 +780,18 @@ export const migrations = [
         CREATE INDEX idx_roster_phones_roster ON club_roster_phones(roster_id);
       `);
     }
+  },
+  {
+    id: 32,
+    name: "push_delivery_log",
+    up(db) {
+      // What the push service said the last time we sent to each phone, so a failed alert can be explained.
+      db.exec(`
+        ALTER TABLE push_subscriptions ADD COLUMN last_sent_at TEXT;
+        ALTER TABLE push_subscriptions ADD COLUMN last_status INTEGER;
+        ALTER TABLE push_subscriptions ADD COLUMN last_error TEXT;
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {
