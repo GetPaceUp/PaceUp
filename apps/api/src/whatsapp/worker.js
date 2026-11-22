@@ -11,7 +11,8 @@ import { HOURLY_CAP, MAX_ATTEMPTS, PAIRING_TIMEOUT_MS, memberGroups, clubGroups,
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
-import { recordContacts, setGroupParticipants, syncRosterFromGroup } from "./contacts.js";
+import { recordContacts, setGroupParticipants, syncRosterFromGroup, usableName } from "./contacts.js";
+import { setGroupNumbers } from "../members-only.js";
 import { markClubLive } from "../directory.js";
 import { signupLinked } from "../signup.js";
 import { queueNoShowNudges } from "../no-shows.js";
@@ -138,27 +139,34 @@ export class WhatsAppWorker {
     catch (error) { this.log.warn?.(`[whatsapp] could not reply to an admin for ${clubId}: ${error.message}`); }
   }
 
-  /** Keeps the roster filled from the club group: participant list every 30 min or on request, new names as they arrive. */
+  /**
+   * Keeps the roster filled from the club group: participant list every 30 min or on request, new names as they arrive.
+   * The same pass records every number in ALL of the club's linked groups: that's who may join activities.
+   */
   async syncRoster(conn, entry) {
     const groups = memberGroups(conn);
-    if (!groups.length) return;
-    const key = groups.join(",");
+    const allGroups = [...new Set([...groups, ...clubGroups(conn).map((g) => g.jid)])];
+    if (!allGroups.length) return;
+    const key = allGroups.join(",") + "|" + groups.join(",");
     const asked = conn.roster_sync_wanted_at && new Date(conn.roster_sync_wanted_at).getTime() > (entry.rosterAt || 0);
     try {
       if (asked || entry.rosterGroup !== key || Date.now() - (entry.rosterAt || 0) > ROSTER_REFRESH_MS) {
         entry.rosterAt = Date.now();
         entry.rosterGroup = key;
-        // Everyone in any of the member groups, once each (the same person is often in several groups).
-        const seen = new Set(), members = [];
-        for (const jid of groups) {
+        // Everyone in the groups, once each (the same person is often in several groups).
+        const named = (m) => ({ ...(entry.names?.get(m.phone) || entry.names?.get(m.lid) || {}), ...m });
+        const seenMember = new Set(), members = [], seenAll = new Set(), everyone = [];
+        for (const jid of allGroups) {
+          const inMemberGroup = groups.includes(jid);
           for (const m of await entry.session.groupParticipants(jid)) {
             const id = m.phone || m.lid;
-            if (!id || seen.has(id)) continue;
-            seen.add(id); members.push(m);
+            if (!id) continue;
+            if (!seenAll.has(id)) { seenAll.add(id); const n = named(m); everyone.push({ phone: m.phone, lid: m.lid, name: usableName(n.saved_name) || usableName(n.push_name) }); }
+            if (inMemberGroup && !seenMember.has(id)) { seenMember.add(id); members.push(m); }
           }
         }
-        setGroupParticipants(conn.club_id, members.map((m) => ({ ...(entry.names?.get(m.phone) || entry.names?.get(m.lid) || {}), ...m })));
-        entry.rosterDirty = true;
+        if (groups.length) { setGroupParticipants(conn.club_id, members.map(named)); entry.rosterDirty = true; }
+        setGroupNumbers(conn.club_id, everyone);
       }
       if (entry.rosterDirty) {
         entry.rosterDirty = false;

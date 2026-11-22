@@ -717,6 +717,50 @@ export const migrations = [
         );
       `);
     }
+  },
+  {
+    id: 30,
+    name: "members_only",
+    up(db) {
+      // Members-only activities. club_group_numbers: every number in any of the club's linked
+      // WhatsApp groups (refreshed by the worker), the list a joiner's number is checked against.
+      // device_people: who a phone was confirmed to be in a club, so next time it's one tap.
+      // join_requests: someone who isn't in the club asked to join; the Lead is told once a day per number.
+      db.exec(`
+        CREATE TABLE club_group_numbers (
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          phone TEXT NOT NULL,
+          name TEXT,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (club_id, phone)
+        );
+        CREATE TABLE device_people (
+          device_hash TEXT NOT NULL,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          roster_id TEXT REFERENCES club_roster(id) ON DELETE CASCADE,
+          user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (device_hash, club_id)
+        );
+        CREATE TABLE join_requests (
+          id TEXT PRIMARY KEY,
+          code TEXT NOT NULL UNIQUE,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          ride_id TEXT REFERENCES rides(id) ON DELETE SET NULL,
+          phone TEXT NOT NULL,
+          name TEXT NOT NULL,
+          alerted INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'open',
+          handled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          handled_at TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_join_requests_club_phone ON join_requests(club_id, phone, created_at);
+        ALTER TABLE whatsapp_connections ADD COLUMN group_people INTEGER;
+        ALTER TABLE whatsapp_connections ADD COLUMN group_numbers INTEGER;
+        ALTER TABLE whatsapp_connections ADD COLUMN group_numbers_at TEXT;
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {

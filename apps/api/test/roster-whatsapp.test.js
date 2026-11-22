@@ -153,17 +153,17 @@ test("admins fix names; a later sync never overwrites them", async () => {
 });
 
 
-test("the WhatsApp rider list is still right for roster picks and guests", async () => {
+test("the WhatsApp rider list is still right for members who join by number", async () => {
   const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: { title: "Sunday ride", starts_at: new Date(Date.now() + 86400000).toISOString(), meeting_point: "Tulip Chowk", status: "published" } })).json().ride;
-  const kavya = (await call("GET", `/api/r/${ride.code}/names?q=kav`)).json().names[0];
-  await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: kavya.id } });
-  await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Guest Rider", phone: ph("Guest Rider") } });
+  await call("POST", `/api/clubs/${club.clubId}/roster`, { cookie: club.cookie, payload: { name: "Guest Rider", phone: "98765 12121" } });
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: "98765 00001" } })).statusCode, 200, "in the club group");
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: "98765 12121" } })).statusCode, 200, "on the member list");
   db.prepare("UPDATE outbox SET not_before = ? WHERE status = 'pending'").run(new Date(Date.now() - 1000).toISOString());
   const { sent } = await import("../src/whatsapp/fake-adapter.js");
   await worker.tick(); await settle(); await worker.tick();
   const list = sent.find((m) => /going/.test(m.text));
   assert.ok(list, JSON.stringify(sent.map((m) => m.text)));
-  assert.match(list.text, /1\. Club O\. \(lead\)\n2\. Kavya\n3\. Guest R\./);
+  assert.match(list.text, /1\. Club O\. \(lead\)\n2\. Amit D\.\n3\. Guest R\./);
 });
 
 test.after(async () => { worker.stop(); await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
@@ -232,4 +232,30 @@ test("adding someone can also add them to a club WhatsApp group, slowly, with an
   const later = await add("Kunal Shah", "9876511115", jid);
   await slow.tick();
   assert.equal((await status(later.json().group_add.id)).status, "pending", "45 seconds haven't passed since the last add");
+});
+
+test("members-only: every number in all the club's linked groups counts, hidden ones are counted", async () => {
+  const session = fakeSessions.get(club.clubId);
+  const groups = (await call("GET", `/api/clubs/${club.clubId}/whatsapp`, { cookie: club.cookie })).json().whatsapp.groups;
+  const other = groups.find((g) => g.jid.endsWith("-admins@g.us")).jid;
+  // A group that isn't the member-list group: one number, and one private id the club phone already knows the number of.
+  session.groupMembers[other] = [{ phone: "919876577777" }, { lid: "555@lid" }];
+  db.prepare("INSERT INTO whatsapp_contacts (id, club_id, phone, lid, in_group, updated_at) VALUES (?, ?, '919876588888', '555@lid', 0, ?)").run(crypto.randomUUID(), club.clubId, new Date().toISOString());
+  await call("POST", `/api/clubs/${club.clubId}/roster/sync`, { cookie: club.cookie });
+  await settle();
+  await worker.tick();
+  const numbers = db.prepare("SELECT phone FROM club_group_numbers WHERE club_id = ?").all(club.clubId).map((r) => r.phone);
+  for (const n of ["919876577777", "919876588888", "919876500002"]) assert.ok(numbers.includes(n), n);
+  const conn = db.prepare("SELECT group_people, group_numbers FROM whatsapp_connections WHERE club_id = ?").get(club.clubId);
+  assert.equal(conn.group_people - conn.group_numbers, 1, "Kavya's private id has no number: counted as hidden");
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ? AND phone = '919876577777'").get(club.clubId).n, 0, "other groups don't fill the member list");
+
+  db.prepare("UPDATE users SET platform_role = 'super_admin' WHERE id = ?").run(club.user.id);
+  const check = (await call("GET", `/api/platform/clubs/${club.clubId}/whatsapp-groups`, { cookie: club.cookie })).json().member_check;
+  db.prepare("UPDATE users SET platform_role = 'user' WHERE id = ?").run(club.user.id);
+  assert.equal(check.people - check.numbers, 1);
+
+  const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: { title: "Group check", starts_at: new Date(Date.now() + 86400000).toISOString(), meeting_point: "Gate", status: "published" } })).json().ride;
+  const res = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: "98765 88888" } });
+  assert.equal(res.json().step, "need_name", "in a club group: just asked for a name");
 });
