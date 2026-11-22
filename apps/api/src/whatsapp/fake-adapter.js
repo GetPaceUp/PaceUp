@@ -4,7 +4,7 @@ const sessions = new Map();
 
 export const fakeAdapter = {
   name: "fake",
-  async connect(clubId, { pairingPhone = null, onPairingCode = () => {}, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
+  async connect(clubId, { pairingPhone = null, onPairingCode = () => {}, onQr, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {}, onInboxMessage = () => {}, inboxWanted = () => false }) {
     const session = {
       clubId, open: false, failNext: 0,
       groups: [{ jid: `${clubId.slice(0, 8)}-main@g.us`, name: "Club group", size: 42 }, { jid: `${clubId.slice(0, 8)}-admins@g.us`, name: "Club admins", size: 5 }],
@@ -32,6 +32,8 @@ export const fakeAdapter = {
       contacts(list) { onContacts(list); },
       /** Simulates someone sending the club number a direct message. */
       receive(from, text, id = `m-${Math.random().toString(36).slice(2)}`, fromAlt = null) { return onMessage({ id, from, fromAlt, text }); },
+      /** Simulates any chat or group message reaching the number ("Read with Claude"). */
+      inbox(msg) { if (inboxWanted()) onInboxMessage({ id: `i-${Math.random().toString(36).slice(2)}`, is_group: false, from_me: false, sent_at: new Date().toISOString(), ...msg }); },
       joinGroup(group) { this.groups = [...this.groups, group]; onGroupsChanged(); },
       async logout() { this.open = false; sessions.delete(clubId); },
       end() { this.open = false; sessions.delete(clubId); }

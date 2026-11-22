@@ -224,6 +224,51 @@ export function LinkStrip({ clubId }) {
   </div>;
 }
 
+/** "Read with Claude": PaceUp Admin only. A private link that lets their Claude chats read this number's messages. */
+function ClaudeInbox({ clubId }) {
+  const url = `/api/platform/clubs/${clubId}/inbox`;
+  const [inbox, setInbox] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [confirmOff, setConfirmOff] = useState(false);
+  const [error, setError] = useState("");
+  async function call(method) {
+    setBusy(true); setError("");
+    try {
+      const r = await fetch(url, { method, credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 403) return setInbox(false); // not the PaceUp Admin: nothing to show
+      if (!r.ok) throw new Error(data.error || "Something went wrong.");
+      setInbox(data.inbox);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  useEffect(() => { setInbox(null); call("GET"); }, [clubId]);
+  if (!inbox) return null;
+  async function copy() {
+    try { await navigator.clipboard.writeText(inbox.link); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch { setCopied(false); }
+  }
+  return (
+    <div className="wa-inbox">
+      <p className="wa-section-label">Read with Claude</p>
+      {!inbox.on ? <>
+        <p className="panel-copy">Let your Claude chats read this number's messages. Claude can't send.</p>
+        <button type="button" className="secondary-button" disabled={busy} onClick={() => call("POST")}>Turn on</button>
+      </> : <>
+        <p className="panel-copy">On · {inbox.messages} message{inbox.messages === 1 ? "" : "s"} · kept {inbox.keep_days} days</p>
+        <div className="wa-inbox-link" aria-label="Connector link">{inbox.link}</div>
+        <div className="wa-code-actions">
+          <button type="button" className="secondary-button" onClick={copy}>{copied ? "Copied ✓" : "Copy link"}</button>
+          <a className="button-link" href="https://claude.ai/settings/connectors" target="_blank" rel="noreferrer">Add to Claude</a>
+        </div>
+        {confirmOff
+          ? <div className="confirm-row"><span>Turn off and delete saved messages?</span><button type="button" disabled={busy} onClick={() => { setConfirmOff(false); call("DELETE"); }}>Turn off</button><button type="button" className="secondary-button" onClick={() => setConfirmOff(false)}>Keep</button></div>
+          : <p className="wa-welcome-small"><button type="button" className="text-button" disabled={busy} onClick={() => call("POST")}>New link</button> · <button type="button" className="text-button" onClick={() => setConfirmOff(true)}>Turn off</button></p>}
+      </>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
 export function WhatsAppPanel({ clubId }) {
   const [wa, setWa] = useState(null);
   const [error, setError] = useState("");
@@ -334,6 +379,7 @@ export function WhatsAppPanel({ clubId }) {
           <button type="button" className="secondary-button" disabled={busy} onClick={async () => { if (await act("/test")) setNotice("Test message queued. It should appear in the group within a minute."); }}>Send a test message</button>
         </>}
         {notice && <p className="success-note">{notice}</p>}
+        <ClaudeInbox clubId={clubId} />
         {manager && (confirmOff
           ? <div className="confirm-row"><span>Unlink this number from PaceUp?</span><button type="button" disabled={busy} onClick={() => { setConfirmOff(false); act("/disconnect"); }}>Disconnect</button><button type="button" className="secondary-button" onClick={() => setConfirmOff(false)}>Keep</button></div>
           : <button type="button" className="text-button wa-off" onClick={() => setConfirmOff(true)}>Disconnect this number</button>)}

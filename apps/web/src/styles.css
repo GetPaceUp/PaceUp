@@ -286,3 +286,7 @@ label.check input { width: auto; margin: 0; }
 .join-same{display:grid;gap:8px;margin-top:16px;background:#fff6ef;color:#6b3a22;border-radius:12px;padding:14px}.join-same span{font-size:14px}.join-same button{width:100%}
 .join-req label{display:block;font-weight:700;font-size:14px;margin:14px 0 6px}.join-req input{width:100%;box-sizing:border-box}.join-req-pick{margin-top:10px}.join-req-pick small{color:#5d6a62}.join-req .muted-link{color:#5d6a62}
 .join-req h2{margin-bottom:8px}.join-req-phone{font-size:15px}.join-req-actions{display:grid;gap:10px;margin-top:18px}.join-req .button-link{margin-top:14px;width:100%}
+
+.wa-inbox{display:grid;gap:10px;margin:6px 0 4px}.wa-inbox .panel-copy,.wa-inbox .wa-welcome-small{margin:0}
+.wa-inbox-link{font:600 13px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#f2f4ef;border-radius:10px;padding:10px 12px;word-break:break-all;user-select:all}
+.wa-inbox .wa-code-actions .button-link{text-align:center;white-space:nowrap;padding-left:8px;padding-right:8px}

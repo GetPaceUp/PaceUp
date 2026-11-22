@@ -21,6 +21,7 @@ import { registerSignupRoutes, releaseStaleSignups } from "./signup.js";
 import { registerTemplateRoutes } from "./templates.js";
 import { registerPushRoutes, sendQueuedPushes } from "./push.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
+import { registerInboxRoutes } from "./whatsapp/inbox.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
   findUserByEmail, getUserById, listClubsForUser, registerAccount, createUser,
@@ -173,6 +174,7 @@ export async function buildApp(options = {}) {
   registerPushRoutes(app);
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
   registerWhatsAppRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin, rateLimit: options.authRateLimit });
+  registerInboxRoutes(app, { requirePlatformAdmin, baseUrl: (process.env.APP_BASE_URL || "http://localhost:5173").replace(/\/$/, "") });
 
   // ---- password reset (one-time links shared by an admin; no email needed)
   const sendDomain = (reply, error) => {

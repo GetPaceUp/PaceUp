@@ -3,6 +3,7 @@ import { rmSync, mkdirSync } from "node:fs";
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } from "baileys";
 import pino from "pino";
 import { phoneFromJid, lidFromJid } from "./contacts.js";
+import { messageText } from "./inbox.js";
 
 const quiet = pino({ level: process.env.WHATSAPP_LOG_LEVEL || "warn" });
 
@@ -16,7 +17,7 @@ for (const level of ["info", "warn", "log"]) {
 
 export const baileysAdapter = {
   name: "baileys",
-  async connect(clubId, { authDir, pairingPhone = null, onQr, onPairingCode = () => {}, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {} }) {
+  async connect(clubId, { authDir, pairingPhone = null, onQr, onPairingCode = () => {}, onOpen, onClose, onGroupsChanged = () => {}, onMessage = () => {}, onContacts = () => {}, onInboxMessage = null, inboxWanted = () => false }) {
     mkdirSync(authDir, { recursive: true, mode: 0o700 });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     let version;
@@ -55,6 +56,26 @@ export const baileysAdapter = {
         if (phone || lid) seen.push({ phone, lid, push_name: m.pushName });
       }
       if (seen.length) onContacts(seen);
+      // "Read with Claude" (only when the worker asks for it): every chat and group message, both directions.
+      if (onInboxMessage && inboxWanted()) {
+        for (const m of messages) {
+          const chat = m.key?.remoteJid || "";
+          if (!/@(s\.whatsapp\.net|lid|g\.us)$/.test(chat)) continue; // skip status, channels, broadcasts
+          const text = messageText(m.message);
+          if (!text || !m.key.id) continue;
+          const isGroup = chat.endsWith("@g.us");
+          const senderIds = (isGroup ? [m.key.participantAlt, m.key.participant] : [m.key.remoteJidAlt, chat]).filter(Boolean);
+          try {
+            onInboxMessage({
+              id: m.key.id, chat_jid: chat, chat_alt: m.key.remoteJidAlt || null, is_group: isGroup, from_me: Boolean(m.key.fromMe),
+              sender_phone: m.key.fromMe ? null : senderIds.map(phoneFromJid).find(Boolean) || null,
+              sender_lid: m.key.fromMe ? null : senderIds.map(lidFromJid).find(Boolean) || null,
+              sender_name: m.key.fromMe ? null : m.pushName || null,
+              sent_at: new Date(Number(m.messageTimestamp || 0) * 1000 || Date.now()).toISOString(), text
+            });
+          } catch { /* the inbox never gets in the way of the club's own messages */ }
+        }
+      }
       if (type !== "notify") return;
       for (const m of messages) {
         const jid = m.key?.remoteJid || "";

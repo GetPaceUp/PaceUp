@@ -780,6 +780,34 @@ export const migrations = [
         CREATE INDEX idx_roster_phones_roster ON club_roster_phones(roster_id);
       `);
     }
+  },
+  {
+    id: 32,
+    name: "claude_inbox",
+    up(db) {
+      // "Read with Claude": the PaceUp Admin can let their own Claude chats read one linked number's
+      // messages through a private, read-only connector link. Off by default; kept 30 days.
+      db.exec(`
+        ALTER TABLE whatsapp_connections ADD COLUMN inbox_token TEXT;
+        ALTER TABLE whatsapp_connections ADD COLUMN inbox_on_at TEXT;
+        CREATE TABLE inbox_messages (
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          id TEXT NOT NULL,
+          chat_jid TEXT NOT NULL,
+          chat_name TEXT,
+          is_group INTEGER NOT NULL DEFAULT 0,
+          sender_phone TEXT,
+          sender_name TEXT,
+          from_me INTEGER NOT NULL DEFAULT 0,
+          text TEXT NOT NULL,
+          sent_at TEXT NOT NULL,
+          PRIMARY KEY (club_id, id)
+        );
+        CREATE INDEX idx_inbox_chat ON inbox_messages(club_id, chat_jid, sent_at);
+        CREATE INDEX idx_inbox_time ON inbox_messages(club_id, sent_at);
+        CREATE UNIQUE INDEX idx_inbox_token ON whatsapp_connections(inbox_token);
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {

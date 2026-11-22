@@ -11,12 +11,13 @@ import { HOURLY_CAP, MAX_ATTEMPTS, PAIRING_TIMEOUT_MS, memberGroups, clubGroups,
 import { participants } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
-import { recordContacts, setGroupParticipants, syncRosterFromGroup, usableName } from "./contacts.js";
+import { recordContacts, setGroupParticipants, syncRosterFromGroup, usableName, phoneFromJid, lidFromJid } from "./contacts.js";
 import { setGroupNumbers } from "../members-only.js";
 import { markClubLive } from "../directory.js";
 import { signupLinked } from "../signup.js";
 import { queueNoShowNudges } from "../no-shows.js";
 import { regularsText } from "../regulars.js";
+import { inboxOn, saveInboxMessage, pruneInbox } from "./inbox.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -91,6 +92,9 @@ export class WhatsAppWorker {
           await this.refreshGroups(clubId);
         },
         onMessage: (msg) => this.onMessage(clubId, msg),
+        // "Read with Claude": only for a number the PaceUp Admin turned it on for.
+        inboxWanted: () => inboxOn(clubId),
+        onInboxMessage: (msg) => this.onInboxMessage(clubId, msg),
         onContacts: (list) => {
           // Names are kept in memory until we know who is in the club group; only group members are stored.
           entry.names ||= new Map();
@@ -137,6 +141,38 @@ export class WhatsAppWorker {
     const entry = this.sessions.get(clubId);
     try { await entry?.session?.sendText(msg.from, reply); }
     catch (error) { this.log.warn?.(`[whatsapp] could not reply to an admin for ${clubId}: ${error.message}`); }
+  }
+
+  /** Keeps one message for "Read with Claude", with the best chat and sender names the number knows. */
+  onInboxMessage(clubId, msg) {
+    if (!inboxOn(clubId)) return;
+    const entry = this.sessions.get(clubId);
+    const bare = (jid) => String(jid || "").replace(/:\d+@/, "@");
+    // One chat per person: a private id (@lid) is filed under the phone number when WhatsApp gives it.
+    let chat = bare(msg.chat_jid);
+    if (!msg.is_group && chat.endsWith("@lid") && /@s\.whatsapp\.net$/.test(msg.chat_alt || "")) chat = bare(msg.chat_alt);
+    const known = (k) => k && entry?.names?.get(k);
+    const contact = known(msg.sender_phone) || known(msg.sender_lid) || known(phoneFromJid(chat)) || known(lidFromJid(chat));
+    const senderName = usableName(contact?.saved_name) || usableName(msg.sender_name) || usableName(contact?.push_name) || null;
+    let chatName = null;
+    if (msg.is_group) {
+      const conn = db.prepare("SELECT groups_json FROM whatsapp_connections WHERE club_id = ?").get(clubId);
+      try { chatName = JSON.parse(conn?.groups_json || "[]").find((g) => g.jid === chat)?.name || null; } catch { /* name stays empty */ }
+    } else {
+      chatName = msg.from_me
+        ? usableName(contact?.saved_name) || usableName(contact?.push_name) || db.prepare("SELECT chat_name FROM inbox_messages WHERE club_id = ? AND chat_jid = ? AND chat_name IS NOT NULL ORDER BY sent_at DESC LIMIT 1").get(clubId, chat)?.chat_name || null
+        : senderName;
+    }
+    if (Date.now() - new Date(msg.sent_at).getTime() > 30 * 86400000) return;
+    try { saveInboxMessage(clubId, { ...msg, chat_jid: chat, chat_name: chatName, sender_name: senderName }); }
+    catch (error) { this.log.warn?.(`[whatsapp] could not keep a message for ${clubId}: ${error.message}`); }
+  }
+
+  /** Drops "Read with Claude" messages past 30 days (hourly). */
+  pruneInbox() {
+    if (this.prunedAt && Date.now() - this.prunedAt < 60 * 60 * 1000) return;
+    this.prunedAt = Date.now();
+    try { pruneInbox(); } catch (error) { this.log.warn?.(`[whatsapp] could not prune the inbox: ${error.message}`); }
   }
 
   /**
@@ -324,7 +360,7 @@ export class WhatsAppWorker {
   async tick() {
     if (this.busy) return;
     this.busy = true;
-    try { this.checkIn(); await this.reconcile(); this.nudgeNoShows(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
+    try { this.checkIn(); await this.reconcile(); this.nudgeNoShows(); this.pruneInbox(); await this.deliverDirect(); await processGroupAdds(this.sessions, { ...this.groupAddLimits, log: this.log }); await this.deliver(); }
     catch (error) { this.log.error?.(`[whatsapp] tick failed: ${error.stack || error}`); }
     finally { this.busy = false; }
   }
