@@ -761,6 +761,25 @@ export const migrations = [
         ALTER TABLE whatsapp_connections ADD COLUMN group_numbers_at TEXT;
       `);
     }
+  },
+  {
+    id: 31,
+    name: "roster_extra_numbers",
+    up(db) {
+      // One person, more than one WhatsApp number: an admin links a second number to someone
+      // already on the member list, so they can join from either and their count stays in one place.
+      db.exec(`
+        CREATE TABLE club_roster_phones (
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          phone TEXT NOT NULL,
+          roster_id TEXT NOT NULL REFERENCES club_roster(id) ON DELETE CASCADE,
+          added_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (club_id, phone)
+        );
+        CREATE INDEX idx_roster_phones_roster ON club_roster_phones(roster_id);
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {

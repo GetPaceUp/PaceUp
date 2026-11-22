@@ -71,8 +71,11 @@ export function setGroupParticipants(clubId, participants) {
   }).immediate();
 }
 
+const extraNumber = (clubId, phone) => db.prepare("SELECT 1 FROM club_roster_phones WHERE club_id = ? AND phone = ?").get(clubId, phone);
+
 function rosterMatch(clubId, contact) {
   return (contact.phone && db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, contact.phone))
+    || (contact.phone && db.prepare("SELECT ro.* FROM club_roster_phones x INNER JOIN club_roster ro ON ro.id = x.roster_id WHERE x.club_id = ? AND x.phone = ?").get(clubId, contact.phone))
     || (contact.lid && db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND wa_jid = ?").get(clubId, contact.lid))
     || null;
 }
@@ -86,7 +89,7 @@ export function syncRosterFromGroup(clubId) {
       const existing = rosterMatch(clubId, c);
       const now = nowIso();
       if (existing) {
-        if ((!existing.phone && c.phone) || (!existing.wa_jid && c.lid)) {
+        if ((!existing.phone && c.phone && existing.phone !== c.phone && !extraNumber(clubId, c.phone)) || (!existing.wa_jid && c.lid)) {
           db.prepare("UPDATE club_roster SET phone = COALESCE(phone, ?), wa_jid = COALESCE(wa_jid, ?), updated_at = ? WHERE id = ?").run(c.phone, c.lid, now, existing.id);
         }
         continue;
@@ -116,7 +119,7 @@ export function listUnnamed(clubId, limit = 300) {
     SELECT wc.id, wc.phone, wc.push_name, wc.saved_name FROM whatsapp_contacts wc
     WHERE wc.club_id = ? AND wc.in_group = 1 AND NOT EXISTS (
       SELECT 1 FROM club_roster ro WHERE ro.club_id = wc.club_id AND ((wc.phone IS NOT NULL AND ro.phone = wc.phone) OR (wc.lid IS NOT NULL AND ro.wa_jid = wc.lid))
-    ) ORDER BY wc.phone IS NULL, wc.phone
+    ) AND NOT EXISTS (SELECT 1 FROM club_roster_phones x WHERE x.club_id = wc.club_id AND x.phone = wc.phone) ORDER BY wc.phone IS NULL, wc.phone
   `).all(clubId);
   return { count: rows.length, people: rows.slice(0, limit).map((r) => ({ id: r.id, phone: r.phone, hint: r.saved_name || r.push_name || null })) };
 }

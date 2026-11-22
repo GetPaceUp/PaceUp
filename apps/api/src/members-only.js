@@ -8,7 +8,7 @@
 // Lead gets one WhatsApp from the club's own number (and a phone alert) with a link to add them.
 import { randomUUID, randomBytes } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
-import { cleanName, cleanPhone, nameKey, addRosterPerson } from "./roster.js";
+import { cleanName, cleanPhone, nameKey, addRosterPerson, rosterByPhone } from "./roster.js";
 import { queuePush, clubOwnerIds } from "./push.js";
 import { getConnection, clubGroups, memberGroups } from "./whatsapp/outbox.js";
 import { queueGroupAdd } from "./whatsapp/group-adds.js";
@@ -38,7 +38,7 @@ export function memberByPhone(clubId, phone) {
     WHERE m.club_id = ? AND u.phone = ?`).get(clubId, phone);
   if (user) return { user_id: user.id, name: user.name };
   const group = inGroup(clubId, phone);
-  const listed = db.prepare("SELECT id, name, self_added FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, phone);
+  const listed = rosterByPhone(clubId, phone); // their main number, or a second one an admin linked
   if (listed && (!listed.self_added || group)) return { roster_id: listed.id, name: listed.name };
   if (group) return { roster_id: null, wa_name: group.name || null };
   return null;
@@ -53,10 +53,10 @@ export function rememberedPerson(clubId, deviceHash) {
     if (!getClubMembership(clubId, seen.user_id)) return null;
     return { user_id: seen.user_id, name: db.prepare("SELECT name FROM users WHERE id = ?").get(seen.user_id).name };
   }
-  const row = seen.roster_id && db.prepare("SELECT id, name, phone FROM club_roster WHERE id = ? AND club_id = ?").get(seen.roster_id, clubId);
+  const row = seen.roster_id && db.prepare("SELECT id, name, phone, self_added FROM club_roster WHERE id = ? AND club_id = ?").get(seen.roster_id, clubId);
   if (!row) return null;
-  const still = row.phone ? memberByPhone(clubId, row.phone) : null;
-  return still?.roster_id === row.id ? { roster_id: row.id, name: row.name } : null;
+  const counts = !row.self_added || (row.phone && inGroup(clubId, row.phone));
+  return counts ? { roster_id: row.id, name: row.name } : null;
 }
 
 function remember(clubId, deviceHash, person) {
@@ -166,27 +166,100 @@ function addGroup(clubId) {
   return jid ? { jid, name: clubGroups(conn).find((g) => g.jid === jid).name } : null;
 }
 
+const tail = (phone) => (phone ? phone.slice(-4) : null);
+const maskedPhone = (p) => (p.startsWith("91") && p.length === 12 ? `+91 ${p.slice(2, 7)} ·· ${p.slice(-4)}` : `+${p.slice(0, -4).replace(/\d/g, "·")}${p.slice(-4)}`);
+
+/**
+ * A member on the list who may be the same person under another number: the same name, or the
+ * same first name and surname written a little differently. Only when there's exactly one.
+ */
+export function lookalikeMember(clubId, name, phone) {
+  const key = nameKey(name);
+  const words = key.split(" ").filter(Boolean);
+  if (!words.length) return null;
+  const rows = db.prepare("SELECT id, name, name_key, phone FROM club_roster WHERE club_id = ? AND phone IS NOT NULL AND phone != ? AND (name_key = ? OR name_key LIKE ?)")
+    .all(clubId, phone, key, `${words[0]}%`);
+  const exact = rows.filter((r) => r.name_key === key);
+  const close = exact.length ? exact : rows.filter((r) => {
+    const theirs = r.name_key.split(" ");
+    if (theirs[0] !== words[0]) return false;
+    if (words.length === 1 || theirs.length === 1) return words.length !== theirs.length;
+    const [a, b] = [words.at(-1), theirs.at(-1)];
+    const short = (x) => x.length === 1 || x.length >= 3; // an initial ("Deepa N") or a shortened surname
+    return a === b || (short(a) && b.startsWith(a)) || (short(b) && a.startsWith(b));
+  });
+  return close.length === 1 ? { id: close[0].id, name: close[0].name, phone: maskedPhone(close[0].phone) } : null;
+}
+
 export function joinRequestView(code, userId) {
   const req = requestFor(code, userId);
-  const listed = db.prepare("SELECT name FROM club_roster WHERE club_id = ? AND phone = ?").get(req.club_id, req.phone);
+  const listed = rosterByPhone(req.club_id, req.phone);
   const group = addGroup(req.club_id);
   return {
     name: req.name, phone: prettyPhone(req.phone), status: listed ? "added" : req.status,
+    listed_as: listed ? listed.name : null,
     club: { id: req.club_id, name: req.club_name }, activity: req.share_code ? { title: req.ride_title, code: req.share_code } : null,
-    group: group ? { name: group.name } : null
+    group: group ? { name: group.name } : null,
+    same_person: listed ? null : lookalikeMember(req.club_id, req.name, req.phone)
   };
 }
 
-export function handleJoinRequest(code, userId, { action, toGroup = false }) {
+/** Admins pick who a new number belongs to. Names with the last 4 digits, never full numbers. */
+export function joinRequestPeople(code, userId, q = "") {
+  const req = requestFor(code, userId);
+  const key = nameKey(q).replace(/[%_\\]/g, "");
+  if (!key) return [];
+  return db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND (name_key LIKE ? OR name_key LIKE ?) ORDER BY name_key LIMIT 20")
+    .all(req.club_id, `${key}%`, `% ${key}%`).map((r) => ({ id: r.id, name: r.name, tail: tail(r.phone) }));
+}
+
+/**
+ * The new number belongs to someone already on the list: link it to them, so they can join from
+ * either number and everything they do stays on one entry. An admin vouched, so they count.
+ */
+function linkNumber(req, userId, rosterId) {
+  const row = db.prepare("SELECT * FROM club_roster WHERE id = ? AND club_id = ?").get(rosterId, req.club_id);
+  if (!row) throw new DomainError(404, "That person isn't on the list any more.");
+  const now = nowIso();
+  const owner = rosterByPhone(req.club_id, req.phone);
+  if (owner && owner.id !== row.id) {
+    if (!owner.self_added || owner.extra) throw new DomainError(409, `This number is already on the list as ${owner.name}.`);
+    // They typed their name in while activities were open to everyone: fold that entry in.
+    for (const r of db.prepare("SELECT id, ride_id, status FROM ride_rsvps WHERE roster_id = ?").all(owner.id)) {
+      const other = db.prepare("SELECT id, status FROM ride_rsvps WHERE ride_id = ? AND roster_id = ?").get(r.ride_id, row.id);
+      if (other) db.prepare("DELETE FROM ride_rsvps WHERE id = ?").run(r.status === "going" && other.status !== "going" ? other.id : r.id);
+    }
+    db.prepare("UPDATE ride_rsvps SET roster_id = ? WHERE roster_id = ?").run(row.id, owner.id);
+    db.prepare("DELETE FROM club_roster WHERE id = ?").run(owner.id);
+  }
+  if (!row.phone) db.prepare("UPDATE club_roster SET phone = ? WHERE id = ?").run(req.phone, row.id);
+  else if (row.phone !== req.phone) {
+    db.prepare("INSERT OR IGNORE INTO club_roster_phones (club_id, phone, roster_id, added_by, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(req.club_id, req.phone, row.id, userId, now);
+  }
+  db.prepare("UPDATE club_roster SET self_added = 0, updated_at = ? WHERE id = ?").run(now, row.id);
+  return row.name;
+}
+
+export function handleJoinRequest(code, userId, { action, toGroup = false, rosterId = null }) {
   const req = requestFor(code, userId);
   const now = nowIso();
   if (action === "dismiss") {
     db.prepare("UPDATE join_requests SET status = 'dismissed', handled_by = ?, handled_at = ? WHERE id = ?").run(userId, now, req.id);
     return joinRequestView(code, userId);
   }
+  if (action === "link") {
+    if (!rosterId) throw new DomainError(400, "Pick who this number belongs to.");
+    const name = db.transaction(() => {
+      const linked = linkNumber(req, userId, rosterId);
+      db.prepare("UPDATE join_requests SET status = 'added', handled_by = ?, handled_at = ? WHERE club_id = ? AND phone = ? AND status = 'open'").run(userId, now, req.club_id, req.phone);
+      return linked;
+    }).immediate();
+    return { ...joinRequestView(code, userId), linked_to: name };
+  }
   const group = toGroup ? addGroup(req.club_id) : null;
   if (toGroup && !group) throw new DomainError(409, "Link the club's WhatsApp first to add people to a group.");
-  const listed = db.prepare("SELECT id, name FROM club_roster WHERE club_id = ? AND phone = ?").get(req.club_id, req.phone);
+  const listed = rosterByPhone(req.club_id, req.phone);
   let name = listed?.name || req.name;
   if (!listed) {
     // The list already has this name with no number (e.g. someone WhatsApp shows only by a private id): that's them.
@@ -243,10 +316,17 @@ export function registerMembersOnlyRoutes(app) {
     catch (error) { return domain(reply, error); }
   });
   app.post("/api/join-requests/:code", {
-    schema: { params: codeParams, body: { type: "object", properties: { action: { type: "string", enum: ["add", "dismiss"] }, to_group: { type: "boolean" } }, required: ["action"] } },
+    schema: { params: codeParams, body: { type: "object", properties: { action: { type: "string", enum: ["add", "dismiss", "link"] }, to_group: { type: "boolean" }, roster_id: { type: "string", maxLength: 64 } }, required: ["action"] } },
     preHandler: [app.authenticate]
   }, async (req, reply) => {
-    try { return { request: handleJoinRequest(req.params.code, req.user.sub, { action: req.body.action, toGroup: Boolean(req.body.to_group) }) }; }
+    try { return { request: handleJoinRequest(req.params.code, req.user.sub, { action: req.body.action, toGroup: Boolean(req.body.to_group), rosterId: req.body.roster_id || null }) }; }
+    catch (error) { return domain(reply, error); }
+  });
+  app.get("/api/join-requests/:code/people", {
+    schema: { params: codeParams, querystring: { type: "object", properties: { q: { type: "string", maxLength: 60 } } } },
+    preHandler: [app.authenticate]
+  }, async (req, reply) => {
+    try { return { people: joinRequestPeople(req.params.code, req.user.sub, req.query.q || "") }; }
     catch (error) { return domain(reply, error); }
   });
 }

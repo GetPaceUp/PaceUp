@@ -283,6 +283,18 @@ export function parseRosterFile(filename, buffer) {
 
 // ---------------------------------------------------------------- roster data
 
+/**
+ * The member-list entry a number belongs to: their main number, or an extra number an admin
+ * linked to them (one person, two phones). { ...row, extra: true } for an extra number.
+ */
+export function rosterByPhone(clubId, phone) {
+  if (!phone) return null;
+  const main = db.prepare("SELECT * FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, phone);
+  if (main) return main;
+  const extra = db.prepare("SELECT ro.* FROM club_roster_phones x INNER JOIN club_roster ro ON ro.id = x.roster_id WHERE x.club_id = ? AND x.phone = ?").get(clubId, phone);
+  return extra ? { ...extra, extra: true } : null;
+}
+
 /** Adds or updates people. Matches on phone first, then on name. Never deletes. */
 export function mergeRoster(clubId, people, source = "upload") {
   return db.transaction(() => {
@@ -294,6 +306,8 @@ export function mergeRoster(clubId, people, source = "upload") {
       const key = nameKey(person.name);
       if (seen.has(key)) continue; // duplicate line inside the file
       seen.add(key);
+      const extra = person.phone && !byPhone.get(clubId, person.phone) && rosterByPhone(clubId, person.phone);
+      if (extra) { result.unchanged++; continue; } // a second number of someone already on the list
       const existing = (person.phone && byPhone.get(clubId, person.phone)) || byName.get(clubId, key);
       const now = nowIso();
       if (!existing) {
@@ -315,11 +329,14 @@ export function mergeRoster(clubId, people, source = "upload") {
 
 export function listRoster(clubId, q = "") {
   const key = nameKey(q).replace(/[%_\\]/g, "");
-  const where = key ? "AND (name_key LIKE ? OR name_key LIKE ? OR phone LIKE ?)" : "";
-  const args = key ? [`${key}%`, `% ${key}%`, `%${key.replace(/\D/g, "") || "-"}%`] : [];
+  const where = key ? "AND (name_key LIKE ? OR name_key LIKE ? OR phone LIKE ? OR id IN (SELECT roster_id FROM club_roster_phones WHERE club_id = ro.club_id AND phone LIKE ?))" : "";
+  const digits = `%${key.replace(/\D/g, "") || "-"}%`;
+  const args = key ? [`${key}%`, `% ${key}%`, digits, digits] : [];
   return {
     total: db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ?").get(clubId).n,
-    people: db.prepare(`SELECT id, name, phone, source, self_added, created_at FROM club_roster WHERE club_id = ? ${where} ORDER BY name_key LIMIT 300`).all(clubId, ...args)
+    people: db.prepare(`SELECT id, name, phone, source, self_added, created_at,
+      (SELECT COUNT(*) FROM club_roster_phones x WHERE x.roster_id = ro.id) AS extra_numbers
+      FROM club_roster ro WHERE club_id = ? ${where} ORDER BY name_key LIMIT 300`).all(clubId, ...args)
   };
 }
 
@@ -329,7 +346,7 @@ export function addRosterPerson(clubId, name, phone) {
   const mobile = cleanPhone(phone);
   if (!mobile) throw new DomainError(400, "Enter a valid mobile number.");
   const already = (row, message) => Object.assign(new DomainError(409, message), { existing: { id: row.id, name: row.name, phone: row.phone } });
-  const sameNumber = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND phone = ?").get(clubId, mobile);
+  const sameNumber = rosterByPhone(clubId, mobile);
   if (sameNumber) throw already(sameNumber, `Already on the list as ${sameNumber.name}.`);
   const sameName = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND name_key = ?").get(clubId, nameKey(clean));
   if (sameName) throw already(sameName, `${sameName.name} is already on the list with another number. If it's someone else, add a surname or initial.`);
@@ -427,7 +444,11 @@ export function mergeDuplicate(clubId, id) {
       db.prepare("DELETE FROM ride_rsvps WHERE id = ?").run(r.status === "going" && other.status !== "going" ? other.id : r.id);
     }
     db.prepare("UPDATE ride_rsvps SET roster_id = ? WHERE roster_id = ?").run(into.id, from.id);
+    db.prepare("UPDATE club_roster_phones SET roster_id = ? WHERE roster_id = ?").run(into.id, from.id);
     db.prepare("DELETE FROM club_roster WHERE id = ?").run(from.id);
+    // Both entries had a number: the one not kept as main stays linked as a second number.
+    const spare = from.phone && into.phone && from.phone !== into.phone ? into.phone : null;
+    if (spare) db.prepare("INSERT OR IGNORE INTO club_roster_phones (club_id, phone, roster_id, created_at) VALUES (?, ?, ?, ?)").run(clubId, spare, into.id, nowIso());
     db.prepare("UPDATE club_roster SET phone = ?, wa_jid = ?, contact_name = COALESCE(contact_name, ?), updated_at = ? WHERE id = ?")
       .run(phone, jid, from.contact_name || from.name, nowIso(), into.id);
     return { kept: into.name };

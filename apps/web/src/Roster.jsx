@@ -224,7 +224,7 @@ export function RosterPanel({ clubId, onBack }) {
         </form>
         {(data.total > 8 || q) && <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${data.total} names`} aria-label="Search the member list" />}
         <div className="roster-list">
-          {data.people.map((p) => <NameRow key={p.id} label={p.name} sub={[p.phone && phoneText(p.phone), p.self_added ? "Typed at RSVP" : p.source === "whatsapp" ? "WhatsApp name" : null].filter(Boolean).join(" · ")} initial={p.name} action="Edit" busy={busy} onSave={(v) => rename(p, v)} onRemove={() => remove(p)} />)}
+          {data.people.map((p) => <NameRow key={p.id} label={p.name} sub={[p.phone && phoneText(p.phone), p.extra_numbers ? `+${p.extra_numbers} number${p.extra_numbers > 1 ? "s" : ""}` : null, p.self_added ? "Typed at RSVP" : p.source === "whatsapp" ? "WhatsApp name" : null].filter(Boolean).join(" · ")} initial={p.name} action="Edit" busy={busy} onSave={(v) => rename(p, v)} onRemove={() => remove(p)} />)}
           {data.people.length === 0 && <p className="panel-copy">{q ? "No names match." : "No names yet."}</p>}
           {data.total > data.people.length && !q && <p className="panel-copy">Showing the first {data.people.length}. Search to find others.</p>}
         </div>
