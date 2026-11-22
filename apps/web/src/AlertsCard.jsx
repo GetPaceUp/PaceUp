@@ -24,16 +24,19 @@ function toKey(base64) {
   const raw = atob((base64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
-async function subscribe(publicKey) {
+async function subscribe(publicKey, { fresh = false } = {}) {
   const reg = await navigator.serviceWorker.ready;
+  // "Try again" starts over with a brand-new phone address, in case the old one went dead at the push service.
+  if (fresh) await (await reg.pushManager.getSubscription())?.unsubscribe().catch(() => {});
   const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(publicKey) });
   const json = sub.toJSON();
   const res = await fetch("/api/push/subscribe", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }) });
-  if (!res.ok) throw new Error("Couldn't turn alerts on.");
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Couldn't turn alerts on (${res.status}).`);
 }
 
 export default function AlertsCard({ isSuper = false }) {
-  const [state, setState] = useState("hidden"); // hidden | ask | on | blocked
+  const [state, setState] = useState("hidden"); // hidden | ask | on | blocked | error
+  const [note, setNote] = useState("");
   const [key, setKey] = useState("");
   const [sheet, setSheet] = useState(false);
 
@@ -44,7 +47,10 @@ export default function AlertsCard({ isSuper = false }) {
       const info = await fetch("/api/push/key", { credentials: "include" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
       if (!alive || !info?.allowed) return;
       setKey(info.publicKey);
-      if (Notification.permission === "granted") { subscribe(info.publicKey).catch(() => {}); return; } // already said yes: keep this phone signed up quietly
+      if (Notification.permission === "granted") { // already said yes: keep this phone signed up, and show a way to test it
+        subscribe(info.publicKey).catch((e) => { if (alive) { setNote(e.message); setState("error"); } });
+        return;
+      }
       if (installed() && !sheetSeen()) { setSheet(true); setState("ask"); return; }
       try { const t = Number(localStorage.getItem(KEY)); if (t && Date.now() - t < QUIET_DAYS * 864e5) return; } catch {}
       setState("ask");
@@ -64,7 +70,11 @@ export default function AlertsCard({ isSuper = false }) {
     markSheetSeen();
     const answer = await Notification.requestPermission();
     if (answer !== "granted") { setState(answer === "denied" ? "blocked" : "hidden"); return; }
-    try { await subscribe(key); setState("on"); } catch { setState("blocked"); }
+    try { await subscribe(key); setState("on"); } catch (e) { setNote(e.message); setState("error"); }
+  };
+  const retry = async () => {
+    setNote("");
+    try { await subscribe(key, { fresh: true }); setState("on"); } catch (e) { setNote(e.message); setState("error"); }
   };
 
   const close = () => { markSheetSeen(); setSheet(false); };
@@ -79,6 +89,7 @@ export default function AlertsCard({ isSuper = false }) {
           <button type="button" className="text-button alerts-sheet-later" onClick={later}>Not now</button>
         </>}
         {state === "on" && <><h3>Alerts are on ✅</h3><p>We'll only ping you when it matters.</p><button type="button" className="primary-button" onClick={close}>Done</button></>}
+        {state === "error" && <><h3>Alerts aren't working yet</h3><p>{note}</p><button type="button" className="primary-button" onClick={retry}>Try again</button><button type="button" className="text-button alerts-sheet-later" onClick={close}>Close</button></>}
         {state === "blocked" && <><h3>Alerts are blocked</h3><p>Allow notifications for PaceUp in your phone settings.</p><button type="button" className="primary-button" onClick={close}>OK</button></>}
       </section>
     </div>
@@ -92,6 +103,10 @@ export default function AlertsCard({ isSuper = false }) {
         <div className="alerts-actions"><button type="button" onClick={turnOn}>Turn on</button><button type="button" className="secondary-button" onClick={later}>Not now</button></div>
       </>}
       {state === "on" && <div className="alerts-text"><strong>Alerts are on</strong><span>We'll only ping you when it matters.</span></div>}
+      {state === "error" && <>
+        <div className="alerts-text"><strong>Alerts aren't working yet</strong><span>{note}</span></div>
+        <div className="alerts-actions"><button type="button" onClick={retry}>Try again</button></div>
+      </>}
       {state === "blocked" && <div className="alerts-text"><strong>Alerts are blocked</strong><span>Allow notifications for PaceUp in your phone settings.</span></div>}
     </section>
   );

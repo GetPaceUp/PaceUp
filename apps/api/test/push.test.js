@@ -36,6 +36,7 @@ test("only owners, admins and the PaceUp Admin can turn alerts on", async () => 
   assert.equal((await call("POST", "/api/push/subscribe", { payload: sub("x") })).statusCode, 401);
   assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(1) })).statusCode, 200);
   assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(1) })).statusCode, 200, "same phone again is fine");
+  assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: { endpoint: "https://", keys: { p256dh: "p", auth: "a" } } })).statusCode, 400, "broken address is refused");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").get().n, 1);
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(welcomed, [["https://push.example.com/1", "PaceUp alerts are on ✅"]], "a new phone gets one 'alerts are on' ping; the same phone again doesn't");
@@ -72,6 +73,21 @@ test("queued alerts go to every phone once; a phone that's gone is forgotten", a
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM push_queue").get().n, 0);
   assert.deepEqual(db.prepare("SELECT endpoint FROM push_subscriptions").all().map((r) => r.endpoint), ["https://push.example.com/1"]);
   assert.equal(await sendQueuedPushes({ send: async () => assert.fail("nothing left to send") }), 0);
+});
+
+test("PaceUp Admin can test-send to their own phones and see every phone's last result; nobody else can", async () => {
+  setPushSender(async (sub) => { if (sub.endpoint.endsWith("/9")) throw Object.assign(new Error("Received unexpected response code"), { statusCode: 403, body: "BadJwtToken" }); return { statusCode: 201 }; });
+  await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(9) });
+  const st = (await call("GET", "/api/push/status?test=1", { cookie: owner.cookie })).json();
+  assert.deepEqual(st.test.map((x) => [x.ok, x.status]).sort(), [[false, 403], [true, 201]]);
+  assert.equal(st.test.find((x) => !x.ok).error, "BadJwtToken");
+  assert.equal(st.phones.length, 2);
+  assert.ok(st.phones.every((p) => p.service === "push.example.com" && p.last_sent_at && !("endpoint" in p)));
+  assert.equal(st.phones.find((p) => p.last_status === 403).last_error, "BadJwtToken");
+  assert.equal((await call("GET", "/api/push/status", { cookie: owner.cookie })).json().test, null, "no send without ?test=1");
+  assert.equal((await call("GET", "/api/push/status?test=1", { cookie: member.cookie })).statusCode, 403);
+  assert.equal((await call("POST", "/api/push/test", { cookie: owner.cookie })).statusCode, 404, "no test button endpoint");
+  await call("POST", "/api/push/unsubscribe", { cookie: owner.cookie, payload: { endpoint: sub(9).endpoint } });
 });
 
 test("turning alerts off removes this phone", async () => {
