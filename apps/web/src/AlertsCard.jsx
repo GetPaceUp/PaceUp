@@ -48,7 +48,7 @@ export default function AlertsCard({ isSuper = false }) {
       if (!alive || !info?.allowed) return;
       setKey(info.publicKey);
       if (Notification.permission === "granted") { // already said yes: keep this phone signed up, and show a way to test it
-        subscribe(info.publicKey).then(() => alive && setState("on")).catch((e) => { if (alive) { setNote(e.message); setState("error"); } });
+        subscribe(info.publicKey).catch((e) => { if (alive) { setNote(e.message); setState("error"); } });
         return;
       }
       if (installed() && !sheetSeen()) { setSheet(true); setState("ask"); return; }
@@ -71,17 +71,6 @@ export default function AlertsCard({ isSuper = false }) {
     const answer = await Notification.requestPermission();
     if (answer !== "granted") { setState(answer === "denied" ? "blocked" : "hidden"); return; }
     try { await subscribe(key); setState("on"); } catch (e) { setNote(e.message); setState("error"); }
-  };
-  const sendTest = async () => {
-    setNote("Sending…");
-    try {
-      const res = await fetch("/api/push/test", { method: "POST", credentials: "include" });
-      const r = await res.json();
-      if (!res.ok) throw new Error(r.error || `Error ${res.status}`);
-      if (!r.phones) { setNote("This phone isn't signed up yet. Tap Try again."); setState("error"); return; }
-      const bad = r.results.filter((x) => !x.ok);
-      setNote(bad.length ? `Couldn't send: ${bad.map((x) => `${x.service} ${x.status ?? ""} ${x.error || ""}`.trim()).join("; ")}` : "Sent ✅ Check your notifications.");
-    } catch (e) { setNote(`Couldn't send: ${e.message}`); }
   };
   const retry = async () => {
     setNote("");
@@ -113,10 +102,7 @@ export default function AlertsCard({ isSuper = false }) {
         <div className="alerts-text"><strong>Get PaceUp alerts</strong><span>{isSuper ? "Drop-outs, no-show checks and new club sign-ups." : "Know when someone drops out, and when to mark no-shows."}</span></div>
         <div className="alerts-actions"><button type="button" onClick={turnOn}>Turn on</button><button type="button" className="secondary-button" onClick={later}>Not now</button></div>
       </>}
-      {state === "on" && <>
-        <div className="alerts-text"><strong>Alerts are on</strong><span>{note || "We'll only ping you when it matters."}</span></div>
-        <div className="alerts-actions"><button type="button" className="secondary-button" onClick={sendTest}>Send test alert</button></div>
-      </>}
+      {state === "on" && <div className="alerts-text"><strong>Alerts are on</strong><span>We'll only ping you when it matters.</span></div>}
       {state === "error" && <>
         <div className="alerts-text"><strong>Alerts aren't working yet</strong><span>{note}</span></div>
         <div className="alerts-actions"><button type="button" onClick={retry}>Try again</button></div>
