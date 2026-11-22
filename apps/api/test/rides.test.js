@@ -274,6 +274,72 @@ test("asking to join: the Lead hears once a day per number, from the club's own 
   db.prepare("DELETE FROM whatsapp_connections WHERE club_id = ?").run(clubId);
 });
 
+test("a member's second number: the Lead links it to them, and they join from either number", async () => {
+  const ride = await publish({ capacity: null, title: "Second Phone Loop" });
+  db.prepare("DELETE FROM join_requests").run();
+  db.prepare("UPDATE users SET phone = '919811100011' WHERE id = ?").run(owner.user.id);
+  db.prepare("INSERT OR REPLACE INTO whatsapp_connections (club_id, status, desired, phone, updated_at) VALUES (?, 'connected', 'on', '919811100099', ?)").run(clubId, new Date().toISOString());
+  listed("Kavya Menon", "98111 04410");
+  listed("Kavya Reddy", "98111 05520");
+  const p1 = phone();
+  assert.equal((await p1.rsvp(ride.code, { status: "going", phone: "98111 04410" })).json().ride.my_rsvp.name, "Kavya Menon");
+  // From her other phone she's refused and asks to join.
+  assert.equal((await phone().rsvp(ride.code, { status: "going", phone: "99999 12345" })).statusCode, 403);
+  await call("POST", `/api/r/${ride.code}/ask`, { payload: { name: "Kavya Menon", phone: "99999 12345" } });
+  const code = db.prepare("SELECT code FROM join_requests WHERE phone = '919999912345'").get().code;
+  const url = `/api/join-requests/${code}`;
+  const view = (await call("GET", url, { cookie: owner.cookie })).json().request;
+  assert.equal(view.same_person.name, "Kavya Menon", "PaceUp spots the same name");
+  assert.equal(view.same_person.phone, "+91 98111 ·· 4410");
+  // Search shows names with the last 4 digits only, admins only.
+  assert.equal((await call("GET", `${url}/people?q=kav`, { cookie: arjun.cookie })).statusCode, 403);
+  const found = (await call("GET", `${url}/people?q=kav`, { cookie: owner.cookie })).json().people;
+  assert.deepEqual(found.map((p) => [p.name, p.tail]), [["Kavya Menon", "4410"], ["Kavya Reddy", "5520"]]);
+  const linked = await call("POST", url, { cookie: owner.cookie, payload: { action: "link", roster_id: view.same_person.id } });
+  assert.equal(linked.statusCode, 200, linked.body);
+  assert.equal(linked.json().request.linked_to, "Kavya Menon");
+  assert.equal(linked.json().request.status, "added");
+  // One person, two numbers: no new entry, and the second phone joins as her.
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ? AND name LIKE 'Kavya%'").get(clubId).n, 2);
+  assert.equal((await p1.rsvp(ride.code, { status: "cancelled" })).statusCode, 200);
+  const p2 = phone();
+  assert.equal((await p2.rsvp(ride.code, { status: "going", phone: "99999 12345" })).json().ride.my_rsvp.name, "Kavya Menon");
+  assert.equal(db.prepare("SELECT COUNT(DISTINCT roster_id) AS n FROM ride_rsvps WHERE ride_id = ? AND roster_id IS NOT NULL").get(ride.id).n, 1, "same person on the list");
+  assert.equal((await p2.rsvp(ride.code, { status: "going" })).statusCode, 200, "remembered on that phone");
+  // The member list shows the extra number, and finds her by it.
+  const roster = (await call("GET", `/api/clubs/${clubId}/roster?q=12345`, { cookie: owner.cookie })).json().people;
+  assert.deepEqual(roster.map((p) => [p.name, p.extra_numbers]), [["Kavya Menon", 1]]);
+  // Adding that number again as someone new is refused.
+  assert.equal((await call("POST", `/api/clubs/${clubId}/roster`, { cookie: owner.cookie, payload: { name: "Someone New", phone: "99999 12345" } })).statusCode, 409);
+  // Asking again from that number: they're a member now.
+  assert.deepEqual((await call("POST", `/api/r/${ride.code}/ask`, { payload: { name: "Kavya", phone: "99999 12345" } })).json(), { member: true });
+  db.prepare("DELETE FROM whatsapp_connections WHERE club_id = ?").run(clubId);
+});
+
+test("same-person hint only for one clear match; picking someone else from the list works", async () => {
+  const ride = await publish({ capacity: null });
+  db.prepare("DELETE FROM join_requests").run();
+  listed("Vikram Shah", "98222 00001");
+  listed("Vikram Joshi", "98222 00002");
+  listed("Deepa Nair", "98222 00003");
+  const ask = async (name, num) => {
+    await call("POST", `/api/r/${ride.code}/ask`, { payload: { name, phone: num } });
+    return `/api/join-requests/${db.prepare("SELECT code FROM join_requests WHERE phone = ?").get(cleanPhone(num)).code}`;
+  };
+  const vik = await ask("Vikram", "98333 00001");
+  assert.equal((await call("GET", vik, { cookie: owner.cookie })).json().request.same_person, null, "two Vikrams: no guess");
+  const deepa = await ask("Deepa N", "98333 00002");
+  assert.equal((await call("GET", deepa, { cookie: owner.cookie })).json().request.same_person.name, "Deepa Nair", "close name");
+  const stranger = await ask("Zed Kumar", "98333 00003");
+  assert.equal((await call("GET", stranger, { cookie: owner.cookie })).json().request.same_person, null);
+  const shah = db.prepare("SELECT id FROM club_roster WHERE phone = ?").get(cleanPhone("98222 00001")).id;
+  assert.equal((await call("POST", vik, { cookie: owner.cookie, payload: { action: "link", roster_id: shah } })).json().request.linked_to, "Vikram Shah");
+  // A number already on the list as someone else can't be linked to another person.
+  const joshi = db.prepare("SELECT id FROM club_roster WHERE phone = ?").get(cleanPhone("98222 00002")).id;
+  db.prepare("UPDATE join_requests SET status = 'open' WHERE code = ?").run(vik.split("/").pop());
+  assert.equal((await call("POST", vik, { cookie: owner.cookie, payload: { action: "link", roster_id: joshi } })).statusCode, 409);
+});
+
 test("at most 20 alerts a day per club", async () => {
   const ride = await publish({ capacity: null });
   db.prepare("DELETE FROM join_requests").run();

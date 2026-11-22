@@ -309,13 +309,14 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
 
     // The same person must not appear twice.
     const taken = `${displayName} is already on the list. If that's you, open the link on the phone you used to join.`;
+    let adopted = false; // their earlier (dropped-out) answer, given from another phone: it moves to this one
     for (const col of ["user_id", "roster_id"]) {
       if (!who[col]) continue;
       const other = db.prepare(`SELECT * FROM ride_rsvps WHERE ride_id = ? AND ${col} = ?`).get(ride.id, who[col]);
       if (other && other.id !== row?.id) {
         if (other.status === "going") throw new DomainError(409, taken);
         if (row) db.prepare("DELETE FROM ride_rsvps WHERE id = ?").run(other.id); // stale cancelled row
-        else row = other;
+        else { row = other; adopted = true; }
       }
     }
     const going = participants(ride.id);
@@ -332,8 +333,8 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       if (wasGoing && row.user_id === who.user_id && row.roster_id === who.roster_id && row.participant_name === displayName && row.join_point === point) return view();
       // Re-joining moves you to the end of the list; changing your name does not.
       db.prepare(`UPDATE ride_rsvps SET user_id = @user, roster_id = @roster, participant_name = @name, status = 'going', join_point = @point,
-          device_hash = COALESCE(device_hash, @device), updated_at = CASE WHEN @rejoin THEN @now ELSE updated_at END WHERE id = @id`)
-        .run({ user: who.user_id, roster: who.roster_id, name: displayName, point, device: membership ? null : deviceHash, rejoin: wasGoing ? 0 : 1, now, id: row.id });
+          device_hash = CASE WHEN @adopt THEN @device ELSE COALESCE(device_hash, @device) END, updated_at = CASE WHEN @rejoin THEN @now ELSE updated_at END WHERE id = @id`)
+        .run({ user: who.user_id, roster: who.roster_id, name: displayName, point, device: membership ? null : deviceHash, adopt: adopted && !membership ? 1 : 0, rejoin: wasGoing ? 0 : 1, now, id: row.id });
     } else {
       db.prepare("INSERT INTO ride_rsvps (id, ride_id, user_id, roster_id, participant_name, device_hash, status, join_point, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'going', ?, ?, ?)")
         .run(randomUUID(), ride.id, who.user_id, who.roster_id, displayName, membership ? null : deviceHash, point, now, now);
