@@ -185,7 +185,7 @@ test("another club can't use a number already linked to a club", async () => {
   assert.equal(res.statusCode, 409);
 });
 
-test("a name typed at the first RSVP replaces a WhatsApp nickname; an admin's name is kept", async () => {
+test("members known only by a WhatsApp nickname join by number under the name the club has", async () => {
   const t = new Date().toISOString();
   db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES ('nick', ?, 'Anu 🏃', 'anu', '919811100077', 'whatsapp', ?, ?)").run(link.clubId, t, t);
   db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES ('adm', ?, 'Vikram Rao', 'vikram rao', '919811100088', 'manual', ?, ?)").run(link.clubId, t, t);
@@ -194,9 +194,10 @@ test("a name typed at the first RSVP replaces a WhatsApp nickname; an admin's na
   const code = ride.json().ride.code;
   const r1 = await call("PUT", `/api/r/${code}/rsvp`, { payload: { status: "going", name: "Anuradha Kale", phone: "98111 00077" } });
   assert.equal(r1.statusCode, 200, r1.body);
-  assert.equal(db.prepare("SELECT name FROM club_roster WHERE id = 'nick'").get().name, "Anuradha Kale");
+  assert.equal(r1.json().ride.my_rsvp.name, "Anu 🏃");
   await call("PUT", `/api/r/${code}/rsvp`, { payload: { status: "going", name: "Vicky", phone: "98111 00088" } });
-  assert.equal(db.prepare("SELECT name FROM club_roster WHERE id = 'adm'").get().name, "Vikram Rao");
+  assert.equal(db.prepare("SELECT name FROM club_roster WHERE id = 'adm'").get().name, "Vikram Rao", "names are never changed by whoever joins");
+  assert.equal(db.prepare("SELECT name FROM club_roster WHERE id = 'nick'").get().name, "Anu 🏃");
 });
 
 async function signInByCode(phone, clubId) {

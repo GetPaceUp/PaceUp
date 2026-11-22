@@ -277,3 +277,10 @@ label.check input { width: auto; margin: 0; }
 .alerts-sheet h3{font:800 22px/1.2 Manrope,sans-serif;margin:0;color:#17211d}.alerts-sheet p{margin:0 0 6px;color:#5f6c64;font-size:15px;line-height:1.45}
 .alerts-sheet-later{justify-self:center;padding:10px;color:#7a867e;font-size:14px}
 @media(min-width:800px){.alerts-sheet-backdrop{align-items:center}}
+
+/* Members-only join */
+.join-box{display:grid;gap:10px;text-align:left}.join-box input{font-size:17px;padding:14px}
+.join-note{display:grid;gap:4px;border-radius:12px;padding:14px 16px;font-size:14px}.join-note strong{font:800 18px Manrope,sans-serif}
+.join-ok{background:#edf7ee;color:#24502f}.join-no{background:#fff6ef;color:#6b3a22}.join-no strong{color:#7a3a1d}
+.known-as{text-align:center;margin:8px 0 0}
+.join-req h2{margin-bottom:8px}.join-req-phone{font-size:15px}.join-req-actions{display:grid;gap:10px;margin-top:18px}.join-req .button-link{margin-top:14px;width:100%}

@@ -82,53 +82,45 @@ test("add and remove one person", async () => {
 
 const dropLead = (id) => db.prepare("DELETE FROM ride_rsvps WHERE ride_id = ? AND user_id = (SELECT organiser_id FROM rides WHERE id = ?)").run(id, id);
 
-test("the rider flow: tap I'm in, type Amit, pick Amit Daga, done. No sign-in.", async () => {
+test("the member flow: tap I'm in, type your WhatsApp number, done. No sign-in, no name search.", async () => {
   const ride = (await call("POST", `/api/clubs/${owner.clubId}/rides`, { cookie: owner.cookie, payload: { title: "Sunday ride", starts_at: inDays(2), meeting_point: "Tulip Chowk", status: "published" } })).json().ride;
   dropLead(ride.id); // these tests are about everyone else joining
-  const names = async (q) => (await call("GET", `/api/r/${ride.code}/names?q=${q}`)).json().names;
-  const amits = await names("Amit");
-  assert.deepEqual(amits.map((n) => n.name), ["Amit Daga", "Amit Kumar"]);
-  assert.ok(amits.every((n) => n.phone === undefined), "phone numbers are never public");
-  assert.deepEqual((await names("dag")).map((n) => n.name), ["Amit Daga"], "surname matches too");
-  assert.deepEqual(await names("a"), [], "two letters minimum");
+  assert.equal((await call("GET", `/api/r/${ride.code}/names?q=Amit`)).statusCode, 404, "member names are never searchable from a link");
 
-  const res = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: amits[0].id } });
+  const res = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: "98765 43210" } });
   assert.equal(res.statusCode, 200);
   const device = [].concat(res.headers["set-cookie"]).find((c) => c.startsWith("paceup_device=")).split(";")[0];
   assert.deepEqual(res.json().ride.participants.map((p) => [p.name, p.is_you]), [["Amit Daga", true]]);
-
-  // Someone else can't pick Amit Daga again, or type the same name as a guest.
-  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: amits[0].id } })).statusCode, 409);
-  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "amit daga", phone: ph("amit daga") } })).statusCode, 409);
-  // Another club's roster entry can't be used here.
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: "+91 98765 43210" } })).statusCode, 409, "nobody else can join as Amit Daga");
+  // Another club's member isn't one here.
   await call("POST", `/api/clubs/${other.clubId}/roster`, { cookie: other.cookie, payload: { name: "Outside Person", phone: "98222 00001" } });
-  const outside = db.prepare("SELECT id FROM club_roster WHERE club_id = ?").get(other.clubId).id;
-  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", roster_id: outside } })).statusCode, 400);
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: "98222 00001" } })).statusCode, 403);
 
-  // Amit picked the wrong name: switch to Amit Kumar from the same phone, then cancel.
-  const switched = await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: device, payload: { status: "going", roster_id: amits[1].id } });
+  // Wrong person on this phone: type the other number to switch, then cancel.
+  const switched = await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: device, payload: { status: "going", phone: "98765 43211" } });
   assert.deepEqual(switched.json().ride.participants.map((p) => p.name), ["Amit Kumar"]);
   const admin = (await call("GET", `/api/r/${ride.code}`, { cookie: owner.cookie })).json().ride;
   assert.equal(admin.participants[0].kind, "roster");
   const cancelled = await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: device, payload: { status: "cancelled" } });
   assert.equal(cancelled.json().ride.going_count, 0);
   // Renaming the roster entry shows up on the list.
-  await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: device, payload: { status: "going", roster_id: amits[1].id } });
-  db.prepare("UPDATE club_roster SET name = 'Amit K. Kumar' WHERE id = ?").run(amits[1].id);
+  await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: device, payload: { status: "going" } });
+  const amitKumar = db.prepare("SELECT id FROM club_roster WHERE club_id = ? AND phone = '919876543211'").get(owner.clubId).id;
+  db.prepare("UPDATE club_roster SET name = 'Amit K. Kumar' WHERE id = ?").run(amitKumar);
   assert.equal((await call("GET", `/api/r/${ride.code}`)).json().ride.participants[0].name, "Amit K. Kumar");
 });
 
 test.after(async () => { await app.close(); db.close(); rmSync(tempDir, { recursive: true, force: true }); });
 
-test("someone new gives a mobile number: a number already on the list joins as that person", async () => {
+test("a number on the member list joins as that person; a number that isn't is turned away", async () => {
   const ride = (await call("POST", `/api/clubs/${owner.clubId}/rides`, { cookie: owner.cookie, payload: { title: "Phone check", starts_at: inDays(3), meeting_point: "Gate 1", status: "published" } })).json().ride;
   dropLead(ride.id); // these tests are about everyone else joining
   await call("POST", `/api/clubs/${owner.clubId}/roster`, { cookie: owner.cookie, payload: { name: "Shrikant Joshi", phone: "98333 44455" } });
-  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant" } })).statusCode, 400, "number required for someone new");
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant" } })).statusCode, 400, "a number is required");
   const res = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Shrikant", phone: "+91 98333 44455" } });
   assert.equal(res.statusCode, 200, res.body);
-  assert.deepEqual(res.json().ride.participants.map((p) => p.name), ["Shrikant Joshi"], "matched by number, no duplicate");
+  assert.deepEqual(res.json().ride.participants.map((p) => p.name), ["Shrikant Joshi"], "matched by number, the typed name is ignored");
   const fresh = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", name: "Meera Iyer", phone: "98333 99999" } });
-  assert.equal(fresh.statusCode, 200);
-  assert.equal(db.prepare("SELECT phone FROM club_roster WHERE club_id = ? AND name = 'Meera Iyer'").get(owner.clubId).phone, "919833399999");
+  assert.equal(fresh.statusCode, 403);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM club_roster WHERE club_id = ? AND name = 'Meera Iyer'").get(owner.clubId).n, 0);
 });

@@ -161,7 +161,9 @@ export function registerWhatsAppRoutes(app, { requireClubRole, requireClubOwner,
     // Linked groups the number has since left stay listed so they can be unticked.
     for (const jid of allowed) if (!seen.has(jid)) groups.push({ jid, name: jid === c?.group_jid ? c.group_name : "A group this number left", size: null, linked: true });
     groups.sort((x, y) => Number(y.linked) - Number(x.linked) || String(x.name).localeCompare(String(y.name)));
-    return { status: c?.status || "disconnected", phone: maskPhone(c?.phone), groups };
+    // Members-only check: people in the linked groups, and how many of them have a number PaceUp can see.
+    const member_check = c?.group_numbers_at ? { people: c.group_people, numbers: c.group_numbers, at: c.group_numbers_at } : null;
+    return { status: c?.status || "disconnected", phone: maskPhone(c?.phone), groups, member_check };
   };
   const putSchema = { params, body: { type: "object", properties: { jids: { type: "array", maxItems: 30, items: { type: "string", maxLength: 100 } } }, required: ["jids"] } };
   app.get(platformBase, { schema: { params }, preHandler: platformPre }, async (req) => platformView(req.params.clubId));

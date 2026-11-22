@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { codeVersion } from "./version.js";
 import { registerRideRoutes } from "./rides.js";
+import { registerMembersOnlyRoutes } from "./members-only.js";
 import { registerRegularsRoutes } from "./regulars.js";
 import { registerRosterRoutes } from "./roster.js";
 import { registerOtpRoutes } from "./otp.js";
@@ -167,6 +168,7 @@ export async function buildApp(options = {}) {
   registerRideRoutes(app, { requireClubRole, optionalUser, isProduction, publicRateLimit: options.publicRateLimit ?? 30 });
   registerRegularsRoutes(app, { requireClubRole });
   registerRosterRoutes(app, { requireClubRole });
+  registerMembersOnlyRoutes(app);
   registerTemplateRoutes(app, { requireClubRole });
   registerPushRoutes(app);
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });

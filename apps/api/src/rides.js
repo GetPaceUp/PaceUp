@@ -1,12 +1,13 @@
 // Activities (stored as "rides") and RSVPs.
-// Club admins create activities; anyone with the link can RSVP by name, picking
-// themselves from the club roster (or typing a name as a guest). Riders never sign in.
-// A device cookie ties each guest RSVP to the phone that made it, so only that
+// Club admins create activities; only club members can join (members-only.js): a member
+// who isn't signed in types their WhatsApp number once and is checked against the club's
+// WhatsApp groups and member list. Members never sign in.
+// A device cookie ties each RSVP to the phone that made it, so only that
 // phone (or the signed-in member) can change or cancel it.
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList, clubGroups } from "./whatsapp/outbox.js";
-import { suggestNames, cleanName, cleanPhone, nameKey } from "./roster.js";
+import { resolveJoiner, askToJoin, rememberedPerson } from "./members-only.js";
 import { queuePush } from "./push.js";
 import { absentWindow, noShowIds, noShowCounts, setNoShow, ABSENT_LOCK_MS } from "./no-shows.js";
 
@@ -136,7 +137,8 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
       is_you: Boolean(mine && mine.id === p.id)
     })),
     my_rsvp: mine?.status === "going" ? { id: mine.id, name: list.find((p) => p.id === mine.id)?.name || mine.participant_name, listed: Boolean(mine.user_id || mine.roster_id), join_point: ride.meeting_point_2 ? mine.join_point : 1 } : null,
-    viewer: { signed_in: Boolean(userId), member: Boolean(membership), admin },
+    // known_as: this phone was checked as a club member before, so joining is one tap.
+    viewer: { signed_in: Boolean(userId), member: Boolean(membership), admin, known_as: !membership && deviceHash ? (rememberedPerson(ride.club_id, deviceHash)?.name || null) : null },
     ...(admin ? { wa_group_jid: ride.wa_group_jid || null } : {})
   };
   if (admin) {
@@ -162,13 +164,6 @@ export function listClubRides(clubId, userId, { when = "upcoming" } = {}) {
     // Admins only: no-shows, and whether the list can still be marked.
     ...(admin && new Date(r.starts_at).getTime() <= Date.now() ? { no_show_count, can_mark: r.status === "published" && Date.now() < new Date(r.starts_at).getTime() + ABSENT_LOCK_MS } : {})
   }));
-}
-
-/** Names for the RSVP box, from the club roster and signed-up members. */
-export function suggestForRide(code, query) {
-  const ride = getRideRow("share_code", code);
-  if (!ride || ride.status !== "published") throw new DomainError(404, "Activity not found.");
-  return suggestNames(ride.club_id, query);
 }
 
 // ---------------------------------------------------------------- admin writes
@@ -261,13 +256,13 @@ export function getRideByCode(code) { return getRideRow("share_code", code); }
 
 /**
  * Sets an RSVP. Signed-in club members act as themselves. Everyone else acts
- * through their device token: they pick their name from the roster (rosterId),
- * pick a signed-up member (memberId), or type a name as a guest. Each person and
+ * through their device token and is checked as a club member by their WhatsApp
+ * number (members-only.js). Each person and
  * each device has at most one row per activity (unique indexes). Capacity,
  * duplicate checks and the write run in one write transaction, so simultaneous
  * taps can't overfill or double-book.
  */
-export function setRsvp(code, { userId = null, deviceHash = null, status, name = null, phone = null, memberId = null, rosterId = null, joinPoint = null }) {
+export function setRsvp(code, { userId = null, deviceHash = null, status, name = null, phone = null, joinPoint = null }) {
   return db.transaction(() => {
     const ride = getRideRow("share_code", code);
     if (!ride || ride.status === "draft") throw new DomainError(404, "Activity not found.");
@@ -294,51 +289,22 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
     }
 
     // Already in, only changing where they join (no name sent): keep everything else, including their place on the list.
-    if (!membership && row?.status === "going" && !name && !rosterId && !memberId && joinPoint) {
+    if (!membership && row?.status === "going" && !name && !phone && joinPoint) {
       const point = ride.meeting_point_2 && joinPoint === 2 ? 2 : 1;
       if (row.join_point !== point) { db.prepare("UPDATE ride_rsvps SET join_point = ? WHERE id = ?").run(point, row.id); enqueueRiderList(ride); }
       return view();
     }
 
-    // Who is joining?
+    // Who is joining? Members only: signed-in club members act as themselves; everyone else
+    // is checked by their WhatsApp number (or this phone, once it has been checked for this club).
     let who = { user_id: null, roster_id: null }, displayName;
     if (membership) {
       who.user_id = userId;
       displayName = db.prepare("SELECT name FROM users WHERE id = ?").get(userId).name;
-    } else if (rosterId) {
-      const person = db.prepare("SELECT name FROM club_roster WHERE id = ? AND club_id = ?").get(rosterId, ride.club_id);
-      if (!person) throw new DomainError(400, "Pick your name from the list, or join as a guest.");
-      who.roster_id = rosterId; displayName = person.name;
-    } else if (memberId) {
-      if (!getClubMembership(ride.club_id, memberId)) throw new DomainError(400, "Pick your name from the list, or join as a guest.");
-      who.user_id = memberId;
-      displayName = db.prepare("SELECT name FROM users WHERE id = ?").get(memberId).name;
     } else {
-      // Someone new: they're added to the club list so next time they just pick their name.
-      // The mobile number tells the club who this is, and finds them if they're listed under another spelling.
-      displayName = cleanName(name);
-      if (displayName.length < 2 || displayName.length > 60) throw new DomainError(400, "Enter your name (2 to 60 characters).");
-      const mobile = cleanPhone(phone);
-      if (!mobile) throw new DomainError(400, "Enter your mobile number, so the club knows who you are.");
-      const byPhone = db.prepare("SELECT id, name, source FROM club_roster WHERE club_id = ? AND phone = ?").get(ride.club_id, mobile);
-      // Only a WhatsApp nickname was known for this number: the name they type now replaces it.
-      // A name an admin typed or imported is kept.
-      if (byPhone?.source === "whatsapp" && nameKey(displayName) !== nameKey(byPhone.name)
-          && !db.prepare("SELECT 1 FROM club_roster WHERE club_id = ? AND name_key = ? AND id != ?").get(ride.club_id, nameKey(displayName), byPhone.id)) {
-        db.prepare("UPDATE club_roster SET name = ?, name_key = ?, source = 'manual', self_added = 1, updated_at = ? WHERE id = ?").run(displayName, nameKey(displayName), now, byPhone.id);
-        byPhone.name = displayName;
-      }
-      const byName = db.prepare("SELECT id, name, phone FROM club_roster WHERE club_id = ? AND name_key = ?").get(ride.club_id, nameKey(displayName));
-      if (byPhone) { who.roster_id = byPhone.id; displayName = byPhone.name; }
-      else if (byName && byName.phone) throw new DomainError(409, `Someone called ${byName.name} is already on the club list with another number. Add your surname so people can tell you apart.`);
-      else if (byName) {
-        who.roster_id = byName.id; displayName = byName.name;
-        db.prepare("UPDATE club_roster SET phone = ?, updated_at = ? WHERE id = ?").run(mobile, now, byName.id);
-      } else {
-        who.roster_id = randomUUID();
-        db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, self_added, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'manual', 1, ?, ?)")
-          .run(who.roster_id, ride.club_id, displayName, nameKey(displayName), mobile, now, now);
-      }
+      const person = resolveJoiner(ride.club_id, { phone, name, deviceHash });
+      who = { user_id: person.user_id, roster_id: person.roster_id };
+      displayName = person.name;
     }
 
     // The same person must not appear twice.
@@ -408,7 +374,7 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
   const clubParams = { type: "object", properties: { clubId: id }, required: ["clubId"] };
   const rideParams = { type: "object", properties: { clubId: id, rideId: id }, required: ["clubId", "rideId"] };
   const domain = (reply, error) => {
-    if (error instanceof DomainError) return reply.code(error.status).send({ error: error.message });
+    if (error instanceof DomainError) return reply.code(error.status).send({ error: error.message, ...(error.extra || {}) });
     throw error;
   };
   const deviceHashOf = (request) => {
@@ -484,19 +450,11 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     return { ride: view };
   });
 
-  app.get("/api/r/:code/names", {
-    config: { rateLimit: { max: publicRateLimit * 4, timeWindow: "10 minutes" } },
-    schema: { params: codeParams, querystring: { type: "object", properties: { q: { type: "string", maxLength: 60 } }, required: ["q"] } }
-  }, async (request, reply) => {
-    try { return { names: suggestForRide(request.params.code, request.query.q) }; }
-    catch (error) { return domain(reply, error); }
-  });
-
   app.put("/api/r/:code/rsvp", {
     config: { rateLimit: { max: publicRateLimit, timeWindow: "10 minutes" } },
     schema: {
       params: codeParams,
-      body: { type: "object", properties: { status: { type: "string", enum: ["going", "cancelled"] }, name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 }, member_id: id, roster_id: id, join_point: { type: "integer", enum: [1, 2] } }, required: ["status"] }
+      body: { type: "object", properties: { status: { type: "string", enum: ["going", "cancelled"] }, name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 }, join_point: { type: "integer", enum: [1, 2] } }, required: ["status"] }
     },
     preHandler: [optionalUser]
   }, async (request, reply) => {
@@ -505,7 +463,19 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
       const membership = request.userId && ride ? getClubMembership(ride.club_id, request.userId) : null;
       // Members act as themselves; everyone else needs this browser's device token.
       const deviceHash = membership ? deviceHashOf(request) : (request.body.status === "going" ? ensureDevice(request, reply) : deviceHashOf(request));
-      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, memberId: request.body.member_id, rosterId: request.body.roster_id, joinPoint: request.body.join_point }) };
+      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, joinPoint: request.body.join_point }) };
+    } catch (error) { return domain(reply, error); }
+  });
+
+  // Not a member: ask to join. The Lead hears about it (once a day per number).
+  app.post("/api/r/:code/ask", {
+    config: { rateLimit: { max: publicRateLimit, timeWindow: "1 hour" } },
+    schema: { params: codeParams, body: { type: "object", properties: { name: { type: "string", maxLength: 80 }, phone: { type: "string", maxLength: 30 } }, required: ["name", "phone"] } }
+  }, async (request, reply) => {
+    try {
+      const ride = getRideByCode(request.params.code);
+      if (!ride || ride.status !== "published") throw new DomainError(404, "Activity not found.");
+      return askToJoin(ride, { phone: request.body.phone, name: request.body.name });
     } catch (error) { return domain(reply, error); }
   });
 }

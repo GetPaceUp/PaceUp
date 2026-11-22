@@ -7,6 +7,7 @@ import { PeoplePanel } from "./People.jsx";
 import { ResetPage } from "./PasswordReset.jsx";
 import { StartPage, SignupPage } from "./Start.jsx";
 import AlertsCard from "./AlertsCard.jsx";
+import { JoinRequestPage } from "./JoinRequest.jsx";
 import { useEffect, useState } from "react";
 
 const emptyForm = { name: "", email: "", password: "" };
@@ -15,6 +16,8 @@ export default function App() {
   if (window.location.pathname === "/superadmin") return <SuperAdmin />;
   const rideMatch = window.location.pathname.match(/^\/r\/([A-Za-z0-9_-]{6,16})$/);
   if (rideMatch) return <RidePage code={rideMatch[1]} />;
+  const joinMatch = window.location.pathname.match(/^\/m\/([A-Za-z0-9_-]{8,20})$/);
+  if (joinMatch) return <JoinRequestPage code={joinMatch[1]} />;
   const resetMatch = window.location.pathname.match(/^\/reset\/([A-Za-z0-9_-]{20,200})$/);
   if (resetMatch) return <ResetPage token={resetMatch[1]} />;
   const startMatch = window.location.pathname.match(/^\/start\/([A-Za-z0-9_-]{20,100})$/);
@@ -73,6 +76,8 @@ export default function App() {
   function returnToNext() {
     const next = new URLSearchParams(window.location.search).get("next");
     if (next && /^\/r\/[A-Za-z0-9_-]{6,16}(\?absent)?$/.test(next)) { window.location.href = next; return true; }
+    // Signed in from an "Add them" link: back to it.
+    if (next && /^\/m\/[A-Za-z0-9_-]{8,20}$/.test(next)) { window.location.href = next; return true; }
     // Signed in from the club set-up page: back to it.
     if (next && /^\/start(\?club=[A-Za-z0-9._~%-]{1,200})?$/.test(next)) { window.location.href = next; return true; }
     return false;

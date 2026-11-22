@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { NoShowMarker, NoShowBadge } from "./NoShows.jsx";
 import { MostRegular } from "./Regulars.jsx";
 
@@ -293,57 +293,59 @@ export function ClubRides({ club }) {
 
 // ---------------------------------------------------------------- public activity page
 
-/** The name box: type a few letters, pick yourself from the club's list, or add yourself if you're new. */
-function NamePicker({ code, initial = "", busy, onPick, onClose }) {
-  const [text, setText] = useState(initial);
-  const [names, setNames] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [newName, setNewName] = useState("");
+const firstName = (name) => String(name || "").split(" ")[0];
+
+/**
+ * Members only: type your WhatsApp number once and the club knows you. Someone who isn't
+ * in the club gets a friendly no and can ask to join; the Lead hears about it on WhatsApp.
+ */
+function JoinBox({ code, clubName, joinPoint, onJoined, onClose }) {
+  const [stage, setStage] = useState("number"); // number | name | refused | asked
   const [phone, setPhone] = useState("+91 ");
-  const input = useRef();
-  const seq = useRef(0);
-  useEffect(() => { input.current?.focus(); }, []);
-  useEffect(() => {
-    const q = text.trim();
-    if (q.length < 2) { setNames([]); return; }
-    const mine = ++seq.current;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try { const data = await api(`/api/r/${code}/names?q=${encodeURIComponent(q)}`); if (mine === seq.current) setNames(data.names); }
-      catch { if (mine === seq.current) setNames([]); }
-      finally { if (mine === seq.current) setSearching(false); }
-    }, 180);
-    return () => clearTimeout(t);
-  }, [text, code]);
-  const typed = text.trim().replace(/\s+/g, " ");
-  const exact = names.some((n) => n.name.toLowerCase() === typed.toLowerCase());
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const join = async (extra = {}) => {
+    const data = await api(`/api/r/${code}/rsvp`, { method: "PUT", body: JSON.stringify({ status: "going", phone, ...(joinPoint ? { join_point: joinPoint } : {}), ...extra }) });
+    onJoined(data.ride);
+  };
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      if (stage === "refused") {
+        const r = await api(`/api/r/${code}/ask`, { method: "POST", body: JSON.stringify({ phone, name }) });
+        if (r.member) await join(); else setStage("asked");
+      } else await join(stage === "name" ? { name } : {});
+    } catch (err) {
+      const step = err.data?.step;
+      if (step === "not_member") { setStage("refused"); setName(""); }
+      else if (step === "need_name" && stage === "number") setStage("name");
+      else setError(err.message);
+    } finally { setBusy(false); }
+  }
 
-  if (newName) return (
-    <form className="name-picker" onSubmit={(e) => { e.preventDefault(); onPick({ name: newName, phone }, newName); }}>
-      <p className="panel-copy">Joining as <b>{newName}</b>. <button type="button" className="text-button" onClick={() => setNewName("")}>Change</button></p>
-      <label htmlFor="rsvp-phone" className="field-label">Your mobile number</label>
-      <input id="rsvp-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} pattern="[+0-9 \(\)\-]{10,20}" required autoFocus />
-      <p className="panel-copy">So the club knows who you are. Next time you just pick your name.</p>
-      <button type="submit" className="primary-button" disabled={busy}>I'm in</button>
-    </form>
-  );
-
-  return (
-    <div className="name-picker">
-      <label htmlFor="rsvp-name" className="field-label">Your name</label>
-      <input id="rsvp-name" ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder="Start typing, e.g. Amit" autoComplete="off" autoCapitalize="words" maxLength={60} />
-      {typed.length >= 2 && <ul className="name-list" role="listbox" aria-label="Matching names">
-        {names.map((n) => (
-          <li key={n.id}><button type="button" role="option" disabled={busy} onClick={() => onPick(n.kind === "member" ? { member_id: n.id } : { roster_id: n.id }, n.name)}>
-            <span className="avatar">{n.name.slice(0, 1).toUpperCase()}</span><span>{n.name}</span>
-          </button></li>
-        ))}
-        {!searching && names.length === 0 && <li className="name-empty">Not on the club list yet. Tap below to join and be added.</li>}
-        {!exact && typed.length >= 2 && <li><button type="button" className="primary-button new-option" disabled={busy} onClick={() => setNewName(typed)}>I'm in as {typed} <small>(new)</small></button></li>}
-      </ul>}
-      {typed.length < 2 && <p className="panel-copy">Type at least 2 letters, then tap your name.</p>}
-      <button type="button" className="text-button" onClick={onClose}>Back</button>
+  if (stage === "asked") return (
+    <div className="join-box">
+      <div className="join-note join-ok"><strong>Done! 🙌</strong><span>{clubName} will reach out on WhatsApp.</span></div>
     </div>
+  );
+  return (
+    <form className="join-box" onSubmit={submit}>
+      {stage === "refused" && <div className="join-note join-no"><strong>This one's for club members 🙂</strong><span>Want in? Tell the club who you are.</span></div>}
+      {stage === "name" && <div className="join-note join-ok"><strong>Nice! And you are?</strong></div>}
+      {stage === "number"
+        ? <>
+            <label htmlFor="join-phone" className="field-label">Your WhatsApp number</label>
+            <input id="join-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" autoComplete="tel" maxLength={20} required autoFocus />
+          </>
+        : <>
+            <label htmlFor="join-name" className="field-label">Your name</label>
+            <input id="join-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" autoCapitalize="words" maxLength={60} minLength={2} required autoFocus />
+          </>}
+      {error && <p className="error" role="alert">{error}</p>}
+      <button type="submit" className="primary-button" disabled={busy}>{busy ? "One sec…" : stage === "refused" ? "Ask to join" : "I'm in"}</button>
+      {stage !== "refused" && <button type="button" className="text-button" onClick={onClose}>Back</button>}
+    </form>
   );
 }
 
@@ -433,23 +435,24 @@ export function RidePage({ code }) {
     return () => clearInterval(t);
   }, [code, picking, editing]);
 
-  async function rsvp(body, label) {
+  async function rsvp(body) {
     setBusy(true); setError(""); setFlash("");
     try {
       if (ride.meeting_point_2 && body.status === "going" && !body.join_point) body = { ...body, join_point: joinPoint };
       const { point_only, ...send } = body;
       const data = await api(`/api/r/${code}/rsvp`, { method: "PUT", body: JSON.stringify(send) });
       setRide(data.ride); setPicking(false);
-      const listed = data.ride.my_rsvp?.name;
-      // Someone new who typed their number may already be on the club list under another spelling: say so.
-      const foundAs = body.phone && listed && listed.trim().toLowerCase() !== String(body.name || "").trim().toLowerCase();
       setFlash(body.status === "cancelled" ? "Done. You've been taken off the list."
-        : foundAs ? `You're in! ✓ We found your number on the club list as ${listed}.`
         : body.point_only ? `Got it. You'll join at ${body.join_point === 2 ? data.ride.meeting_point_2 : data.ride.meeting_point}. ✓`
-        : `You're in, ${label.split(" ")[0]}! ✓`);
-    } catch (err) { setError(err.message); if (err.status === 409) load(); }
+        : `Hi ${firstName(data.ride.my_rsvp?.name)} 👋 You're in!`);
+    } catch (err) {
+      // This phone isn't remembered (any more): ask for the number.
+      if (err.data?.step === "need_phone") { setPicking(true); return; }
+      setError(err.message); if (err.status === 409) load();
+    }
     finally { setBusy(false); }
   }
+  const joined = (r) => { setRide(r); setPicking(false); setError(""); setFlash(`Hi ${firstName(r.my_rsvp?.name)} 👋 You're in!`); };
   async function adminPatch(body, done) {
     setBusy(true); setError("");
     try { setRide((await api(`/api/clubs/${ride.club.id}/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify(body) })).ride); done?.(); }
@@ -504,18 +507,21 @@ export function RidePage({ code }) {
         {flash && <p className="success-note you-in" role="status">{flash}</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {ride.meeting_point_2 && !(ride.is_full && !ride.my_rsvp) && <JoinPoint ride={ride} value={joinPoint} disabled={busy}
-          onChange={(n) => { setJoinPoint(n); if (ride.my_rsvp && !picking) rsvp({ status: "going", join_point: n, point_only: true }, ""); }} />}
+          onChange={(n) => { setJoinPoint(n); if (ride.my_rsvp && !picking) rsvp({ status: "going", join_point: n, point_only: true }); }} />}
         {ride.my_rsvp ? <>
           {!flash && <p className="success-note you-in">You're in as {ride.my_rsvp.name} ✓</p>}
           {picking
-            ? <NamePicker code={code} busy={busy} onClose={() => setPicking(false)} onPick={(who, label) => rsvp({ status: "going", ...who }, label)} />
+            ? <JoinBox code={code} clubName={ride.club.name} joinPoint={ride.meeting_point_2 ? joinPoint : null} onJoined={joined} onClose={() => setPicking(false)} />
             : <div className="two-col">
-                <button type="button" className="secondary-button" disabled={busy} onClick={() => { setPicking(true); setFlash(""); }}>Change name</button>
+                {!ride.viewer.member && <button type="button" className="secondary-button" disabled={busy} onClick={() => { setPicking(true); setFlash(""); }}>Not you?</button>}
                 <button type="button" className="secondary-button" disabled={busy} onClick={() => rsvp({ status: "cancelled" })}>Can't make it</button>
               </div>}
         </> : ride.is_full ? <button type="button" className="big-button" disabled>Full</button>
-          : picking ? <NamePicker code={code} busy={busy} onClose={() => setPicking(false)} onPick={(who, label) => rsvp({ status: "going", ...who }, label)} />
-          : <button type="button" className="big-button" disabled={busy} onClick={() => (memberOneTap ? rsvp({ status: "going" }, "") : setPicking(true))}>{busy ? "Saving…" : "I'M IN"}</button>}
+          : picking ? <JoinBox code={code} clubName={ride.club.name} joinPoint={ride.meeting_point_2 ? joinPoint : null} onJoined={joined} onClose={() => setPicking(false)} />
+          : <>
+              <button type="button" className="big-button" disabled={busy} onClick={() => (memberOneTap || ride.viewer.known_as ? rsvp({ status: "going" }) : setPicking(true))}>{busy ? "Saving…" : "I'M IN"}</button>
+              {ride.viewer.known_as && <p className="panel-copy known-as">Joining as {ride.viewer.known_as}. <button type="button" className="text-button" onClick={() => setPicking(true)}>Not you?</button></p>}
+            </>}
       </div>}
       {ride.status === "published" && ride.started && <p className="panel-copy">{ride.past ? `This ${c.noun} is over.` : `This ${c.noun} has started. RSVPs are closed.`}</p>}
 
