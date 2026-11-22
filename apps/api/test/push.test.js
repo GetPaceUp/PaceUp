@@ -36,6 +36,7 @@ test("only owners, admins and the PaceUp Admin can turn alerts on", async () => 
   assert.equal((await call("POST", "/api/push/subscribe", { payload: sub("x") })).statusCode, 401);
   assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(1) })).statusCode, 200);
   assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: sub(1) })).statusCode, 200, "same phone again is fine");
+  assert.equal((await call("POST", "/api/push/subscribe", { cookie: owner.cookie, payload: { endpoint: "https://", keys: { p256dh: "p", auth: "a" } } })).statusCode, 400, "broken address is refused");
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM push_subscriptions").get().n, 1);
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(welcomed, [["https://push.example.com/1", "PaceUp alerts are on ✅"]], "a new phone gets one 'alerts are on' ping; the same phone again doesn't");

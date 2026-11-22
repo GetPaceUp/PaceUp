@@ -48,6 +48,8 @@ export function setPushSender(fn) { defaultSend = fn; }
  * Sends one alert to one phone and records what the push service answered (status, error),
  * so a missing alert can be explained. Phones the service says are gone (404/410) are forgotten.
  */
+const hostOf = (endpoint) => { try { return new URL(endpoint).host; } catch { return ""; } };
+
 export async function deliverTo(sub, payload, send = defaultSend) {
   const endpoint = sub.endpoint;
   let status = null, error = null;
@@ -57,11 +59,11 @@ export async function deliverTo(sub, payload, send = defaultSend) {
   } catch (e) {
     status = e?.statusCode ?? null;
     error = String(e?.body || e?.message || e).slice(0, 300);
-    console.error(`[push] ${new URL(endpoint).host} ${status ?? "no response"}: ${error}`);
+    console.error(`[push] ${hostOf(endpoint)} ${status ?? "no response"}: ${error}`);
   }
   if ([404, 410].includes(status)) db.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").run(endpoint);
   else db.prepare("UPDATE push_subscriptions SET last_sent_at = ?, last_status = ?, last_error = ? WHERE endpoint = ?").run(iso(), status, error, endpoint);
-  return { service: new URL(endpoint).host, ok: !error, status, error };
+  return { service: hostOf(endpoint), ok: !error, status, error };
 }
 
 /** "Alerts are on": sent once to a phone that just turned alerts on, so they see it works. */
@@ -105,7 +107,7 @@ export function registerPushRoutes(app) {
     const userId = request.user.sub;
     if (!canGetAlerts(userId)) return reply.code(403).send({ error: "Alerts are for club owners and admins." });
     const { endpoint, keys } = request.body;
-    if (!/^https:\/\//.test(endpoint)) return reply.code(400).send({ error: "That doesn't look like a phone alert address." });
+    if (!/^https:\/\//.test(endpoint) || !hostOf(endpoint)) return reply.code(400).send({ error: "That doesn't look like a phone alert address." });
     const isNew = !db.prepare("SELECT 1 FROM push_subscriptions WHERE endpoint = ?").get(endpoint);
     db.prepare(`INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`)
@@ -127,7 +129,7 @@ export function registerPushRoutes(app) {
     }
     const rows = db.prepare(`SELECT u.name, s.endpoint, s.created_at, s.last_sent_at, s.last_status, s.last_error
       FROM push_subscriptions s INNER JOIN users u ON u.id = s.user_id ORDER BY s.created_at DESC`).all();
-    return { subject: process.env.APP_BASE_URL || "https://getpaceup.com", test, phones: rows.map(({ endpoint, ...r }) => ({ ...r, service: new URL(endpoint).host })) };
+    return { subject: process.env.APP_BASE_URL || "https://getpaceup.com", test, phones: rows.map(({ endpoint, ...r }) => ({ ...r, service: hostOf(endpoint) })) };
   });
 
   app.post("/api/push/unsubscribe", {
