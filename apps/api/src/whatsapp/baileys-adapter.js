@@ -27,6 +27,10 @@ export const baileysAdapter = {
     const sock = makeWASocket({
       auth: state, logger: quiet, version,
       browser: Browsers.ubuntu("PaceUp"),
+      // WhatsApp hands out about six pairing refs. By default Baileys rotates them every 20 s and then
+      // closes the socket (~2.5 min), which silently kills a link code the owner is still typing.
+      // With a code, keep each ref for a minute so the socket (and the code) lasts past our 5-minute limit.
+      ...(pairingPhone ? { qrTimeout: 60_000 } : {}),
       markOnlineOnConnect: false, syncFullHistory: false,
       generateHighQualityLinkPreview: false
     });
