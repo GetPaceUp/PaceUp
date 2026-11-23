@@ -9,6 +9,7 @@ import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList, clubGroups } from "./whatsapp/outbox.js";
 import { resolveJoiner, askToJoin, rememberedPerson } from "./members-only.js";
 import { queuePush } from "./push.js";
+import { shortName } from "./whatsapp/messages.js";
 import { absentWindow, noShowIds, noShowCounts, setNoShow, ABSENT_LOCK_MS } from "./no-shows.js";
 
 const nowIso = () => new Date().toISOString();
@@ -58,11 +59,7 @@ function addLead(ride) {
     .run(randomUUID(), ride.id, ride.organiser_id, name, now, now);
 }
 
-/** "Priya Sharma" -> "Priya S." for public lists. */
-export function shortName(name) {
-  const parts = String(name || "").trim().split(/\s+/);
-  return parts.length > 1 ? `${parts[0]} ${parts.at(-1)[0].toUpperCase()}.` : parts[0];
-}
+export { shortName };
 const normName = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 
 // ---------------------------------------------------------------- audit

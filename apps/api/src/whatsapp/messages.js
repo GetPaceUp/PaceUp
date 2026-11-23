@@ -10,8 +10,13 @@ export function whenText(iso, { short = false } = {}) {
   return short ? `${day} ${time}` : `${day} · ${time}`;
 }
 
+// Titles people save before a name ("Dr Ankit Bhartia" is "Ankit B.", not "Dr B.").
+const TITLE = /^(dr|mr|mrs|ms|er|adv|advocate|prof|capt|col|maj|lt|gen|sh|shri|smt)\.?$/i;
+
+/** "Priya Sharma" -> "Priya S." for public lists. */
 export function shortName(name) {
-  const parts = String(name || "").trim().split(/\s+/);
+  const parts = String(name || "").replace(/[,;]+/g, " ").trim().split(/\s+/);
+  while (parts.length > 1 && TITLE.test(parts[0])) parts.shift();
   return parts.length > 1 ? `${parts[0]} ${parts.at(-1)[0].toUpperCase()}.` : parts[0];
 }
 
