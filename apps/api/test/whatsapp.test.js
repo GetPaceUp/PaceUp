@@ -190,6 +190,20 @@ test("a change post repeats everything: details, Organiser, Lead, notes, who's g
   assert.match(text, new RegExp(`drop out\\.\\*\nhttps://paceup.example/r/${rideCode}\n[\\s\\S]*\n\nNo need to copy/paste this list, it updates itself\\.$`));
 });
 
+test("an unchanged list isn't reposted, but a renamed person is", async () => {
+  const queueList = () => db.prepare("INSERT INTO outbox (id, club_id, ride_id, kind, status, not_before, created_at) VALUES (?, ?, ?, 'rider_list', 'pending', ?, ?)")
+    .run(`list-${Date.now()}-${Math.random()}`, a.clubId, rideId, new Date().toISOString(), new Date().toISOString());
+  queueList(); makeDue(); let before = sent.length; await worker.tick();
+  assert.equal(sent.length, before, "same people, same names: no post");
+  const arjun = db.prepare("SELECT id, name FROM users WHERE name LIKE 'Arjun%'").get();
+  db.prepare("UPDATE users SET name = 'Arjun Mehta' WHERE id = ?").run(arjun.id);
+  try {
+    queueList(); makeDue(); before = sent.length; await worker.tick();
+    assert.equal(sent.length, before + 1);
+    assert.match(sent.at(-1).text, /Arjun M\./);
+  } finally { db.prepare("UPDATE users SET name = ? WHERE id = ?").run(arjun.name, arjun.id); }
+});
+
 test("hourly cap holds posts back instead of dropping them", async () => {
   const insert = db.prepare("INSERT INTO outbox (id, club_id, kind, status, not_before, created_at, sent_at) VALUES (?, ?, 'test', 'sent', ?, ?, ?)");
   const t = new Date(Date.now() - 10 * 60 * 1000).toISOString();
