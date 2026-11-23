@@ -17,7 +17,7 @@ import { markClubLive } from "../directory.js";
 import { signupLinked } from "../signup.js";
 import { queueNoShowNudges } from "../no-shows.js";
 import { regularsText } from "../regulars.js";
-import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText } from "./messages.js";
+import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText, shortName } from "./messages.js";
 
 const iso = (ms) => new Date(ms).toISOString();
 const GROUPS_REFRESH_MS = 2 * 60 * 1000;
@@ -247,7 +247,8 @@ export class WhatsAppWorker {
     if (item.kind === "ride_updated") return { text: rideUpdatedText(ride, riders), payload };
     const prevRow = db.prepare("SELECT payload FROM outbox WHERE ride_id = ? AND kind IN ('rider_list', 'ride_published', 'ride_updated') AND status = 'sent' AND payload IS NOT NULL ORDER BY sent_at DESC LIMIT 1").get(ride.id);
     const previous = prevRow?.payload ? JSON.parse(prevRow.payload).riders : null;
-    if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id && (r.join_point || 1) === riders[i].join_point)) return { skip: "list unchanged since last post" };
+    // A renamed person counts as a change, so the corrected name gets posted.
+    if (previous && previous.length === riders.length && previous.every((r, i) => r.id === riders[i].id && (r.join_point || 1) === riders[i].join_point && shortName(r.name) === shortName(riders[i].name))) return { skip: "list unchanged since last post" };
     return { text: riderListText(ride, riders, previous), payload };
   }
 
