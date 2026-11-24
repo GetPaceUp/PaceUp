@@ -19,6 +19,9 @@ const newShareCode = () => randomBytes(9).toString("base64url"); // 12 chars, 72
 export const CATEGORIES = ["cycling", "running", "hiking", "swimming", "triathlon", "other"];
 /** An activity counts as past (the "completed" state) this long after it starts. */
 const PAST_AFTER_MS = 12 * 60 * 60 * 1000;
+/** People can still join or drop out until an hour after the start (latecomers, last-minute changes). */
+export const JOIN_GRACE_MS = 60 * 60 * 1000;
+export const joiningOpen = (ride, now = Date.now()) => now < new Date(ride.starts_at).getTime() + JOIN_GRACE_MS;
 
 const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "meeting_point_2", "meeting_at_2", "map_url_2", "distance_km", "pace", "notes", "capacity", "category", "wa_group_jid"];
 
@@ -125,7 +128,7 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
     map_url_2: ride.meeting_point_2 ? ride.map_url_2 : null, distance_km: ride.distance_km, pace: ride.pace, notes: ride.notes,
     status: ride.status, capacity: ride.capacity, going_count: list.length,
     is_full: ride.capacity != null && list.length >= ride.capacity,
-    started, past: new Date(ride.starts_at).getTime() < Date.now() - PAST_AFTER_MS,
+    started, joining_open: ride.status === "published" && joiningOpen(ride), past: new Date(ride.starts_at).getTime() < Date.now() - PAST_AFTER_MS,
     organiser: ride.organiser_id ? { name: admin ? ride.organiser_name : shortName(ride.organiser_name) } : null,
     participants: list.map((p) => ({
       ...(admin ? { id: p.id, kind: p.user_id ? "member" : p.roster_id ? "roster" : "guest", no_show: marked.has(p.id), no_shows: counts.get(p.user_id || p.roster_id) || 0 } : {}),
@@ -264,7 +267,7 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
     const ride = getRideRow("share_code", code);
     if (!ride || ride.status === "draft") throw new DomainError(404, "Activity not found.");
     if (ride.status === "cancelled") throw new DomainError(409, "This activity was cancelled.");
-    if (new Date(ride.starts_at).getTime() <= Date.now()) throw new DomainError(409, "This activity has already started.");
+    if (!joiningOpen(ride)) throw new DomainError(409, "This one has started. Joining is closed.");
 
     const membership = userId ? getClubMembership(ride.club_id, userId) : null;
     if (!membership && !deviceHash && status === "going") throw new DomainError(400, "Your browser blocked cookies, so we can't save your RSVP. Allow cookies and try again.");

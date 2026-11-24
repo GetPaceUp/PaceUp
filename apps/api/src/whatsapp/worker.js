@@ -8,7 +8,7 @@ import { db } from "../db.js";
 import { codeVersion } from "../version.js";
 import { loadAdapter } from "./adapter.js";
 import { HOURLY_CAP, MAX_ATTEMPTS, PAIRING_TIMEOUT_MS, memberGroups, clubGroups, isClubGroup } from "./outbox.js";
-import { participants } from "../rides.js";
+import { participants, joiningOpen } from "../rides.js";
 import { handleIncoming } from "./conversation.js";
 import { processGroupAdds } from "./group-adds.js";
 import { recordContacts, setGroupParticipants, syncRosterFromGroup, usableName } from "./contacts.js";
@@ -238,7 +238,8 @@ export class WhatsAppWorker {
     if (!ride) return { skip: "ride deleted" };
     if (item.kind === "ride_cancelled") return { text: rideCancelledText(ride) };
     if (ride.status !== "published") return { skip: `ride is ${ride.status}` };
-    if (new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "ride already started" };
+    // Late joins and drop-outs in the hour after the start still repost the list.
+    if (item.kind === "rider_list" ? !joiningOpen(ride) : new Date(ride.starts_at).getTime() <= Date.now()) return { skip: "joining closed" };
     // Stable key per person for the "new"/"dropped out" diff: user id, roster id, or the RSVP id for a guest.
     const riders = participants(ride.id).map((p) => ({ id: p.user_id || p.roster_id || p.id, user_id: p.user_id, name: p.name, join_point: ride.meeting_point_2 ? p.join_point : 1 }));
     const payload = JSON.stringify({ riders });

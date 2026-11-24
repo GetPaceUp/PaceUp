@@ -204,6 +204,27 @@ test("an unchanged list isn't reposted, but a renamed person is", async () => {
   } finally { db.prepare("UPDATE users SET name = ? WHERE id = ?").run(arjun.name, arjun.id); }
 });
 
+test("late changes in the hour after the start still repost the list; after that, nothing", async () => {
+  const startsAt = db.prepare("SELECT starts_at FROM rides WHERE id = ?").get(rideId).starts_at;
+  const arjun = db.prepare("SELECT id, name FROM users WHERE name LIKE 'Arjun%'").get();
+  const queueList = () => db.prepare("INSERT INTO outbox (id, club_id, ride_id, kind, status, not_before, created_at) VALUES (?, ?, ?, 'rider_list', 'pending', ?, ?)")
+    .run(`late-${Date.now()}-${Math.random()}`, a.clubId, rideId, new Date().toISOString(), new Date().toISOString());
+  try {
+    db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(new Date(Date.now() - 20 * 60000).toISOString(), rideId);
+    db.prepare("UPDATE users SET name = 'Arjun Kapoor' WHERE id = ?").run(arjun.id);
+    queueList(); makeDue(); let before = sent.length; await worker.tick();
+    assert.equal(sent.length, before + 1, "20 min after the start: posted");
+    db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(new Date(Date.now() - 70 * 60000).toISOString(), rideId);
+    db.prepare("UPDATE users SET name = 'Arjun Bose' WHERE id = ?").run(arjun.id);
+    queueList(); makeDue(); before = sent.length; await worker.tick();
+    assert.equal(sent.length, before, "70 min after the start: joining is closed, no post");
+  } finally {
+    db.prepare("UPDATE rides SET starts_at = ? WHERE id = ?").run(startsAt, rideId);
+    db.prepare("UPDATE users SET name = ? WHERE id = ?").run(arjun.name, arjun.id);
+    db.prepare("UPDATE outbox SET status = 'skipped' WHERE status = 'pending'").run();
+  }
+});
+
 test("hourly cap holds posts back instead of dropping them", async () => {
   const insert = db.prepare("INSERT INTO outbox (id, club_id, kind, status, not_before, created_at, sent_at) VALUES (?, ?, 'test', 'sent', ?, ?, ?)");
   const t = new Date(Date.now() - 10 * 60 * 1000).toISOString();
