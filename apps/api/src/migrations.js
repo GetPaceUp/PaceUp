@@ -792,6 +792,15 @@ export const migrations = [
         ALTER TABLE push_subscriptions ADD COLUMN last_error TEXT;
       `);
     }
+  },
+  {
+    id: 33,
+    name: "signin_code_sender",
+    up(db) {
+      // Which number sent a sign-in code: the person's own club ('club') or the PaceUp Admin's number ('paceup'),
+      // so the PaceUp Admin's number can be held to its own daily limits.
+      db.exec("ALTER TABLE login_codes ADD COLUMN sent_via TEXT");
+    }
   }
 ];
 export function pendingMigrations(db) {
