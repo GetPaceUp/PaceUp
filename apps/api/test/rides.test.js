@@ -384,13 +384,22 @@ test("club isolation: another club can't list, edit or see drafts", async () => 
   assert.equal((await call("GET", "/api/r/doesnotexist")).statusCode, 404);
 });
 
-test("dashboard lists upcoming and past separately; started activities close RSVPs", async () => {
+test("dashboard lists upcoming and past separately; joining stays open for an hour after the start", async () => {
   const past = await publish({ starts_at: inDays(-2), title: "Last week's ride" });
-  const justStarted = await publish({ starts_at: inDays(-0.01), title: "Just started" });
+  const justStarted = await publish({ starts_at: inDays(-0.01), title: "Just started" }); // 14 min ago
+  const hourGone = await publish({ starts_at: inDays(-0.05), title: "Started 72 min ago" });
   assert.ok((await ridesOf(clubId, "past")).json().rides.some((r) => r.id === past.id));
   assert.ok(!(await ridesOf(clubId)).json().rides.some((r) => r.id === past.id));
   assert.ok((await ridesOf(clubId)).json().rides.some((r) => r.id === justStarted.id), "still shown until 12 h after start");
-  assert.equal((await phone().rsvp(justStarted.code, { status: "going", phone: listed("Late Rider") })).statusCode, 409);
+  const late = phone();
+  const joined = await late.rsvp(justStarted.code, { status: "going", phone: listed("Late Rider") });
+  assert.equal(joined.statusCode, 200, "a latecomer can still join in the first hour");
+  assert.equal(joined.json().ride.joining_open, true);
+  assert.equal((await late.rsvp(justStarted.code, { status: "cancelled" })).statusCode, 200, "and drop out");
+  const closed = await phone().rsvp(hourGone.code, { status: "going", phone: listed("Very Late") });
+  assert.equal(closed.statusCode, 409);
+  assert.match(closed.json().error || closed.json().message, /Joining is closed/);
+  assert.equal((await call("GET", `/api/r/${hourGone.code}`)).json().ride.joining_open, false);
   assert.equal((await call("GET", `/api/r/${past.code}`)).json().ride.past, true);
 });
 

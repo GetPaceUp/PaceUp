@@ -390,7 +390,7 @@ function PeopleList({ ride, people, busy, onRemove, start = 1 }) {
         <li key={p.id || `${i}-${p.name}`} className={p.is_you ? "you" : ""}>
           <span className="num">{n}</span>
           <span className="who">{p.name}{p.is_you && <em> (you)</em>}{ride.viewer.admin && p.kind === "guest" && <small className="tag">guest</small>}{ride.viewer.admin && (p.no_show ? <small className="tag tag-out">no-show</small> : <NoShowBadge count={p.no_shows} />)}</span>
-          {ride.viewer.admin && onRemove && !ride.started && (confirm === p.id
+          {ride.viewer.admin && onRemove && ride.joining_open && (confirm === p.id
             ? <span className="confirm-inline"><button type="button" className="small-button" disabled={busy} onClick={() => { setConfirm(null); onRemove(p); }}>Remove</button><button type="button" className="text-button" onClick={() => setConfirm(null)}>Keep</button></span>
             : <button type="button" className="text-button remove" aria-label={`Remove ${p.name}`} onClick={() => setConfirm(p.id)}>✕</button>)}
         </li>
@@ -477,7 +477,7 @@ export function RidePage({ code }) {
   if (state !== "ready") return shell(<section className="workspace ride-card"><h2>Activity not found</h2><p className="panel-copy">{state === "missing" ? "This link may be wrong, or the activity hasn't been published yet." : error}</p><button type="button" className="secondary-button" onClick={() => { setState("loading"); load(); }}>Try again</button></section>);
 
   const c = cat(ride);
-  const open = ride.status === "published" && !ride.started;
+  const open = ride.status === "published" && ride.joining_open;
   const pct = ride.capacity ? Math.min(100, Math.round((ride.going_count / ride.capacity) * 100)) : null;
   const memberOneTap = ride.viewer.member && !ride.my_rsvp;
 
@@ -523,7 +523,7 @@ export function RidePage({ code }) {
               {ride.viewer.known_as && <p className="panel-copy known-as">Joining as {ride.viewer.known_as}. <button type="button" className="text-button" onClick={() => setPicking(true)}>Not you?</button></p>}
             </>}
       </div>}
-      {ride.status === "published" && ride.started && <p className="panel-copy">{ride.past ? `This ${c.noun} is over.` : `This ${c.noun} has started. RSVPs are closed.`}</p>}
+      {ride.status === "published" && !ride.joining_open && <p className="panel-copy">{ride.past ? "This one is over." : "This one has started. Joining is closed."}</p>}
 
       <div className="going-head"><span>Going</span><strong>{ride.going_count}{ride.capacity ? ` / ${ride.capacity}` : ""}</strong></div>
       {pct !== null && <div className="meter"><i style={{ width: `${pct}%` }} /></div>}
