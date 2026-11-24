@@ -1,4 +1,4 @@
-// Mobile sign-in: a 6-digit code sent on WhatsApp from a connected club number.
+// Mobile sign-in: a 6-digit code sent on WhatsApp from the person's club number, else the PaceUp Admin's number.
 // No email needed. Codes live 5 minutes, allow 5 tries, and only a hash is stored.
 // Existing email accounts keep working and can attach a phone the same way.
 import { randomUUID, randomInt, createHash, timingSafeEqual } from "node:crypto";
@@ -41,6 +41,33 @@ function senderClub(phone, { userId = null, clubId = null } = {}) {
 }
 
 /**
+ * Sign-in codes for people no linked club number can reach (a new club, someone not on any
+ * member list yet) go out from the PaceUp Admin's own linked number: their own phone, or a club
+ * they own. Sign-in codes only, never anything else, and capped so that number stays safe.
+ */
+const PACEUP_PER_PHONE_DAY = 3;
+const paceupPerHour = () => Number(process.env.SIGNIN_FALLBACK_PER_HOUR) || 20;
+const paceupPerDay = () => Number(process.env.SIGNIN_FALLBACK_PER_DAY) || 100;
+function paceupSenderClub() {
+  return db.prepare(`
+    SELECT wc.club_id FROM whatsapp_connections wc
+    WHERE wc.status = 'connected' AND wc.desired = 'on' AND (
+      wc.phone IN (SELECT phone FROM users WHERE platform_role = 'super_admin' AND phone IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM club_memberships cm INNER JOIN users u ON u.id = cm.user_id
+                 WHERE cm.club_id = wc.club_id AND cm.role = 'owner' AND u.platform_role = 'super_admin'))
+    ORDER BY (wc.phone IN (SELECT phone FROM users WHERE platform_role = 'super_admin' AND phone IS NOT NULL)) DESC, wc.last_seen_at DESC
+    LIMIT 1
+  `).get()?.club_id;
+}
+function paceupBudgetLeft(phone) {
+  const since = (ms) => iso(Date.now() - ms);
+  const count = (sql, ...args) => db.prepare(`SELECT COUNT(*) AS n FROM login_codes WHERE sent_via = 'paceup' AND ${sql}`).get(...args).n;
+  if (count("phone = ? AND created_at > ?", phone, since(24 * 3600e3)) >= PACEUP_PER_PHONE_DAY) return false;
+  if (count("created_at > ?", since(3600e3)) >= paceupPerHour()) return false;
+  return count("created_at > ?", since(24 * 3600e3)) < paceupPerDay();
+}
+
+/**
  * deliver=false records the code and counts it against the limits but sends nothing. Password
  * reset uses it for numbers with no account, so the answer and the throttling look the same.
  */
@@ -51,16 +78,23 @@ export function startCode(phone, { purpose = "login", userId = null, clubId = nu
     if (recent.filter((r) => Date.now() - new Date(r.created_at).getTime() < 15 * 60 * 1000).length >= PER_PHONE_15_MIN || recent.length >= PER_PHONE_DAY) {
       throw new DomainError(429, "Too many codes for this number. Please wait 15 minutes and try again.");
     }
-    const club = deliver ? senderClub(phone, { userId, clubId }) : null;
+    let club = deliver ? senderClub(phone, { userId, clubId }) : null;
+    let via = club ? "club" : null;
     // Password reset answers the same whether or not a code can be sent, so it never reveals who is on PaceUp.
     if (!club && purpose === "reset") deliver = false;
+    else if (!club && purpose === "login") {
+      club = paceupSenderClub();
+      if (!club) throw new DomainError(503, "We couldn't send you a code right now. Please try again in a few minutes.");
+      if (!paceupBudgetLeft(phone)) throw new DomainError(429, "Lots of people are signing up right now. Please try again in an hour.");
+      via = "paceup";
+    }
     else if (!club) throw new DomainError(503, "We couldn't send you a code. Your club needs to be on PaceUp with its WhatsApp number linked. Ask your club admin, or use the sign-in link they sent you.");
     const code = String(randomInt(0, 1000000)).padStart(6, "0");
     const now = Date.now();
     // A new code replaces any earlier one for this number.
     db.prepare("UPDATE login_codes SET used_at = ? WHERE phone = ? AND used_at IS NULL").run(iso(now), phone);
-    db.prepare("INSERT INTO login_codes (id, phone, code_hash, purpose, user_id, expires_at, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(randomUUID(), phone, codeHash(phone, code).toString("hex"), purpose, userId, iso(now + CODE_TTL_MS), ip, iso(now));
+    db.prepare("INSERT INTO login_codes (id, phone, code_hash, purpose, user_id, expires_at, ip, created_at, sent_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(randomUUID(), phone, codeHash(phone, code).toString("hex"), purpose, userId, iso(now + CODE_TTL_MS), ip, iso(now), deliver ? via : null);
     if (deliver) {
       const text = purpose === "reset"
         ? `*${code}* is your PaceUp password reset code. It expires in 5 minutes. Never share it with anyone. If you didn't ask for it, ignore this message.`
