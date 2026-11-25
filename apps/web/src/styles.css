@@ -97,7 +97,7 @@ textarea:focus{border-color:#e47a51;box-shadow:0 0 0 3px rgba(228,122,81,.12)}
 .roster-upload{display:grid;gap:8px;justify-items:start}.roster-list{display:grid;max-height:420px;overflow-y:auto}
 .name-edit{display:flex;gap:8px;align-items:center;flex:1;flex-wrap:wrap}.name-edit input{flex:1;min-width:140px;padding:9px 11px}
 @media(max-width:480px){.tab-note{margin-left:0;width:100%}}
-.optional{font-weight:400;color:#8a958e}.otp-input{font-size:24px;letter-spacing:8px;text-align:center;font-variant-numeric:tabular-nums}.add-phone{margin:10px 0 0}
+.optional{font-weight:400;color:#8a958e}.otp-row{display:flex;gap:8px}.otp-input{flex:1;font-size:24px;letter-spacing:8px;text-align:center;font-variant-numeric:tabular-nums;-webkit-text-fill-color:#18231e}.otp-input::placeholder{-webkit-text-fill-color:#aab4ad}.otp-paste{flex:none;padding:0 16px}.add-phone{margin:10px 0 0}
 
 .phone-banner { margin: 14px 0 4px; padding: 14px 16px; border-radius: 14px; background: #fff3ec; border: 1px solid #f3c3a8; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .phone-banner p { margin: 0; flex: 1 1 220px; color: #1b2420; }
