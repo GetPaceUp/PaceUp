@@ -9,6 +9,7 @@ import { db, DomainError, getClubMembership } from "./db.js";
 import { enqueueRideEvent, enqueueRiderList, clubGroups } from "./whatsapp/outbox.js";
 import { resolveJoiner, askToJoin, rememberedPerson } from "./members-only.js";
 import { queuePush } from "./push.js";
+import { celebrateFirstJoin, logStep } from "./guide.js";
 import { shortName } from "./whatsapp/messages.js";
 import { absentWindow, noShowIds, noShowCounts, setNoShow, ABSENT_LOCK_MS } from "./no-shows.js";
 
@@ -339,6 +340,7 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
       db.prepare("INSERT INTO ride_rsvps (id, ride_id, user_id, roster_id, participant_name, device_hash, status, join_point, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'going', ?, ?, ?)")
         .run(randomUUID(), ride.id, who.user_id, who.roster_id, displayName, membership ? null : deviceHash, point, now, now);
     }
+    if (!wasGoing) celebrateFirstJoin(ride, who.user_id, displayName);
     enqueueRiderList(ride);
     return view();
   }).immediate();
@@ -390,6 +392,14 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     reply.setCookie(DEVICE_COOKIE, token, { httpOnly: true, secure: isProduction, sameSite: "lax", path: "/", maxAge: DEVICE_MAX_AGE });
     return hashDevice(token);
   };
+  // New phones logged as "opened a link", per address per hour (the page itself is never refused).
+  const newOpens = new Map();
+  const NEW_OPENS_PER_HOUR = 30;
+  function newOpenAllowed(ip, now = Date.now()) {
+    let e = newOpens.get(ip);
+    if (!e || e.reset <= now) { if (newOpens.size > 10000) newOpens.clear(); e = { n: 0, reset: now + 3600000 }; newOpens.set(ip, e); }
+    return ++e.n <= NEW_OPENS_PER_HOUR;
+  }
   // optionalUser sets request.userId (null for visitors and ended sessions); authenticated routes use request.user.
   const viewer = (request) => ({ userId: request.userId !== undefined ? request.userId : (request.user?.sub ?? null), deviceHash: deviceHashOf(request) });
 
@@ -446,9 +456,33 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
   // Public activity page data. Works signed out.
   app.get("/api/r/:code", { schema: { params: codeParams }, preHandler: [optionalUser] }, async (request, reply) => {
     const ride = getRideByCode(request.params.code);
-    const view = ride && rideView(ride, viewer(request));
+    let view = ride && rideView(ride, viewer(request));
     if (!view) return reply.code(404).send({ error: "Activity not found." });
+    // First-time funnel: a phone (or signed-in person) that isn't running the club opening a join link.
+    // Only while joining is open and there's room: a closed or full activity has no I'M IN, so its views aren't drop-offs.
+    if (ride.status === "published" && view.joining_open && !view.is_full && !view.viewer?.admin) {
+      const known = view.viewer.member || deviceHashOf(request);
+      // A phone without a device token gets one here; how many new ones one address can log is capped,
+      // so reloading a link without cookies can't grow the table or inflate the count.
+      if (known || newOpenAllowed(request.ip)) {
+        const subject = view.viewer.member ? `u:${request.userId}` : `d:${ensureDevice(request, reply)}`;
+        logStep(subject, ride.club_id, "m_opened");
+      }
+    }
     return { ride: view };
+  });
+
+  // First-time funnel: someone tapped I'M IN (before typing their number). Nothing else changes.
+  app.post("/api/r/:code/step", {
+    config: { rateLimit: { max: publicRateLimit, timeWindow: "10 minutes" } },
+    schema: { params: codeParams, body: { type: "object", properties: { step: { type: "string", enum: ["m_tapped"] } }, required: ["step"] } },
+    preHandler: [optionalUser]
+  }, async (request) => {
+    const ride = getRideByCode(request.params.code);
+    const member = ride && request.userId && getClubMembership(ride.club_id, request.userId);
+    const subject = member ? `u:${request.userId}` : (deviceHashOf(request) ? `d:${deviceHashOf(request)}` : null);
+    if (ride && subject) logStep(subject, ride.club_id, request.body.step);
+    return { ok: true };
   });
 
   app.put("/api/r/:code/rsvp", {
@@ -464,7 +498,12 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
       const membership = request.userId && ride ? getClubMembership(ride.club_id, request.userId) : null;
       // Members act as themselves; everyone else needs this browser's device token.
       const deviceHash = membership ? deviceHashOf(request) : (request.body.status === "going" ? ensureDevice(request, reply) : deviceHashOf(request));
-      return { ride: setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, joinPoint: request.body.join_point }) };
+      const result = setRsvp(request.params.code, { userId: request.userId, deviceHash, status: request.body.status, name: request.body.name, phone: request.body.phone, joinPoint: request.body.join_point });
+      if (request.body.status === "going" && ride) {
+        const subject = membership ? `u:${request.userId}` : deviceHash ? `d:${deviceHash}` : null;
+        if (subject) logStep(subject, ride.club_id, "m_joined");
+      }
+      return { ride: result };
     } catch (error) { return domain(reply, error); }
   });
 

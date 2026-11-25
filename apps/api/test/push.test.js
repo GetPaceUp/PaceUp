@@ -46,7 +46,10 @@ test("the Lead hears when someone drops out, and gets the no-show check", async 
   const ride = (await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { title: "Sunday loop", starts_at: iso(Date.now() + 86400000), meeting_point: "Hebbal", status: "published" } })).json().ride;
   await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: member.cookie, payload: { status: "going" } });
   await call("PUT", `/api/r/${ride.code}/rsvp`, { cookie: member.cookie, payload: { status: "cancelled" } });
-  assert.deepEqual(queued(owner.user.id), [{ title: "Sunday loop", body: "Arjun Rao dropped out.", url: `/r/${ride.code}` }]);
+  assert.deepEqual(queued(owner.user.id), [
+    { title: "🎉 First one in!", body: "Arjun joined Sunday loop.", url: `/r/${ride.code}` },
+    { title: "Sunday loop", body: "Arjun Rao dropped out.", url: `/r/${ride.code}` }
+  ], "the first person ever to join the Lead's activities is celebrated once");
   assert.deepEqual(queued(member.user.id), [], "members never get alerts");
 
   db.prepare("DELETE FROM push_queue").run();

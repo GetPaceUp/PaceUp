@@ -287,3 +287,27 @@ label.check input { width: auto; margin: 0; }
 .join-req label{display:block;font-weight:700;font-size:14px;margin:14px 0 6px}.join-req input{width:100%;box-sizing:border-box}.join-req-pick{margin-top:10px}.join-req-pick small{color:#5d6a62}.join-req .muted-link{color:#5d6a62}
 .join-req h2{margin-bottom:8px}.join-req-phone{font-size:15px}.join-req-actions{display:grid;gap:10px;margin-top:18px}.join-req .button-link{margin-top:14px;width:100%}
 .no-club{display:grid;gap:12px}.no-club .panel-copy{margin:0}.no-club .button-link{width:100%}
+/* First-time guide: Getting started card, one-line tips, It's live, PaceUp Admin funnel */
+.guide-card{display:grid;gap:12px;border:1.5px solid #f2c9b8;background:#fffaf7;border-radius:14px;padding:16px;margin:6px 0 14px}
+.guide-card h3{font:800 18px Manrope,sans-serif;margin:0}
+.gs-steps{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.gs-steps li{display:flex;align-items:center;gap:10px;font-size:14px;color:#34463b}
+.gs-steps i{width:20px;height:20px;border-radius:50%;border:2px solid #dce2da;display:grid;place-items:center;font-style:normal;font-size:11px;flex:none;color:#fff}
+.gs-steps .gs-done i{background:#2f6b3f;border-color:#2f6b3f}.gs-steps .gs-done span{color:#7a867e;text-decoration:line-through}
+.gs-steps .gs-now i{border-color:#e46f45}.gs-steps .gs-now span{font-weight:700;color:#18231e}
+.guide-card>button,.guide-card>.button-link{width:100%;margin:0}
+.guide-tip{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#18231e;color:#fff;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.35;margin-top:4px}
+.guide-tip::before{content:"";position:absolute;top:-6px;left:22px;border:6px solid transparent;border-top:0;border-bottom-color:#18231e}
+.stack-form .guide-tip-ok,.guide-tip-ok{background:none;color:#f3b49b;padding:4px 2px;margin:0;width:auto;min-height:0;font-size:12px;font-weight:700;flex:none}
+.live-now{display:grid;gap:10px;text-align:center;border:1px solid #edf0eb;border-radius:14px;padding:18px 16px;margin:6px 0 14px}
+.live-now h3{font:800 20px Manrope,sans-serif;margin:0}.live-emoji{font-size:34px;margin:0;line-height:1}
+.live-posted{margin:0;background:#edf7ee;color:#2f6b3f;font-weight:700;border-radius:10px;padding:10px}
+.live-now .text-button{justify-self:center;width:auto}.live-share-head{margin:6px 0 0}
+.gs-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.gs-bars{display:grid;gap:8px;margin:8px 0}
+.gs-bar{display:grid;grid-template-columns:minmax(110px,150px) 1fr 36px;gap:10px;align-items:center;font-size:13px}
+.gs-track{height:12px;background:#f2f4ef;border-radius:4px;overflow:hidden}.gs-track i{display:block;height:100%;background:#e46f45;border-radius:4px}
+.gs-bar b{text-align:right;font-variant-numeric:tabular-nums}
+.gs-stuck{display:grid;gap:4px;margin-top:10px}.gs-stuck h3{font:700 14px Manrope,sans-serif;margin:0 0 4px}
+.gs-stuck-row{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid #edf0eb;padding:8px 0;font-size:13px}
+.gs-stuck-row small{display:block;color:#7a867e;font-size:12px}.gs-stuck-row .button-link{flex:none;padding:8px 14px}

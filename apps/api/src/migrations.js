@@ -801,6 +801,36 @@ export const migrations = [
       // so the PaceUp Admin's number can be held to its own daily limits.
       db.exec("ALTER TABLE login_codes ADD COLUMN sent_via TEXT");
     }
+  },
+  {
+    id: 34,
+    name: "first_time_guide",
+    up(db) {
+      // First-time guide. first_steps: the first time someone reaches a step (a club admin opens the
+      // activity form, a member's phone opens a join link, taps I'M IN, joins), for the Super Admin's
+      // drop-off funnel. Subject is 'u:<user id>' or 'd:<device hash>'. user_tips: the one-line tips a
+      // person has dismissed ("Got it"), so they stay hidden on every device.
+      // guide_nudge_at: when a new admin got their one "ready for your first activity?" WhatsApp nudge.
+      // Everyone already in a club counts as nudged, so only people added from now on can get one.
+      db.exec(`
+        CREATE TABLE first_steps (
+          subject TEXT NOT NULL,
+          club_id TEXT NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+          step TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (subject, club_id, step)
+        );
+        CREATE INDEX idx_first_steps_step ON first_steps(step, created_at);
+        CREATE TABLE user_tips (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          tip TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (user_id, tip)
+        );
+        ALTER TABLE club_memberships ADD COLUMN guide_nudge_at TEXT;
+      `);
+      db.prepare("UPDATE club_memberships SET guide_nudge_at = ?").run(new Date().toISOString());
+    }
   }
 ];
 export function pendingMigrations(db) {

@@ -20,6 +20,7 @@ import { registerDirectoryRoutes } from "./directory.js";
 import { registerSignupRoutes, releaseStaleSignups } from "./signup.js";
 import { registerTemplateRoutes } from "./templates.js";
 import { registerPushRoutes, sendQueuedPushes } from "./push.js";
+import { registerGuideRoutes } from "./guide.js";
 import { registerWhatsAppRoutes } from "./whatsapp/routes.js";
 import { createPasswordReset, checkPasswordReset, usePasswordReset } from "./password-reset.js";
 import {
@@ -171,6 +172,7 @@ export async function buildApp(options = {}) {
   registerMembersOnlyRoutes(app);
   registerTemplateRoutes(app, { requireClubRole });
   registerPushRoutes(app);
+  registerGuideRoutes(app, { requireClubRole, requirePlatformAdmin });
   registerOtpRoutes(app, { setSession, makeSlug, hashToken, limit: authLimit });
   registerWhatsAppRoutes(app, { requireClubRole, requireClubOwner, requirePlatformAdmin, rateLimit: options.authRateLimit });
 

@@ -35,6 +35,9 @@ Meaningful RSVP activity can trigger a community update, such as a new participa
 ### Activity operations
 Organisers can view the participant list, communicate changes, and manage cancellations or updates. A change should reach affected participants through their enabled channels.
 
+### First-time guide
+A new club owner or admin sees a "Getting started" card until someone joins their first activity. Their first activity uses the full form with friendlier labels, and one tip at a time, each dismissed once for good. After Publish, an "It's live" screen says which WhatsApp group it is posting in. An admin with no activity three days after being added gets one WhatsApp message from the club's own number; the first person to join gets them one phone alert. The PaceUp Admin sees a "Getting started" funnel (owners and admins, club sign-ups, members) and who is stuck.
+
 ## 4. MVP scope
 
 The first usable release should prioritise:

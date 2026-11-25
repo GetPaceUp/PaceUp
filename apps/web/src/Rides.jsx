@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NoShowMarker, NoShowBadge } from "./NoShows.jsx";
 import { MostRegular } from "./Regulars.jsx";
+import { Tip, GettingStarted, LiveNow, formTip } from "./Guide.jsx";
 
 export const api = async (url, options = {}) => {
   const response = await fetch(url, {
@@ -68,7 +69,11 @@ const formFrom = (r) => ({
   map_url: r.map_url || "", mid_point: r.meeting_point_2 || "", mid_time: r.meeting_at_2 ? localTime(r.meeting_at_2) : "", mid_map: r.map_url_2 || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
 });
 
-export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel }) {
+/**
+ * firstTime: the person's first activity. The full form, with friendlier labels and one tip under
+ * the next thing to fill in (until they tap Got it).
+ */
+export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel, firstTime = false, showTips = false, onDismissTip }) {
   const blank = { ...emptyForm, category: defaultCategory };
   const [form, setForm] = useState(ride ? formFrom(ride) : blank);
   // The optional midway meeting point, for people who join on the way.
@@ -172,12 +177,15 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
           <button key={key} type="button" role="radio" aria-checked={form.category === key} className={form.category === key ? "cat-chip on" : "cat-chip"} onClick={() => setForm((f) => ({ ...f, category: key }))}>{c.emoji} {c.label}</button>
         ))}
       </div>
-      <label htmlFor="a-title">Title</label><input id="a-title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
+      <label htmlFor="a-title">{firstTime ? "What's it called?" : "Title"}</label><input id="a-title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
+      {showTips && formTip(form, "title") && <Tip text={formTip(form, "title")} onDismiss={onDismissTip} />}
       <div className="two-col">
         <div><label htmlFor="a-date">Date</label><input id="a-date" type="date" value={form.date} onChange={set("date")} required /></div>
         <div><label htmlFor="a-time">Start</label><input id="a-time" type="time" value={form.time} onChange={set("time")} required /></div>
       </div>
-      <label htmlFor="a-meet">Meeting point</label><input id="a-meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
+      {showTips && formTip(form, "when") && <Tip text={formTip(form, "when")} onDismiss={onDismissTip} />}
+      <label htmlFor="a-meet">{firstTime ? "Where do you meet?" : "Meeting point"}</label><input id="a-meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
+      {showTips && formTip(form, "meet") && <Tip text={formTip(form, "meet")} onDismiss={onDismissTip} />}
       <label htmlFor="a-map">Map link (optional)</label><input id="a-map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
       {showMid
         ? <div className="midway-box">
@@ -208,6 +216,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         {saveTemplate && <input type="text" aria-label="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Name, e.g. Pandala" maxLength={40} />}
       </div>
       {saveTemplate && <p className="panel-copy">Saves everything except the date and time, so next time you only pick a date. Using an existing name updates that template.</p>}
+      {showTips && formTip(form, "done") && <Tip text={formTip(form, "done")} onDismiss={onDismissTip} />}
       {error && <p className="error" role="alert">{error}</p>}
       {ride
         ? <><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button type="button" className="text-button" onClick={onCancel}>Close without saving</button></>
@@ -229,6 +238,22 @@ export function ClubRides({ club }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const admin = ["owner", "admin"].includes(club.role);
+  // First-time guide for owners/admins: shown until someone joins their first activity.
+  const [guide, setGuide] = useState(null);
+  const loadGuide = () => (admin ? api(`/api/clubs/${club.id}/guide`).then((d) => setGuide(d.guide)).catch(() => setGuide({ show: false })) : null);
+  // "It's live" waits for this (undefined = still checking), so it never claims a post the settings would skip.
+  const [liveWa, setLiveWa] = useState(undefined);
+  const loadWhatsapp = () => { setLiveWa(undefined); api(`/api/clubs/${club.id}/whatsapp`).then((d) => { setWhatsapp(d.whatsapp); setLiveWa(d.whatsapp); }).catch(() => setLiveWa(null)); };
+  const firstTime = Boolean(guide?.show && !guide.published);
+  const tipOn = (tip) => Boolean(guide?.show && !guide.tips_seen?.includes(tip));
+  function dismissTip(tip) {
+    setGuide((g) => (g ? { ...g, tips_seen: [...(g.tips_seen || []), tip] } : g));
+    api("/api/guide/tips", { method: "POST", body: JSON.stringify({ tip }) }).catch(() => {});
+  }
+  function openForm() {
+    setShowForm(true); setJustPublished(null);
+    if (firstTime) api(`/api/clubs/${club.id}/guide/step`, { method: "POST", body: JSON.stringify({ step: "form_opened" }) }).catch(() => {});
+  }
 
   async function load(which = tab) {
     setLoading(true);
@@ -236,14 +261,14 @@ export function ClubRides({ club }) {
     finally { setLoading(false); }
   }
   useEffect(() => {
-    setJustPublished(null); setShowForm(false); setTab("upcoming"); load("upcoming"); setWhatsapp(null);
+    setJustPublished(null); setShowForm(false); setTab("upcoming"); load("upcoming"); setWhatsapp(null); setGuide(null); loadGuide();
     if (admin) api(`/api/clubs/${club.id}/whatsapp`).then((d) => setWhatsapp(d.whatsapp)).catch(() => {});
   }, [club.id]);
 
   async function publish(ride) {
     try {
       const data = await api(`/api/clubs/${club.id}/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) });
-      setJustPublished(data.ride); load();
+      loadWhatsapp(); setJustPublished(data.ride); load(); loadGuide();
     } catch (err) { setError(err.message); }
   }
   const going = rides.filter((r) => r.status === "published").reduce((n, r) => n + r.going_count, 0);
@@ -252,17 +277,13 @@ export function ClubRides({ club }) {
     <section className="workspace rides-section">
       <div className="section-heading">
         <div><p className="eyebrow">{club.name.toUpperCase()}</p><h2>Activities</h2></div>
-        {admin && !showForm && <button type="button" onClick={() => { setShowForm(true); setJustPublished(null); }}>Create activity</button>}
+        {admin && guide && !showForm && !firstTime && <button type="button" onClick={openForm}>Create activity</button>}
       </div>
+      {guide?.show && !showForm && !justPublished && <GettingStarted guide={guide} onCreate={openForm} tipOn={tipOn("dash")} onDismissTip={() => dismissTip("dash")} />}
       {admin && whatsapp && <p className={`wa-mini ${whatsapp.status === "connected" ? "st-on" : "st-off"}`}><i />WhatsApp {whatsapp.status === "connected" ? `connected${whatsapp.group ? ` · posting to ${whatsapp.group.name}` : " · pick a group below"}` : "not connected · RSVPs still work"}</p>}
-      {showForm && <ActivityForm clubId={club.id} defaultCategory={rides.find((r) => r.category)?.category || "other"} onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") setJustPublished(ride); setTab("upcoming"); load("upcoming"); }} />}
-      {justPublished && (
-        <div className="published-note">
-          <p className="success-note">Published. Share it with the club's WhatsApp group:</p>
-          <pre className="share-preview">{shareText(justPublished)}</pre>
-          <ShareButtons ride={justPublished} />
-        </div>
-      )}
+      {showForm && <ActivityForm clubId={club.id} defaultCategory={rides.find((r) => r.category)?.category || "other"} firstTime={firstTime} showTips={firstTime && tipOn("form")} onDismissTip={() => dismissTip("form")}
+        onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") { loadWhatsapp(); setJustPublished(ride); } setTab("upcoming"); load("upcoming"); loadGuide(); }} />}
+      {justPublished && <LiveNow ride={justPublished} whatsapp={liveWa} share={<ShareButtons ride={justPublished} />} onDone={() => setJustPublished(null)} />}
       <div className="tabs" role="tablist">
         {["upcoming", "past"].map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "tab on" : "tab"} onClick={() => { setTab(t); load(t); }}>{t === "upcoming" ? "Upcoming" : "Past"}</button>)}
         {tab === "upcoming" && rides.length > 0 && <span className="tab-note">{going} {going === 1 ? "person" : "people"} going</span>}
@@ -519,7 +540,7 @@ export function RidePage({ code }) {
         </> : ride.is_full ? <button type="button" className="big-button" disabled>Full</button>
           : picking ? <JoinBox code={code} clubName={ride.club.name} joinPoint={ride.meeting_point_2 ? joinPoint : null} onJoined={joined} onClose={() => setPicking(false)} />
           : <>
-              <button type="button" className="big-button" disabled={busy} onClick={() => (memberOneTap || ride.viewer.known_as ? rsvp({ status: "going" }) : setPicking(true))}>{busy ? "Saving…" : "I'M IN"}</button>
+              <button type="button" className="big-button" disabled={busy} onClick={() => { api(`/api/r/${code}/step`, { method: "POST", body: JSON.stringify({ step: "m_tapped" }) }).catch(() => {}); return memberOneTap || ride.viewer.known_as ? rsvp({ status: "going" }) : setPicking(true); }}>{busy ? "Saving…" : "I'M IN"}</button>
               {ride.viewer.known_as && <p className="panel-copy known-as">Joining as {ride.viewer.known_as}. <button type="button" className="text-button" onClick={() => setPicking(true)}>Not you?</button></p>}
             </>}
       </div>}
