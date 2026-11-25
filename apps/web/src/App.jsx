@@ -214,7 +214,8 @@ export default function App() {
             <div className="section-heading"><div><p className="eyebrow">CLUB ADMINISTRATION</p><h2>Your clubs</h2></div><span className="count">{clubs.length} {clubs.length === 1 ? "CLUB" : "CLUBS"}</span></div>
             {clubs.length > 1 && <label className="field-label" htmlFor="club-select">Choose a club</label>}
             {clubs.length > 1 && <select id="club-select" value={selectedClub} onChange={(e) => setSelectedClub(e.target.value)}>{clubs.map((club) => <option key={club.id} value={club.id}>{club.name}</option>)}</select>}
-            {clubs.length === 0 && <p className="panel-copy">You're not in a club yet. Ask your club admin for an invite link. If your number is on a club's member list, sign in with it and you'll join automatically.</p>}
+            {/* No club yet: offer to bring one (signup at /start skips name and number when signed in). */}
+            {clubs.length === 0 && <div className="no-club"><p className="panel-copy">You're not in a club yet.</p><a className="button-link" href="/start">Bring your club to PaceUp</a><p className="panel-copy">Joining one? Ask its admin for the invite link.</p></div>}
             {clubs.length > 0 && !["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <p className="panel-copy">You are a member of this club. Club administration is available to its admins.</p>}
             {clubs.length > 0 && ["owner", "admin"].includes(clubs.find((club) => club.id === selectedClub)?.role) && <>
               {editingName && (isSuper || clubs.find((club) => club.id === selectedClub)?.role === "owner")

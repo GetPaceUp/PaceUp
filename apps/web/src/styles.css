@@ -286,3 +286,4 @@ label.check input { width: auto; margin: 0; }
 .join-same{display:grid;gap:8px;margin-top:16px;background:#fff6ef;color:#6b3a22;border-radius:12px;padding:14px}.join-same span{font-size:14px}.join-same button{width:100%}
 .join-req label{display:block;font-weight:700;font-size:14px;margin:14px 0 6px}.join-req input{width:100%;box-sizing:border-box}.join-req-pick{margin-top:10px}.join-req-pick small{color:#5d6a62}.join-req .muted-link{color:#5d6a62}
 .join-req h2{margin-bottom:8px}.join-req-phone{font-size:15px}.join-req-actions{display:grid;gap:10px;margin-top:18px}.join-req .button-link{margin-top:14px;width:100%}
+.no-club{display:grid;gap:12px}.no-club .panel-copy{margin:0}.no-club .button-link{width:100%}
