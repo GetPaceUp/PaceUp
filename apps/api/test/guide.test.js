@@ -127,3 +127,13 @@ test("the PaceUp Admin's funnel counts each step, and lists who's stuck", async 
 
   assert.equal((await call("GET", "/api/platform/getting-started", { cookie: owner.cookie })).statusCode, 403);
 });
+
+test("a first activity cancelled before anyone joined sends them back to Create", async () => {
+  const club = await registerOwner("Tara Nair", "tara@example.com", "Lake Swimmers");
+  const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: rideBody })).json().ride;
+  const g = async () => (await call("GET", `/api/clubs/${club.clubId}/guide`, { cookie: club.cookie })).json().guide;
+  assert.equal((await g()).published, true);
+  await call("PATCH", `/api/clubs/${club.clubId}/rides/${ride.id}`, { cookie: club.cookie, payload: { status: "cancelled" } });
+  const after = await g();
+  assert.deepEqual([after.show, after.published, after.latest_code], [true, false, null]);
+});

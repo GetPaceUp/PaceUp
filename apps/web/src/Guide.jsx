@@ -48,6 +48,7 @@ export function GettingStarted({ guide, onCreate, tipOn, onDismissTip }) {
 /** After Publish: where it went. Posting itself when WhatsApp is linked, otherwise one big Share. */
 export function LiveNow({ ride, whatsapp, share, onDone }) {
   const [shareOpen, setShareOpen] = useState(false);
+  const checking = whatsapp === undefined;
   const posting = whatsapp?.status === "connected" && whatsapp.group && whatsapp.settings?.post_new_ride !== false;
   const group = posting ? (whatsapp.groups?.find((g) => g.jid === ride.wa_group_jid)?.name || whatsapp.group.name) : null;
   return <div className="live-now" role="status">
@@ -56,7 +57,7 @@ export function LiveNow({ ride, whatsapp, share, onDone }) {
     {posting && <p className="live-posted">Posting in {group} ✓</p>}
     <p className="panel-copy">Names show up as people tap I'M IN.</p>
     <a className="button-link secondary-button" href={`/r/${ride.code}`}>See the activity</a>
-    {posting
+    {checking ? null : posting
       ? (shareOpen ? share : <button type="button" className="text-button" onClick={() => setShareOpen(true)}>Share somewhere else</button>)
       : <><p className="panel-copy live-share-head">Share it in your group:</p>{share}</>}
     <button type="button" className="text-button" onClick={onDone}>Done</button>

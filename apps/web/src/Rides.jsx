@@ -243,7 +243,10 @@ export function ClubRides({ club }) {
   const admin = ["owner", "admin"].includes(club.role);
   // First-time guide for owners/admins: shown until someone joins their first activity.
   const [guide, setGuide] = useState(null);
-  const loadGuide = () => (admin ? api(`/api/clubs/${club.id}/guide`).then((d) => setGuide(d.guide)).catch(() => {}) : null);
+  const loadGuide = () => (admin ? api(`/api/clubs/${club.id}/guide`).then((d) => setGuide(d.guide)).catch(() => setGuide({ show: false })) : null);
+  // "It's live" waits for this (undefined = still checking), so it never claims a post the settings would skip.
+  const [liveWa, setLiveWa] = useState(undefined);
+  const loadWhatsapp = () => { setLiveWa(undefined); api(`/api/clubs/${club.id}/whatsapp`).then((d) => { setWhatsapp(d.whatsapp); setLiveWa(d.whatsapp); }).catch(() => setLiveWa(null)); };
   const firstTime = Boolean(guide?.show && !guide.published);
   const tipOn = (tip) => Boolean(guide?.show && !guide.tips_seen?.includes(tip));
   function dismissTip(tip) {
@@ -268,7 +271,7 @@ export function ClubRides({ club }) {
   async function publish(ride) {
     try {
       const data = await api(`/api/clubs/${club.id}/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify({ status: "published" }) });
-      setJustPublished(data.ride); load(); loadGuide();
+      loadWhatsapp(); setJustPublished(data.ride); load(); loadGuide();
     } catch (err) { setError(err.message); }
   }
   const going = rides.filter((r) => r.status === "published").reduce((n, r) => n + r.going_count, 0);
@@ -277,13 +280,13 @@ export function ClubRides({ club }) {
     <section className="workspace rides-section">
       <div className="section-heading">
         <div><p className="eyebrow">{club.name.toUpperCase()}</p><h2>Activities</h2></div>
-        {admin && !showForm && !firstTime && <button type="button" onClick={openForm}>Create activity</button>}
+        {admin && guide && !showForm && !firstTime && <button type="button" onClick={openForm}>Create activity</button>}
       </div>
       {guide?.show && !showForm && !justPublished && <GettingStarted guide={guide} onCreate={openForm} tipOn={tipOn("dash")} onDismissTip={() => dismissTip("dash")} />}
       {admin && whatsapp && <p className={`wa-mini ${whatsapp.status === "connected" ? "st-on" : "st-off"}`}><i />WhatsApp {whatsapp.status === "connected" ? `connected${whatsapp.group ? ` · posting to ${whatsapp.group.name}` : " · pick a group below"}` : "not connected · RSVPs still work"}</p>}
       {showForm && <ActivityForm clubId={club.id} defaultCategory={rides.find((r) => r.category)?.category || "other"} firstTime={firstTime} showTips={firstTime && tipOn("form")} onDismissTip={() => dismissTip("form")}
-        onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") setJustPublished(ride); setTab("upcoming"); load("upcoming"); loadGuide(); }} />}
-      {justPublished && <LiveNow ride={justPublished} whatsapp={whatsapp} share={<ShareButtons ride={justPublished} />} onDone={() => setJustPublished(null)} />}
+        onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") { loadWhatsapp(); setJustPublished(ride); } setTab("upcoming"); load("upcoming"); loadGuide(); }} />}
+      {justPublished && <LiveNow ride={justPublished} whatsapp={liveWa} share={<ShareButtons ride={justPublished} />} onDone={() => setJustPublished(null)} />}
       <div className="tabs" role="tablist">
         {["upcoming", "past"].map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "tab on" : "tab"} onClick={() => { setTab(t); load(t); }}>{t === "upcoming" ? "Upcoming" : "Past"}</button>)}
         {tab === "upcoming" && rides.length > 0 && <span className="tab-note">{going} {going === 1 ? "person" : "people"} going</span>}
@@ -540,7 +543,7 @@ export function RidePage({ code }) {
         </> : ride.is_full ? <button type="button" className="big-button" disabled>Full</button>
           : picking ? <JoinBox code={code} clubName={ride.club.name} joinPoint={ride.meeting_point_2 ? joinPoint : null} onJoined={joined} onClose={() => setPicking(false)} />
           : <>
-              <button type="button" className="big-button" disabled={busy} onClick={() => (memberOneTap || ride.viewer.known_as ? rsvp({ status: "going" }) : setPicking(true))}>{busy ? "Saving…" : "I'M IN"}</button>
+              <button type="button" className="big-button" disabled={busy} onClick={() => { api(`/api/r/${code}/step`, { method: "POST", body: JSON.stringify({ step: "m_tapped" }) }).catch(() => {}); return memberOneTap || ride.viewer.known_as ? rsvp({ status: "going" }) : setPicking(true); }}>{busy ? "Saving…" : "I'M IN"}</button>
               {ride.viewer.known_as && <p className="panel-copy known-as">Joining as {ride.viewer.known_as}. <button type="button" className="text-button" onClick={() => setPicking(true)}>Not you?</button></p>}
             </>}
       </div>}

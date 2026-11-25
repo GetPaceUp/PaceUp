@@ -39,7 +39,8 @@ const LED = "SELECT id FROM rides WHERE club_id = ? AND organiser_id = ? AND sta
 /** Where this owner/admin is: first activity out yet? Anyone else joined one yet? */
 export function leaderProgress(clubId, userId) {
   const latest = db.prepare(`SELECT share_code FROM rides WHERE club_id = ? AND organiser_id = ? AND status = 'published' ORDER BY created_at DESC LIMIT 1`).get(clubId, userId);
-  const published = Boolean(db.prepare(`${LED} LIMIT 1`).get(clubId, userId));
+  // A first activity that was cancelled before anyone joined doesn't count: they're back to "Create".
+  const published = Boolean(latest);
   const joined = published && Boolean(db.prepare(`SELECT 1 FROM ride_rsvps WHERE ride_id IN (${LED}) AND (user_id IS NULL OR user_id != ?) LIMIT 1`).get(clubId, userId, userId));
   return { published, first_join: joined, latest_code: latest?.share_code || null };
 }
