@@ -137,3 +137,16 @@ test("a first activity cancelled before anyone joined sends them back to Create"
   const after = await g();
   assert.deepEqual([after.show, after.published, after.latest_code], [true, false, null]);
 });
+
+test("a waiting nudge expires when quiet hours start, so it never goes out at night", async () => {
+  const { msUntilQuiet } = await import("../src/guide.js");
+  const at = noon(); // 12:00 India
+  assert.equal(msUntilQuiet(at), 10 * 3600000);
+  assert.equal(msUntilQuiet(at + 10 * 3600000), 0);
+  db.prepare("DELETE FROM whatsapp_direct").run();
+  const late = await joinAs(owner, clubId, "Vikram Shah", "vikram@example.com", "admin");
+  db.prepare("UPDATE users SET phone = '919811100077' WHERE id = ?").run(late.user.id);
+  db.prepare("UPDATE club_memberships SET created_at = ?, guide_nudge_at = NULL WHERE user_id = ?").run(iso(at - 4 * DAY), late.user.id);
+  assert.equal(queueGuideNudges(at), 1);
+  assert.equal(db.prepare("SELECT expires_at FROM whatsapp_direct").get().expires_at, iso(at + 10 * 3600000));
+});

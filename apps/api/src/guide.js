@@ -77,6 +77,13 @@ function localHour(ms) {
   return Number(new Date(ms).toLocaleString("en-GB", { timeZone: process.env.PACEUP_TIMEZONE || "Asia/Kolkata", hour: "2-digit", hourCycle: "h23" }));
 }
 
+/** Time left before quiet hours start today, so a nudge waiting for the club's number never goes out at night. */
+export function msUntilQuiet(now) {
+  const parts = new Date(now).toLocaleString("en-GB", { timeZone: process.env.PACEUP_TIMEZONE || "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).split(":").map(Number);
+  const since = ((parts[0] * 60 + parts[1]) * 60 + parts[2]) * 1000;
+  return Math.max(0, QUIET_START * 60 * 60 * 1000 - since);
+}
+
 export function nudgeText(name, clubName) {
   const first = firstName(name);
   return [`Hi${first ? ` ${first}` : ""}! Ready to post your first activity for *${clubName}*? Takes a minute 👇`, appUrl()].join("\n");
@@ -106,7 +113,7 @@ export function queueGuideNudges(now = Date.now()) {
       const conn = db.prepare("SELECT phone FROM whatsapp_connections WHERE club_id = ? AND desired = 'on' AND phone IS NOT NULL").get(m.club_id);
       if (!conn || conn.phone === m.phone) return;
       db.prepare("INSERT INTO whatsapp_direct (id, club_id, to_phone, text, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(randomUUID(), m.club_id, m.phone, nudgeText(m.name, m.club_name), iso(now + 12 * 60 * 60 * 1000), iso(now));
+        .run(randomUUID(), m.club_id, m.phone, nudgeText(m.name, m.club_name), iso(now + msUntilQuiet(now)), iso(now));
       queued++;
     }).immediate();
   }
