@@ -16,6 +16,7 @@ import { setGroupNumbers } from "../members-only.js";
 import { markClubLive } from "../directory.js";
 import { signupLinked } from "../signup.js";
 import { queueNoShowNudges } from "../no-shows.js";
+import { queueGuideNudges } from "../guide.js";
 import { regularsText } from "../regulars.js";
 import { ridePublishedText, riderListText, rideUpdatedText, rideCancelledText, testText, shortName } from "./messages.js";
 
@@ -316,6 +317,9 @@ export class WhatsAppWorker {
     this.nudgedAt = Date.now();
     try { queueNoShowNudges(); }
     catch (error) { this.log.warn?.(`[whatsapp] could not queue no-show reminders: ${error.message}`); }
+    // A new admin's one "ready for your first activity?" message, from the club's own number.
+    try { queueGuideNudges(); }
+    catch (error) { this.log.warn?.(`[whatsapp] could not queue first-activity nudges: ${error.message}`); }
   }
 
   finish(item, status, reason, attempts = item.attempts) {

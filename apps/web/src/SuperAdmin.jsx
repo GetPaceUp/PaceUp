@@ -1,3 +1,4 @@
+import { GettingStartedFunnel } from "./Guide.jsx";
 import { useEffect, useRef, useState } from "react";
 import { ResetLinkButton } from "./PasswordReset.jsx";
 import { GroupPicker } from "./WhatsApp.jsx";
@@ -11,7 +12,7 @@ export default function SuperAdmin() {
  {loading&&<p className="empty-state">Loading…</p>}{error&&<p className="error">{error}</p>}
  {!loading&&!data&&!error&&<section className="workspace"><h3>Platform owner access required</h3><p className="panel-copy">Set PACEUP_SUPERADMIN_EMAIL to your registered account email in the production environment and restart the API.</p></section>}
  {data&&<><PlatformStats data={data} />
- <Signups onChange={load} /><CreateClub onCreated={load} /><section className="workspace platform-section"><h2>All clubs</h2><div className="club-list">{data.clubs.map(c=><ClubRow key={c.id} club={c} onChange={load} />)}</div></section>
+ <Signups onChange={load} /><GettingStartedFunnel /><CreateClub onCreated={load} /><section className="workspace platform-section"><h2>All clubs</h2><div className="club-list">{data.clubs.map(c=><ClubRow key={c.id} club={c} onChange={load} />)}</div></section>
  <Directory />
  <section className="workspace platform-section"><h2>Users and platform roles</h2><div className="platform-table"><div className="platform-row platform-user-header"><span>User</span><span>Clubs</span><span>Role</span><span>Action</span></div>{data.users.map(u=><div className="platform-row platform-user-row" key={u.id}><span><strong>{u.name}</strong><small>{u.email || (u.phone ? "+" + u.phone : "")}</small></span><span>{u.club_count}<span className="platform-mobile-count"> club{u.club_count === 1 ? "" : "s"}</span></span><span>{u.platform_role === "super_admin" ? "PaceUp Admin" : "User"}</span><span><button className="secondary-button" disabled={busy===u.id} onClick={()=>role(u.id,u.platform_role==="super_admin"?"user":"super_admin")}>{busy===u.id?"Saving…":u.platform_role==="super_admin"?"Remove PaceUp Admin":"Make PaceUp Admin"}</button><ResetLinkButton endpoint={"/api/platform/users/"+u.id+"/password-reset"} name={u.name} /></span></div>)}</div></section>
  <section className="workspace platform-section"><h2>System status</h2><p>API: Online</p><p>WhatsApp: connected per club, from each club's dashboard</p><p>SSL: Managed by deployment configuration</p><button className="secondary-button" onClick={load}>Refresh</button></section></>}</section><footer><span>PACEUP <em className="endorse">by Feet and Pedals</em></span><span>PaceUp Admin console</span></footer></main>;
