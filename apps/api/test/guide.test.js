@@ -24,10 +24,10 @@ const admin = await joinAs(owner, clubId, "Anurag Mehta", "anurag@example.com", 
 const guide = async (who) => (await call("GET", `/api/clubs/${clubId}/guide`, { cookie: who.cookie })).json().guide;
 const queued = (userId) => db.prepare("SELECT title, body, url FROM push_queue WHERE user_id = ?").all(userId);
 const deviceCookie = (res) => [].concat(res.headers["set-cookie"] || []).find((c) => c.startsWith("paceup_device="))?.split(";")[0];
-function listed(name, num) {
+function listed(name, num, club = clubId) {
   const now = iso(Date.now());
   db.prepare("INSERT INTO club_roster (id, club_id, name, name_key, phone, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'upload', ?, ?)")
-    .run(crypto.randomUUID(), clubId, name, name.toLowerCase(), cleanPhone(num), now, now);
+    .run(crypto.randomUUID(), club, name, name.toLowerCase(), cleanPhone(num), now, now);
   return num;
 }
 const rideBody = { title: "Sunday long run", starts_at: iso(Date.now() + 2 * DAY), meeting_point: "Galleria gate 2", status: "published" };
@@ -136,6 +136,26 @@ test("a first activity cancelled before anyone joined sends them back to Create"
   await call("PATCH", `/api/clubs/${club.clubId}/rides/${ride.id}`, { cookie: club.cookie, payload: { status: "cancelled" } });
   const after = await g();
   assert.deepEqual([after.show, after.published, after.latest_code], [true, false, null]);
+});
+
+test("once someone has joined, cancelling that activity doesn't bring the guide back", async () => {
+  const club = await registerOwner("Dev Kapoor", "dev@example.com", "River Paddlers");
+  const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: rideBody })).json().ride;
+  assert.equal((await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: listed("Sana Ali", "98100 44444", club.clubId) } })).statusCode, 200);
+  await call("PATCH", `/api/clubs/${club.clubId}/rides/${ride.id}`, { cookie: club.cookie, payload: { status: "cancelled" } });
+  assert.equal((await call("GET", `/api/clubs/${club.clubId}/guide`, { cookie: club.cookie })).json().guide.show, false);
+});
+
+test("opening a full activity isn't counted as a member drop-off", async () => {
+  const club = await registerOwner("Isha Bose", "isha@example.com", "Peak Trekkers");
+  const ride = (await call("POST", `/api/clubs/${club.clubId}/rides`, { cookie: club.cookie, payload: { ...rideBody, capacity: 1 } })).json().ride;
+  const fill = await call("PUT", `/api/r/${ride.code}/rsvp`, { payload: { status: "going", phone: listed("Om Jain", "98100 55555", club.clubId) } });
+  assert.ok([200, 409].includes(fill.statusCode));
+  const opens = () => db.prepare("SELECT COUNT(*) AS n FROM first_steps WHERE club_id = ? AND step = 'm_opened'").get(club.clubId).n;
+  const before = opens();
+  const view = (await call("GET", `/api/r/${ride.code}`)).json();
+  assert.equal((view.ride || view).is_full, true);
+  assert.equal(opens(), before);
 });
 
 test("a waiting nudge expires when quiet hours start, so it never goes out at night", async () => {

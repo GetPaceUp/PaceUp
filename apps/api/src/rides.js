@@ -459,8 +459,8 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     let view = ride && rideView(ride, viewer(request));
     if (!view) return reply.code(404).send({ error: "Activity not found." });
     // First-time funnel: a phone (or signed-in person) that isn't running the club opening a join link.
-    // Only while joining is open: a closed activity has no I'M IN, so its views aren't drop-offs.
-    if (ride.status === "published" && view.joining_open && !view.viewer?.admin) {
+    // Only while joining is open and there's room: a closed or full activity has no I'M IN, so its views aren't drop-offs.
+    if (ride.status === "published" && view.joining_open && !view.is_full && !view.viewer?.admin) {
       const known = view.viewer.member || deviceHashOf(request);
       // A phone without a device token gets one here; how many new ones one address can log is capped,
       // so reloading a link without cookies can't grow the table or inflate the count.
