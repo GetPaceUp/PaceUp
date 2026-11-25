@@ -150,3 +150,11 @@ test("a waiting nudge expires when quiet hours start, so it never goes out at ni
   assert.equal(queueGuideNudges(at), 1);
   assert.equal(db.prepare("SELECT expires_at FROM whatsapp_direct").get().expires_at, iso(at + 10 * 3600000));
 });
+
+test("cookie-less reloads of a link can't flood the member funnel", async () => {
+  const ride = (await call("GET", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie })).json().rides[0];
+  const before = db.prepare("SELECT COUNT(*) AS n FROM first_steps WHERE step = 'm_opened'").get().n;
+  for (let i = 0; i < 40; i++) assert.equal((await call("GET", `/api/r/${ride.code}`)).statusCode, 200, "the page is always served");
+  const added = db.prepare("SELECT COUNT(*) AS n FROM first_steps WHERE step = 'm_opened'").get().n - before;
+  assert.ok(added <= 30, `at most 30 new phones an hour from one address (got ${added})`);
+});

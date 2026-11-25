@@ -138,7 +138,8 @@ export function gettingStarted(days = 30, now = Date.now()) {
   `).all(since).map((r) => ({ ...r, ...leaderProgress(r.club_id, r.user_id) }));
   const admin = [
     { step: "Added to a club", n: leaders.length },
-    { step: "Opened the form", n: leaders.filter((r) => r.opened || r.published).length },
+    // Only real opens of the web form: a first activity sent through the club's WhatsApp never opened it.
+    { step: "Opened the form", n: leaders.filter((r) => r.opened).length },
     { step: "1st activity", n: leaders.filter((r) => r.published).length },
     { step: "1st join", n: leaders.filter((r) => r.first_join).length }
   ];

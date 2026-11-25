@@ -392,6 +392,14 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     reply.setCookie(DEVICE_COOKIE, token, { httpOnly: true, secure: isProduction, sameSite: "lax", path: "/", maxAge: DEVICE_MAX_AGE });
     return hashDevice(token);
   };
+  // New phones logged as "opened a link", per address per hour (the page itself is never refused).
+  const newOpens = new Map();
+  const NEW_OPENS_PER_HOUR = 30;
+  function newOpenAllowed(ip, now = Date.now()) {
+    let e = newOpens.get(ip);
+    if (!e || e.reset <= now) { if (newOpens.size > 10000) newOpens.clear(); e = { n: 0, reset: now + 3600000 }; newOpens.set(ip, e); }
+    return ++e.n <= NEW_OPENS_PER_HOUR;
+  }
   // optionalUser sets request.userId (null for visitors and ended sessions); authenticated routes use request.user.
   const viewer = (request) => ({ userId: request.userId !== undefined ? request.userId : (request.user?.sub ?? null), deviceHash: deviceHashOf(request) });
 
@@ -453,8 +461,13 @@ export function registerRideRoutes(app, { requireClubRole, optionalUser, isProdu
     // First-time funnel: a phone (or signed-in person) that isn't running the club opening a join link.
     // Only while joining is open: a closed activity has no I'M IN, so its views aren't drop-offs.
     if (ride.status === "published" && view.joining_open && !view.viewer?.admin) {
-      const subject = view.viewer.member ? `u:${request.userId}` : `d:${ensureDevice(request, reply)}`;
-      logStep(subject, ride.club_id, "m_opened");
+      const known = view.viewer.member || deviceHashOf(request);
+      // A phone without a device token gets one here; how many new ones one address can log is capped,
+      // so reloading a link without cookies can't grow the table or inflate the count.
+      if (known || newOpenAllowed(request.ip)) {
+        const subject = view.viewer.member ? `u:${request.userId}` : `d:${ensureDevice(request, reply)}`;
+        logStep(subject, ride.club_id, "m_opened");
+      }
     }
     return { ride: view };
   });
