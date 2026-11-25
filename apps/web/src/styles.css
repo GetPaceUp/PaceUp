@@ -299,7 +299,6 @@ label.check input { width: auto; margin: 0; }
 .guide-tip{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#18231e;color:#fff;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.35;margin-top:4px}
 .guide-tip::before{content:"";position:absolute;top:-6px;left:22px;border:6px solid transparent;border-top:0;border-bottom-color:#18231e}
 .stack-form .guide-tip-ok,.guide-tip-ok{background:none;color:#f3b49b;padding:4px 2px;margin:0;width:auto;min-height:0;font-size:12px;font-weight:700;flex:none}
-.ride-form .more-details{justify-self:stretch;text-align:left;border:1.5px dashed #dce2da;border-radius:8px;padding:10px 12px;color:#2f6b3f;font-size:13px;margin-top:2px}
 .live-now{display:grid;gap:10px;text-align:center;border:1px solid #edf0eb;border-radius:14px;padding:18px 16px;margin:6px 0 14px}
 .live-now h3{font:800 20px Manrope,sans-serif;margin:0}.live-emoji{font-size:34px;margin:0;line-height:1}
 .live-posted{margin:0;background:#edf7ee;color:#2f6b3f;font-weight:700;border-radius:10px;padding:10px}

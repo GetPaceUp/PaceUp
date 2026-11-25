@@ -70,15 +70,14 @@ const formFrom = (r) => ({
 });
 
 /**
- * firstTime: the person's first activity. Only the 4 things that matter show; the rest sit under
- * "More details", with one tip under the next thing to fill in (until they tap Got it).
+ * firstTime: the person's first activity. The full form, with friendlier labels and one tip under
+ * the next thing to fill in (until they tap Got it).
  */
 export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel, firstTime = false, showTips = false, onDismissTip }) {
   const blank = { ...emptyForm, category: defaultCategory };
   const [form, setForm] = useState(ride ? formFrom(ride) : blank);
   // The optional midway meeting point, for people who join on the way.
   const [showMid, setShowMid] = useState(Boolean(ride?.meeting_point_2));
-  const [more, setMore] = useState(!firstTime);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -187,8 +186,6 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       {showTips && formTip(form, "when") && <Tip text={formTip(form, "when")} onDismiss={onDismissTip} />}
       <label htmlFor="a-meet">{firstTime ? "Where do you meet?" : "Meeting point"}</label><input id="a-meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
       {showTips && formTip(form, "meet") && <Tip text={formTip(form, "meet")} onDismiss={onDismissTip} />}
-      {!more && <button type="button" className="text-button more-details" onClick={() => setMore(true)}>+ More details · map, distance, pace, spots, notes</button>}
-      {more && <>
       <label htmlFor="a-map">Map link (optional)</label><input id="a-map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
       {showMid
         ? <div className="midway-box">
@@ -219,7 +216,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         {saveTemplate && <input type="text" aria-label="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Name, e.g. Pandala" maxLength={40} />}
       </div>
       {saveTemplate && <p className="panel-copy">Saves everything except the date and time, so next time you only pick a date. Using an existing name updates that template.</p>}
-      </>}
+      {showTips && formTip(form, "done") && <Tip text={formTip(form, "done")} onDismiss={onDismissTip} />}
       {error && <p className="error" role="alert">{error}</p>}
       {ride
         ? <><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button type="button" className="text-button" onClick={onCancel}>Close without saving</button></>

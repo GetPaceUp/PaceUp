@@ -19,7 +19,7 @@ export function formTip(form, slot) {
     meet: "Use the name everyone knows. Map link is optional.",
     done: "All set. Tap Publish 👇"
   }[next];
-  const where = { title: "title", when: "when", meet: "meet", done: "meet" }[next];
+  const where = { title: "title", when: "when", meet: "meet", done: "done" }[next];
   return where === slot ? text : null;
 }
 
@@ -40,7 +40,7 @@ export function GettingStarted({ guide, onCreate, tipOn, onDismissTip }) {
         </>
       : <>
           <button type="button" onClick={onCreate}>Create activity</button>
-          {tipOn && <Tip text="Takes a minute. Just 4 things." onDismiss={onDismissTip} />}
+          {tipOn && <Tip text="Takes a minute." onDismiss={onDismissTip} />}
         </>}
   </div>;
 }
