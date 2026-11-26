@@ -197,7 +197,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
   return (
     <form className="stack-form ride-form" onFocusCapture={autoOpen} onClickCapture={autoOpen} onSubmit={(e) => { e.preventDefault(); submit(ride ? null : "published"); }}>
       {!ride && templates.length > 0 && <>
-        <label htmlFor="a-tpl">Start from a template <Info id="template" hint={hint} setHint={setHint} /></label>
+        <label htmlFor="a-tpl">Start from a template</label>
         <div className="template-bar">
           <select id="a-tpl" data-hint="template" value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
             <option value="">None: start blank</option>
@@ -211,23 +211,23 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         {chosen && <p className="panel-copy">Filled in from {chosen.name}. Set the date and time, and change anything else you need.</p>}
         {templateNote && <p className="success-note" role="status">{templateNote}</p>}
       </>}
-      <label htmlFor="a-cat">Type <Info id="type" hint={hint} setHint={setHint} /></label>
+      <label htmlFor="a-cat">Type</label>
       <div className="cat-row" id="a-cat" role="radiogroup" data-hint="type">
         {Object.entries(CATEGORIES).map(([key, c]) => (
           <button key={key} type="button" role="radio" aria-checked={form.category === key} className={form.category === key ? "cat-chip on" : "cat-chip"} onClick={() => setForm((f) => ({ ...f, category: key }))}>{c.emoji} {c.label}</button>
         ))}
       </div>
       <HintText id="type" hint={hint} />
-      <label htmlFor="a-title">{firstTime ? "What's it called?" : "Title"} <Info id="title" hint={hint} setHint={setHint} /></label><input id="a-title" data-hint="title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
+      <label htmlFor="a-title">{firstTime ? "What's it called?" : "Title"}</label><input id="a-title" data-hint="title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
       <HintText id="title" hint={hint} />
       <div className="two-col">
-        <div><label htmlFor="a-date">Date <Info id="when" hint={hint} setHint={setHint} /></label><input id="a-date" data-hint="when" type="date" value={form.date} onChange={set("date")} required /></div>
+        <div><label htmlFor="a-date">Date</label><input id="a-date" data-hint="when" type="date" value={form.date} onChange={set("date")} required /></div>
         <div><label htmlFor="a-time">Start</label><input id="a-time" data-hint="when" type="time" value={form.time} onChange={set("time")} required /></div>
       </div>
       <HintText id="when" hint={hint} />
-      <label htmlFor="a-meet">{firstTime ? "Where do you meet?" : "Meeting point"} <Info id="meet" hint={hint} setHint={setHint} /></label><input id="a-meet" data-hint="meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
+      <label htmlFor="a-meet">{firstTime ? "Where do you meet?" : "Meeting point"}</label><input id="a-meet" data-hint="meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
       <HintText id="meet" hint={hint} />
-      <label htmlFor="a-map">Map link (optional) <Info id="map" hint={hint} setHint={setHint} /></label><input id="a-map" data-hint="map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
+      <label htmlFor="a-map">Map link (optional)</label><input id="a-map" data-hint="map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="Paste a Google Maps link" maxLength={500} pattern="https://.*" />
       <HintText id="map" hint={hint} />
       {showMid
         ? <div className="midway-box">
@@ -242,22 +242,23 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
           </div>
         : <><div className="add-midway-row"><button type="button" className="text-button add-midway" data-hint="midway" onClick={() => setShowMid(true)}>+ Add a midway meeting point</button><Info id="midway" hint={hint} setHint={setHint} /></div><HintText id="midway" hint={hint} /></>}
       <div className="two-col">
-        <div><label htmlFor="a-km">Distance (km) <Info id="distance" hint={hint} setHint={setHint} /></label><input id="a-km" data-hint="distance" type="number" min="0" max="1000" step="0.1" inputMode="decimal" value={form.distance_km} onChange={set("distance_km")} /></div>
-        <div><label htmlFor="a-pace">Pace <Info id="pace" hint={hint} setHint={setHint} /></label><input id="a-pace" data-hint="pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
+        <div><label htmlFor="a-km">Distance (km)</label><input id="a-km" data-hint="distance" type="number" min="0" max="1000" step="0.1" inputMode="decimal" placeholder="e.g. 40" value={form.distance_km} onChange={set("distance_km")} /></div>
+        <div><label htmlFor="a-pace">Pace</label><input id="a-pace" data-hint="pace" value={form.pace} onChange={set("pace")} placeholder={form.category === "running" ? "e.g. 6:00/km" : "e.g. 25 km/h"} maxLength={60} /></div>
       </div>
       <HintText id="distance" hint={hint} /><HintText id="pace" hint={hint} />
-      {cycling && <div className="two-col">
-        <div><label htmlFor="a-bike">Bike <Info id="bike" hint={hint} setHint={setHint} /></label>
+      {cycling && <>
+        <label htmlFor="a-bike">Bike</label>
           <select id="a-bike" data-hint="bike" value={form.bike_type} onChange={set("bike_type")}>
             {Object.entries(BIKE_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select></div>
-        <div><label htmlFor="a-style">Ride style <Info id="style" hint={hint} setHint={setHint} /></label>
+          </select>
+        <HintText id="bike" hint={hint} />
+        <label htmlFor="a-style">Ride style <Info id="style" hint={hint} setHint={setHint} /></label>
           <select id="a-style" data-hint="style" value={form.ride_style} onChange={set("ride_style")}>
             <option value="">Pick one</option>
             {Object.entries(RIDE_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select></div>
-      </div>}
-      {cycling && <><HintText id="bike" hint={hint} /><HintText id="style" hint={hint} /></>}
+          </select>
+        <HintText id="style" hint={hint} />
+      </>}
       {groupChoices && <>
         <label htmlFor="a-group">Post in WhatsApp group <Info id="group" hint={hint} setHint={setHint} /></label>
         <select id="a-group" data-hint="group" value={form.wa_group_jid} onChange={set("wa_group_jid")}>
@@ -266,10 +267,10 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         </select>
         <HintText id="group" hint={hint} />
       </>}
-      <label htmlFor="a-notes">Notes <Info id="notes" hint={hint} setHint={setHint} /></label><textarea id="a-notes" data-hint="notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
+      <label htmlFor="a-notes">Notes</label><textarea id="a-notes" data-hint="notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
       <HintText id="notes" hint={hint} />
       <div className="template-save">
-        <span className="check-row"><label className="check" data-hint="save"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /> Save as a template</label><Info id="save" hint={hint} setHint={setHint} /></span>
+        <span className="check-row"><label className="check" data-hint="save"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /> Save as a template</label></span>
         {saveTemplate && <input type="text" aria-label="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Name, e.g. Pandala" maxLength={40} />}
       </div>
       {saveTemplate && <p className="panel-copy">Using an existing name updates that template.</p>}
@@ -279,7 +280,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       {ride
         ? <><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button type="button" className="text-button" onClick={onCancel}>Close without saving</button></>
         : <><button type="submit" disabled={saving}>{saving ? "Publishing…" : "Publish"}</button>
-            <div className="add-midway-row"><button type="button" className="text-button" disabled={saving} onClick={() => submit("draft")}>Save as draft</button><Info id="publish" hint={hint} setHint={setHint} /></div>
+            <div className="add-midway-row"><button type="button" className="text-button" disabled={saving} onClick={() => submit("draft")}>Save as draft</button></div>
             <HintText id="publish" hint={hint} />
             {onCancel && <button type="button" className="text-button" onClick={onCancel}>Close</button>}</>}
     </form>
