@@ -15,7 +15,8 @@ const app = await buildApp({ logger: false, authRateLimit: 1000 });
 const { call, registerOwner, invite } = makeClient(app);
 const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
 const settle = () => new Promise((r) => setTimeout(r, 10));
-const makeDue = () => db.prepare("UPDATE outbox SET not_before = ? WHERE status = 'pending'").run(new Date(Date.now() - 1000).toISOString());
+// Also clears the worker's 0-1 ms gap between posts: on a fast machine the next test can start inside it.
+const makeDue = () => { worker.nextSendAt.clear(); return db.prepare("UPDATE outbox SET not_before = ? WHERE status = 'pending'").run(new Date(Date.now() - 1000).toISOString()); };
 const pending = (clubId) => db.prepare("SELECT * FROM outbox WHERE club_id = ? AND status = 'pending'").all(clubId);
 
 async function joinAs(owner, name, email) {
