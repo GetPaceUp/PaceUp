@@ -128,7 +128,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
   const bike = { bike_type: cycling ? form.bike_type || null : null, ride_style: cycling ? form.ride_style || null : null };
   async function storeTemplate() {
     const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null, ...bike,
-      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null,
+      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
       wa_group_jid: form.wa_group_jid || null,
       ...(mid ? { meeting_point_2: form.mid_point.trim(), map_url_2: form.mid_map || null, midway_offset_min: form.time && form.mid_time ? Math.max(0, minutesBetween(form.time, form.mid_time)) : null } : {}) };
     await api(`/api/clubs/${clubId}/templates`, { method: "POST", body: JSON.stringify(body) });
@@ -150,7 +150,6 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         map_url: form.map_url || null, pace: form.pace || null, ...bike, notes: form.notes || null,
         meeting_point_2: mid ? form.mid_point.trim() : null, meeting_at_2: mid ? new Date(`${form.date}T${form.mid_time}`).toISOString() : null, map_url_2: mid ? form.mid_map || null : null,
         distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
-        capacity: form.capacity !== "" ? Number(form.capacity) : null,
         ...(groupChoices || form.wa_group_jid ? { wa_group_jid: form.wa_group_jid || null } : {}),
         ...(status ? { status } : {})
       };
@@ -222,7 +221,6 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
             {Object.entries(RIDE_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select></div>
       </div>}
-      <label htmlFor="a-cap">Spots (optional)</label><input id="a-cap" type="number" min="1" max="10000" inputMode="numeric" value={form.capacity} onChange={set("capacity")} placeholder="No limit" />
       {groupChoices && <>
         <label htmlFor="a-group">Post in WhatsApp group</label>
         <select id="a-group" value={form.wa_group_jid} onChange={set("wa_group_jid")}>
