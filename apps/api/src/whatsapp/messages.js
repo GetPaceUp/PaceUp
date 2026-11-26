@@ -36,6 +36,17 @@ export function paceText(pace, category) {
   return /^[\d.:–\s]+$/.test(p) && PACE_UNIT[category] ? `${p} ${PACE_UNIT[category]}` : p;
 }
 
+const BIKE = { mtb_hybrid: "MTB/Hybrid", mtb: "MTB only", road: "Road bike", any: "Any bike" };
+const STYLE = { no_drop: "No-drop", racing: "Racing", drafting: "Drafting", trails: "Trails" };
+/** The last lines of every cycling post. */
+export const CYCLING_NOTE = "*Note: Helmets, spare tube, front and back lights compulsory. Hydration, nutrition and some cash suggested.*";
+/** "🚲 Road bike · No-drop": cycling only, either part may be missing. */
+export function bikeLine(ride) {
+  if (ride.category !== "cycling") return null;
+  const parts = [BIKE[ride.bike_type], STYLE[ride.ride_style]].filter(Boolean);
+  return parts.length ? `🚲 ${parts.join(" · ")}` : null;
+}
+
 function details(ride) {
   return [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
 }
@@ -52,6 +63,7 @@ function body(ride) {
     ? [dayText(ride.starts_at), `📍 ${pointLabel(ride, 1)}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : []), `📍 ${pointLabel(ride, 2)}`, ...(ride.map_url_2 ? [`🗺️ ${ride.map_url_2}`] : [])]
     : [whenText(ride.starts_at), `📍 ${ride.meeting_point}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : [])];
   if (details(ride)) lines.push(details(ride));
+  if (bikeLine(ride)) lines.push(bikeLine(ride));
   // The club organises; the admin who created it leads.
   if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
   if (ride.organiser_name) lines.push(`Lead: ${shortName(ride.organiser_name)}`);
@@ -92,7 +104,7 @@ function post(header, ride, riders, previous, cta) {
   const list = going(ride, riders, previous);
   // Join link before the list, so it stays near the top however long the list gets.
   return [header, ...body(ride), "", list.full ? "👇 *Full. Tap the link to grab a spot if someone drops out.*" : cta, rideLink(ride), ...list.lines,
-    "", "No need to copy/paste this list, it updates itself."].join("\n");
+    "", "No need to copy/paste this list, it updates itself.", ...(ride.category === "cycling" ? ["", CYCLING_NOTE] : [])].join("\n");
 }
 
 export function ridePublishedText(ride, riders = []) {

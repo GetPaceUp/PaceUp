@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NoShowMarker, NoShowBadge } from "./NoShows.jsx";
 import { MostRegular } from "./Regulars.jsx";
-import { Tip, GettingStarted, LiveNow, formTip } from "./Guide.jsx";
+import { GettingStarted, LiveNow, formTip } from "./Guide.jsx";
 
 export const api = async (url, options = {}) => {
   const response = await fetch(url, {
@@ -22,6 +22,12 @@ export const CATEGORIES = {
   other: { emoji: "📍", label: "Other", noun: "activity" }
 };
 const cat = (a) => CATEGORIES[a.category] || CATEGORIES.other;
+// Cycling only: which bikes suit it, and how the group rides.
+export const BIKE_TYPES = { mtb_hybrid: "MTB/Hybrid", mtb: "MTB only", road: "Road bike", any: "Any bike" };
+export const RIDE_STYLES = { no_drop: "No-drop", racing: "Racing", drafting: "Drafting", trails: "Trails" };
+const CYCLING_NOTE = "*Note: Helmets, spare tube, front and back lights compulsory. Hydration, nutrition and some cash suggested.*";
+/** "Road bike · No-drop", or null. */
+export const bikeText = (a) => a.category !== "cycling" ? null : [BIKE_TYPES[a.bike_type], RIDE_STYLES[a.ride_style]].filter(Boolean).join(" · ") || null;
 // Always 12-hour with AM/PM: "5:30" alone is ambiguous for a dawn ride.
 const timeOnly = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 const PACE_UNIT = { cycling: "km/h", running: "min/km", hiking: "km/h", swimming: "min/100 m", triathlon: "", other: "" };
@@ -44,7 +50,9 @@ export function shareText(ride) {
   const details = [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
   const lines = [`${cat(ride).emoji} *${ride.title}*`, when(ride.starts_at), `📍 ${ride.meeting_point}`];
   if (details) lines.push(details);
+  if (bikeText(ride)) lines.push(`🚲 ${bikeText(ride)}`);
   lines.push("", "Tap to say you're in:", rideUrl(ride.code));
+  if (ride.category === "cycling") lines.push("", CYCLING_NOTE);
   return lines.join("\n");
 }
 const whatsappLink = (ride) => `https://wa.me/?text=${encodeURIComponent(shareText(ride))}`;
@@ -61,25 +69,54 @@ function ShareButtons({ ride }) {
 
 // ---------------------------------------------------------------- create / edit form
 
-const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", mid_point: "", mid_time: "", mid_map: "", distance_km: "", pace: "", capacity: "", notes: "", wa_group_jid: "" };
+const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", mid_point: "", mid_time: "", mid_map: "", distance_km: "", pace: "", bike_type: "mtb_hybrid", ride_style: "", capacity: "", notes: "", wa_group_jid: "" };
 const minutesBetween = (a, b) => { const [ah, am] = a.split(":").map(Number), [bh, bm] = b.split(":").map(Number); return (bh * 60 + bm) - (ah * 60 + am); };
 const addMinutes = (time, min) => { const t = time.split(":").map(Number); const total = t[0] * 60 + t[1] + min; return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`; };
 const formFrom = (r) => ({
   title: r.title, category: r.category || "other", date: localDate(r.starts_at), time: localTime(r.starts_at), meeting_point: r.meeting_point,
-  map_url: r.map_url || "", mid_point: r.meeting_point_2 || "", mid_time: r.meeting_at_2 ? localTime(r.meeting_at_2) : "", mid_map: r.map_url_2 || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
+  map_url: r.map_url || "", mid_point: r.meeting_point_2 || "", mid_time: r.meeting_at_2 ? localTime(r.meeting_at_2) : "", mid_map: r.map_url_2 || "", distance_km: r.distance_km ?? "", pace: r.pace || "", bike_type: r.bike_type || "mtb_hybrid", ride_style: r.ride_style || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
 });
 
+// ⓘ hints: one line per field and button. Tap ⓘ to open or close one.
+const HINTS = {
+  template: "Fills the form from a saved activity. Change anything you need.",
+  type: "What kind of activity it is. Sets the emoji in the WhatsApp post.",
+  title: "Name it the way your group says it.",
+  when: "The day, and when people should be at the meeting point.",
+  meet: "The place name everyone knows.",
+  map: "Paste a Google Maps link so nobody gets lost.",
+  midway: "For people who join on the way: a second place and time.",
+  distance: "Total distance in km.",
+  pace: "Average speed, e.g. 25-28. Helps people pick the right one.",
+  bike: "Which bikes suit this route.",
+  style: "No-drop: nobody is left behind. Racing: full gas. Drafting: ride close in a line. Trails: off-road.",
+  group: "Which WhatsApp group gets the post.",
+  notes: "Anything else: what to bring, café stop, regroup points.",
+  save: "Saves everything except the date and time, so next time you only pick a date.",
+  publish: "Publish posts it in your WhatsApp group and opens joining. Save as draft keeps it hidden."
+};
+const Info = ({ id, hint, setHint }) => (
+  <button type="button" className={hint === id ? "info-btn on" : "info-btn"} aria-label="What's this?" aria-expanded={hint === id}
+    onClick={(e) => { e.preventDefault(); setHint((h) => (h === id ? null : id)); }}>i</button>
+);
+const HintText = ({ id, hint }) => (hint === id ? <p className="hint-text" role="note">{HINTS[id]}</p> : null);
+
 /**
+ * autoHints: the person hasn't saved an activity since hints arrived. Each field's hint opens by
+ * itself when they reach it; after their first save, hints open only when they tap ⓘ.
  * firstTime: the person's first activity. The full form, with friendlier labels and one tip under
  * the next thing to fill in (until they tap Got it).
  */
-export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel, firstTime = false, showTips = false, onDismissTip }) {
+export function ActivityForm({ clubId, ride = null, defaultCategory = "other", onSaved, onCancel, firstTime = false, autoHints = false, onHintsSeen }) {
   const blank = { ...emptyForm, category: defaultCategory };
   const [form, setForm] = useState(ride ? formFrom(ride) : blank);
   // The optional midway meeting point, for people who join on the way.
   const [showMid, setShowMid] = useState(Boolean(ride?.meeting_point_2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [hint, setHint] = useState(null);
+  // First time: the hint for whatever they touch opens by itself (fields marked data-hint).
+  const autoOpen = (e) => { const id = autoHints && e.target.closest?.("[data-hint]")?.dataset.hint; if (id) setHint(id); };
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   // Templates: a club's regular activities, saved by name without a date or time.
   const [templates, setTemplates] = useState([]);
@@ -104,7 +141,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     setShowMid(Boolean(t.meeting_point_2));
     setForm((f) => ({ ...f, title: t.title ?? "", category: t.category || f.category, meeting_point: t.meeting_point ?? "", map_url: t.map_url ?? "",
       mid_point: t.meeting_point_2 ?? "", mid_map: t.map_url_2 ?? "", mid_time: t.meeting_point_2 && t.midway_offset_min != null && f.time ? addMinutes(f.time, t.midway_offset_min) : "",
-      distance_km: t.distance_km ?? "", pace: t.pace ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "", wa_group_jid: t.wa_group_jid || "" }));
+      distance_km: t.distance_km ?? "", pace: t.pace ?? "", bike_type: t.bike_type || "mtb_hybrid", ride_style: t.ride_style ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "", wa_group_jid: t.wa_group_jid || "" }));
     setTemplateName(t.name);
   }
   async function renameTemplate() {
@@ -118,9 +155,11 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     catch (err) { setError(err.message); }
   }
   const mid = showMid && form.mid_point.trim();
+  const cycling = form.category === "cycling";
+  const bike = { bike_type: cycling ? form.bike_type || null : null, ride_style: cycling ? form.ride_style || null : null };
   async function storeTemplate() {
-    const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null,
-      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null,
+    const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null, ...bike,
+      notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
       wa_group_jid: form.wa_group_jid || null,
       ...(mid ? { meeting_point_2: form.mid_point.trim(), map_url_2: form.mid_map || null, midway_offset_min: form.time && form.mid_time ? Math.max(0, minutesBetween(form.time, form.mid_time)) : null } : {}) };
     await api(`/api/clubs/${clubId}/templates`, { method: "POST", body: JSON.stringify(body) });
@@ -139,10 +178,9 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       if (saveTemplate) await storeTemplate();
       const body = {
         title: form.title, category: form.category, starts_at: startsAt.toISOString(), meeting_point: form.meeting_point,
-        map_url: form.map_url || null, pace: form.pace || null, notes: form.notes || null,
+        map_url: form.map_url || null, pace: form.pace || null, ...bike, notes: form.notes || null,
         meeting_point_2: mid ? form.mid_point.trim() : null, meeting_at_2: mid ? new Date(`${form.date}T${form.mid_time}`).toISOString() : null, map_url_2: mid ? form.mid_map || null : null,
         distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
-        capacity: form.capacity !== "" ? Number(form.capacity) : null,
         ...(groupChoices || form.wa_group_jid ? { wa_group_jid: form.wa_group_jid || null } : {}),
         ...(status ? { status } : {})
       };
@@ -150,17 +188,18 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         ? await api(`/api/clubs/${clubId}/rides/${ride.id}`, { method: "PATCH", body: JSON.stringify(body) })
         : await api(`/api/clubs/${clubId}/rides`, { method: "POST", body: JSON.stringify(body) });
       if (!ride) { setForm(blank); setTemplateId(""); setSaveTemplate(false); }
+      if (autoHints) onHintsSeen?.();
       onSaved(data.ride);
     } catch (err) { setError(err.message); }
     finally { setSaving(false); }
   }
 
   return (
-    <form className="stack-form ride-form" onSubmit={(e) => { e.preventDefault(); submit(ride ? null : "published"); }}>
+    <form className="stack-form ride-form" onFocusCapture={autoOpen} onClickCapture={autoOpen} onSubmit={(e) => { e.preventDefault(); submit(ride ? null : "published"); }}>
       {!ride && templates.length > 0 && <>
-        <label htmlFor="a-tpl">Start from a template</label>
+        <label htmlFor="a-tpl">Start from a template <Info id="template" hint={hint} setHint={setHint} /></label>
         <div className="template-bar">
-          <select id="a-tpl" value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
+          <select id="a-tpl" data-hint="template" value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
             <option value="">None: start blank</option>
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
@@ -168,60 +207,80 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
             ? <span className="confirm-inline">Delete {chosen.name}? <button type="button" className="small-button danger" onClick={() => { setConfirmDelete(false); deleteTemplate(); }}>Delete</button><button type="button" className="text-button" onClick={() => setConfirmDelete(false)}>Keep</button></span>
             : <><button type="button" className="text-button" onClick={renameTemplate}>Rename</button><button type="button" className="text-button remove" onClick={() => setConfirmDelete(true)}>Delete</button></>)}
         </div>
+        <HintText id="template" hint={hint} />
         {chosen && <p className="panel-copy">Filled in from {chosen.name}. Set the date and time, and change anything else you need.</p>}
         {templateNote && <p className="success-note" role="status">{templateNote}</p>}
       </>}
-      <label htmlFor="a-cat">Type</label>
-      <div className="cat-row" id="a-cat" role="radiogroup">
+      <label htmlFor="a-cat">Type <Info id="type" hint={hint} setHint={setHint} /></label>
+      <div className="cat-row" id="a-cat" role="radiogroup" data-hint="type">
         {Object.entries(CATEGORIES).map(([key, c]) => (
           <button key={key} type="button" role="radio" aria-checked={form.category === key} className={form.category === key ? "cat-chip on" : "cat-chip"} onClick={() => setForm((f) => ({ ...f, category: key }))}>{c.emoji} {c.label}</button>
         ))}
       </div>
-      <label htmlFor="a-title">{firstTime ? "What's it called?" : "Title"}</label><input id="a-title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
-      {showTips && formTip(form, "title") && <Tip text={formTip(form, "title")} onDismiss={onDismissTip} />}
+      <HintText id="type" hint={hint} />
+      <label htmlFor="a-title">{firstTime ? "What's it called?" : "Title"} <Info id="title" hint={hint} setHint={setHint} /></label><input id="a-title" data-hint="title" value={form.title} onChange={set("title")} placeholder={`e.g. Sunday ${(CATEGORIES[form.category] || CATEGORIES.other).noun}`} maxLength={120} required />
+      <HintText id="title" hint={hint} />
       <div className="two-col">
-        <div><label htmlFor="a-date">Date</label><input id="a-date" type="date" value={form.date} onChange={set("date")} required /></div>
-        <div><label htmlFor="a-time">Start</label><input id="a-time" type="time" value={form.time} onChange={set("time")} required /></div>
+        <div><label htmlFor="a-date">Date <Info id="when" hint={hint} setHint={setHint} /></label><input id="a-date" data-hint="when" type="date" value={form.date} onChange={set("date")} required /></div>
+        <div><label htmlFor="a-time">Start</label><input id="a-time" data-hint="when" type="time" value={form.time} onChange={set("time")} required /></div>
       </div>
-      {showTips && formTip(form, "when") && <Tip text={formTip(form, "when")} onDismiss={onDismissTip} />}
-      <label htmlFor="a-meet">{firstTime ? "Where do you meet?" : "Meeting point"}</label><input id="a-meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
-      {showTips && formTip(form, "meet") && <Tip text={formTip(form, "meet")} onDismiss={onDismissTip} />}
-      <label htmlFor="a-map">Map link (optional)</label><input id="a-map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
+      <HintText id="when" hint={hint} />
+      <label htmlFor="a-meet">{firstTime ? "Where do you meet?" : "Meeting point"} <Info id="meet" hint={hint} setHint={setHint} /></label><input id="a-meet" data-hint="meet" value={form.meeting_point} onChange={set("meeting_point")} placeholder="Where everyone gathers" maxLength={200} required />
+      <HintText id="meet" hint={hint} />
+      <label htmlFor="a-map">Map link (optional) <Info id="map" hint={hint} setHint={setHint} /></label><input id="a-map" data-hint="map" type="url" value={form.map_url} onChange={set("map_url")} placeholder="https://maps.app.goo.gl/…" maxLength={500} pattern="https://.*" />
+      <HintText id="map" hint={hint} />
       {showMid
         ? <div className="midway-box">
-            <label htmlFor="a-mid">Midway point &amp; time <span className="optional">(optional)</span></label>
-            <div className="mid-row">
+            <label htmlFor="a-mid">Midway point &amp; time <span className="optional">(optional)</span> <Info id="midway" hint={hint} setHint={setHint} /></label>
+            <HintText id="midway" hint={hint} />
+            <div className="mid-row" data-hint="midway">
               <input id="a-mid" value={form.mid_point} onChange={set("mid_point")} placeholder="e.g. Tulip Chowk" maxLength={200} />
               <input aria-label="Midway time" type="time" value={form.mid_time} onChange={set("mid_time")} />
             </div>
             <input aria-label="Midway map link" type="url" value={form.mid_map} onChange={set("mid_map")} placeholder="Google Maps link (optional)" maxLength={500} pattern="https://.*" />
             <p className="panel-copy">For people who join on the way. <button type="button" className="text-button" onClick={() => { setShowMid(false); setForm((f) => ({ ...f, mid_point: "", mid_time: "", mid_map: "" })); }}>Remove</button></p>
           </div>
-        : <button type="button" className="text-button add-midway" onClick={() => setShowMid(true)}>+ Add a midway meeting point</button>}
+        : <><div className="add-midway-row"><button type="button" className="text-button add-midway" data-hint="midway" onClick={() => setShowMid(true)}>+ Add a midway meeting point</button><Info id="midway" hint={hint} setHint={setHint} /></div><HintText id="midway" hint={hint} /></>}
       <div className="two-col">
-        <div><label htmlFor="a-km">Distance (km)</label><input id="a-km" type="number" min="0" max="1000" step="0.1" inputMode="decimal" value={form.distance_km} onChange={set("distance_km")} /></div>
-        <div><label htmlFor="a-pace">Pace</label><input id="a-pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
+        <div><label htmlFor="a-km">Distance (km) <Info id="distance" hint={hint} setHint={setHint} /></label><input id="a-km" data-hint="distance" type="number" min="0" max="1000" step="0.1" inputMode="decimal" value={form.distance_km} onChange={set("distance_km")} /></div>
+        <div><label htmlFor="a-pace">Pace <Info id="pace" hint={hint} setHint={setHint} /></label><input id="a-pace" data-hint="pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
       </div>
-      <label htmlFor="a-cap">Spots (optional)</label><input id="a-cap" type="number" min="1" max="10000" inputMode="numeric" value={form.capacity} onChange={set("capacity")} placeholder="No limit" />
+      <HintText id="distance" hint={hint} /><HintText id="pace" hint={hint} />
+      {cycling && <div className="two-col">
+        <div><label htmlFor="a-bike">Bike <Info id="bike" hint={hint} setHint={setHint} /></label>
+          <select id="a-bike" data-hint="bike" value={form.bike_type} onChange={set("bike_type")}>
+            {Object.entries(BIKE_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></div>
+        <div><label htmlFor="a-style">Ride style <Info id="style" hint={hint} setHint={setHint} /></label>
+          <select id="a-style" data-hint="style" value={form.ride_style} onChange={set("ride_style")}>
+            <option value="">Pick one</option>
+            {Object.entries(RIDE_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></div>
+      </div>}
+      {cycling && <><HintText id="bike" hint={hint} /><HintText id="style" hint={hint} /></>}
       {groupChoices && <>
-        <label htmlFor="a-group">Post in WhatsApp group</label>
-        <select id="a-group" value={form.wa_group_jid} onChange={set("wa_group_jid")}>
+        <label htmlFor="a-group">Post in WhatsApp group <Info id="group" hint={hint} setHint={setHint} /></label>
+        <select id="a-group" data-hint="group" value={form.wa_group_jid} onChange={set("wa_group_jid")}>
           <option value="">{wa.group.name} (default)</option>
           {groupChoices.filter((g) => g.jid !== wa.group.jid).map((g) => <option key={g.jid} value={g.jid}>{g.name}</option>)}
         </select>
+        <HintText id="group" hint={hint} />
       </>}
-      <label htmlFor="a-notes">Notes</label><textarea id="a-notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
+      <label htmlFor="a-notes">Notes <Info id="notes" hint={hint} setHint={setHint} /></label><textarea id="a-notes" data-hint="notes" value={form.notes} onChange={set("notes")} rows={3} maxLength={2000} placeholder="What to bring, regroup points, café stop…" />
+      <HintText id="notes" hint={hint} />
       <div className="template-save">
-        <label className="check"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /> Save as a template</label>
+        <span className="check-row"><label className="check" data-hint="save"><input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} /> Save as a template</label><Info id="save" hint={hint} setHint={setHint} /></span>
         {saveTemplate && <input type="text" aria-label="Template name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Name, e.g. Pandala" maxLength={40} />}
       </div>
-      {saveTemplate && <p className="panel-copy">Saves everything except the date and time, so next time you only pick a date. Using an existing name updates that template.</p>}
-      {showTips && formTip(form, "done") && <Tip text={formTip(form, "done")} onDismiss={onDismissTip} />}
+      {saveTemplate && <p className="panel-copy">Using an existing name updates that template.</p>}
+      <HintText id="save" hint={hint} />
+      {autoHints && hint !== "publish" && formTip(form, "done") && <p className="hint-text" role="note">{HINTS.publish}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {ride
         ? <><button type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button><button type="button" className="text-button" onClick={onCancel}>Close without saving</button></>
         : <><button type="submit" disabled={saving}>{saving ? "Publishing…" : "Publish"}</button>
-            <button type="button" className="text-button" disabled={saving} onClick={() => submit("draft")}>Save as draft</button>
+            <div className="add-midway-row"><button type="button" className="text-button" disabled={saving} onClick={() => submit("draft")}>Save as draft</button><Info id="publish" hint={hint} setHint={setHint} /></div>
+            <HintText id="publish" hint={hint} />
             {onCancel && <button type="button" className="text-button" onClick={onCancel}>Close</button>}</>}
     </form>
   );
@@ -247,7 +306,7 @@ export function ClubRides({ club }) {
   const firstTime = Boolean(guide?.show && !guide.published);
   const tipOn = (tip) => Boolean(guide?.show && !guide.tips_seen?.includes(tip));
   function dismissTip(tip) {
-    setGuide((g) => (g ? { ...g, tips_seen: [...(g.tips_seen || []), tip] } : g));
+    setGuide((g) => (g ? { ...g, tips_seen: [...(g.tips_seen || []), tip], ...(tip === "hints" ? { hints_seen: true } : {}) } : g));
     api("/api/guide/tips", { method: "POST", body: JSON.stringify({ tip }) }).catch(() => {});
   }
   function openForm() {
@@ -281,7 +340,7 @@ export function ClubRides({ club }) {
       </div>
       {guide?.show && !showForm && !justPublished && <GettingStarted guide={guide} onCreate={openForm} tipOn={tipOn("dash")} onDismissTip={() => dismissTip("dash")} />}
       {admin && whatsapp && <p className={`wa-mini ${whatsapp.status === "connected" ? "st-on" : "st-off"}`}><i />WhatsApp {whatsapp.status === "connected" ? `connected${whatsapp.group ? ` · posting to ${whatsapp.group.name}` : " · pick a group below"}` : "not connected · RSVPs still work"}</p>}
-      {showForm && <ActivityForm clubId={club.id} defaultCategory={rides.find((r) => r.category)?.category || "other"} firstTime={firstTime} showTips={firstTime && tipOn("form")} onDismissTip={() => dismissTip("form")}
+      {showForm && <ActivityForm clubId={club.id} defaultCategory={rides.find((r) => r.category)?.category || "other"} firstTime={firstTime} autoHints={Boolean(guide && !guide.hints_seen)} onHintsSeen={() => dismissTip("hints")}
         onCancel={() => setShowForm(false)} onSaved={(ride) => { setShowForm(false); if (ride.status === "published") { loadWhatsapp(); setJustPublished(ride); } setTab("upcoming"); load("upcoming"); loadGuide(); }} />}
       {justPublished && <LiveNow ride={justPublished} whatsapp={liveWa} share={<ShareButtons ride={justPublished} />} onDone={() => setJustPublished(null)} />}
       <div className="tabs" role="tablist">
@@ -519,6 +578,7 @@ export function RidePage({ code }) {
             </>
           : <div><dt>Meet</dt><dd>{ride.meeting_point}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>}
         {(ride.distance_km || ride.pace) && <div><dt>Distance</dt><dd>{[ride.distance_km && `${ride.distance_km} km`, paceText(ride.pace, ride.category)].filter(Boolean).join(" · ")}</dd></div>}
+        {bikeText(ride) && <div><dt>Bike</dt><dd>{bikeText(ride)}</dd></div>}
         <div><dt>Organiser</dt><dd>{ride.club.name}</dd></div>
         {ride.organiser && <div><dt>Lead</dt><dd>{ride.organiser.name}</dd></div>}
         {ride.notes && <div><dt>Notes</dt><dd className="ride-notes">{ride.notes}</dd></div>}

@@ -15,7 +15,8 @@ const app = await buildApp({ logger: false, authRateLimit: 1000 });
 const { call, registerOwner, invite } = makeClient(app);
 const worker = new WhatsAppWorker({ adapter: fakeAdapter, dataDir: mkdtempSync(join(tmpdir(), "wa-")), log: {}, sendGapMs: [0, 1] });
 const settle = () => new Promise((r) => setTimeout(r, 10));
-const makeDue = () => db.prepare("UPDATE outbox SET not_before = ? WHERE status = 'pending'").run(new Date(Date.now() - 1000).toISOString());
+// Also clears the worker's 0-1 ms gap between posts: on a fast machine the next test can start inside it.
+const makeDue = () => { worker.nextSendAt.clear(); return db.prepare("UPDATE outbox SET not_before = ? WHERE status = 'pending'").run(new Date(Date.now() - 1000).toISOString()); };
 const pending = (clubId) => db.prepare("SELECT * FROM outbox WHERE club_id = ? AND status = 'pending'").all(clubId);
 
 async function joinAs(owner, name, email) {
@@ -145,7 +146,7 @@ test("RSVPs never wait on WhatsApp, and a burst becomes one rider-list post", as
   assert.equal(sent.length, before + 1);
   assert.match(sent.at(-1).text, /\*3 \/ 20 going\*/);
   assert.match(sent.at(-1).text, /1\. Arjun R\. 🆕\n2\. Meera I\. 🆕\n3\. Karthik N\. 🆕/);
-  assert.match(sent.at(-1).text, /📍 Hebbal flyover\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\./, "every list post carries the full details");
+  assert.match(sent.at(-1).text, /📍 Hebbal flyover\n62 km · 20 spots\n🚲 MTB\/Hybrid\nOrganiser: Club A\nLead: Priya S\./, "every list post carries the full details");
   assert.match(sent.at(-1).text, /Dropped out: Priya S\./);
 
   await call("PUT", `/api/r/${rideCode}/rsvp`, { cookie: riders[1].cookie, payload: { status: "cancelled" } });
@@ -185,9 +186,9 @@ test("a change post repeats everything: details, Organiser, Lead, notes, who's g
   makeDue(); await worker.tick();
   const text = sent.at(-1).text;
   assert.match(text, /^✏️ \*Ride changed: Nandi Hills long ride\*\n/);
-  assert.match(text, /📍 Hebbal flyover, Gate 3\n🗺️ https:\/\/maps\.app\.goo\.gl\/abc123\n62 km · 20 spots\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\n👇 \*Tap the link to join or drop out\.\*\nhttps:\/\/paceup\.example\/r\/[^\n]+\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/, "join link above the list, list last");
+  assert.match(text, /📍 Hebbal flyover, Gate 3\n🗺️ https:\/\/maps\.app\.goo\.gl\/abc123\n62 km · 20 spots\n🚲 MTB\/Hybrid\nOrganiser: Club A\nLead: Priya S\.\n\nBring lights\.\n\n👇 \*Tap the link to join or drop out\.\*\nhttps:\/\/paceup\.example\/r\/[^\n]+\n\*4 \/ 20 going\*\n1\. Arjun R\.\n/, "join link above the list, list last");
   assert.match(text, /\(lead\)/);
-  assert.match(text, new RegExp(`drop out\\.\\*\nhttps://paceup.example/r/${rideCode}\n[\\s\\S]*\n\nNo need to copy/paste this list, it updates itself\\.$`));
+  assert.match(text, new RegExp(`drop out\\.\\*\nhttps://paceup.example/r/${rideCode}\n[\\s\\S]*\n\nNo need to copy/paste this list, it updates itself\\.\n\n\\*Note: Helmets[^\n]+\\*$`));
 });
 
 test("an unchanged list isn't reposted, but a renamed person is", async () => {

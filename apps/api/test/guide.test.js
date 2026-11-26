@@ -42,6 +42,9 @@ test("a new admin gets the guide until someone joins their first activity, then 
   assert.equal((await call("POST", "/api/guide/tips", { cookie: admin.cookie, payload: { tip: "dash" } })).statusCode, 200);
   assert.equal((await call("POST", "/api/guide/tips", { cookie: admin.cookie, payload: { tip: "nope" } })).statusCode, 400);
   assert.deepEqual((await guide(admin)).tips_seen, ["dash"], "a dismissed tip stays dismissed");
+  assert.equal((await guide(admin)).hints_seen, false, "form hints open by themselves until the first save");
+  await call("POST", "/api/guide/tips", { cookie: admin.cookie, payload: { tip: "hints" } });
+  assert.equal((await guide(admin)).hints_seen, true, "after that, only on tapping ⓘ, on every device");
 
   await call("POST", `/api/clubs/${clubId}/guide/step`, { cookie: admin.cookie, payload: { step: "form_opened" } });
   const ride = (await call("POST", `/api/clubs/${clubId}/rides`, { cookie: admin.cookie, payload: rideBody })).json().ride;
@@ -122,7 +125,8 @@ test("the PaceUp Admin's funnel counts each step, and lists who's stuck", async 
   assert.ok(steps["1st activity"] >= 1);
   assert.ok(steps["1st join"] >= 1);
   const nandini = f.stuck.find((s) => s.name === "Nandini Rao");
-  assert.deepEqual([nandini.days, nandini.where, nandini.phone], [4, "no activity yet", "919811100000"]);
+  // Added at 12:00 IST four days ago: 3 full days before 12:00 IST today, 4 after.
+  assert.deepEqual([nandini.days, nandini.where, nandini.phone], [Math.floor((Date.now() - (noon() - 4 * 86400000)) / 86400000), "no activity yet", "919811100000"]);
   assert.ok(!f.stuck.some((s) => s.name === "Anurag Mehta"), "published, so not stuck");
 
   assert.equal((await call("GET", "/api/platform/getting-started", { cookie: owner.cookie })).statusCode, 403);

@@ -25,7 +25,7 @@ live.close();
 const { db } = await import("../src/db.js");
 
 test("Release 1 RSVPs survive the guest-RSVP table rebuild", () => {
-  assert.deepEqual(db.prepare("SELECT id FROM schema_migrations WHERE id > 9 ORDER BY id").all().map((r) => r.id), [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]);
+  assert.deepEqual(db.prepare("SELECT id FROM schema_migrations WHERE id > 9 ORDER BY id").all().map((r) => r.id), [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]);
   const rows = db.prepare("SELECT id, user_id, participant_name, device_hash, status FROM ride_rsvps ORDER BY id").all();
   assert.deepEqual(rows, [
     { id: "s1", user_id: "u1", participant_name: "Priya Sharma", device_hash: null, status: "going" },

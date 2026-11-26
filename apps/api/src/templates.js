@@ -3,12 +3,12 @@
 // it pre-fills the form (or a WhatsApp draft) and every field stays editable.
 import { randomUUID } from "node:crypto";
 import { db, DomainError } from "./db.js";
-import { CATEGORIES, checkGroup } from "./rides.js";
+import { CATEGORIES, BIKE_TYPES, RIDE_STYLES, checkGroup } from "./rides.js";
 
 const nowIso = () => new Date().toISOString();
 export const templateKey = (name) => String(name || "").normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 // The midway point is saved with its time as minutes after the start (a template has no date or time).
-const FIELDS = ["title", "category", "meeting_point", "map_url", "meeting_point_2", "map_url_2", "midway_offset_min", "distance_km", "pace", "notes", "capacity", "wa_group_jid"];
+const FIELDS = ["title", "category", "bike_type", "ride_style", "meeting_point", "map_url", "meeting_point_2", "map_url_2", "midway_offset_min", "distance_km", "pace", "notes", "capacity", "wa_group_jid"];
 const NUMBERS = ["distance_km", "capacity", "midway_offset_min"];
 
 function cleanFields(input = {}) {
@@ -18,12 +18,14 @@ function cleanFields(input = {}) {
     if (v === undefined || v === null || v === "") continue;
     if (typeof v === "string") v = v.trim();
     if (key === "category" && !CATEGORIES.includes(v)) continue;
+    if ((key === "bike_type" && !BIKE_TYPES.includes(v)) || (key === "ride_style" && !RIDE_STYLES.includes(v))) continue;
     if ((key === "map_url" || key === "map_url_2") && !/^https:\/\//.test(v)) continue;
     if ((key === "distance_km" || key === "capacity") && !(Number(v) >= (key === "capacity" ? 1 : 0))) continue;
     if (key === "midway_offset_min" && !(Number(v) >= 0 && Number(v) <= 720)) continue;
     out[key] = NUMBERS.includes(key) ? Number(v) : v;
   }
   if (!out.meeting_point_2) { delete out.map_url_2; delete out.midway_offset_min; }
+  if (out.category !== "cycling") { delete out.bike_type; delete out.ride_style; }
   return out;
 }
 const view = (row) => ({ id: row.id, name: row.name, ...JSON.parse(row.fields), updated_at: row.updated_at });
@@ -79,7 +81,7 @@ export function templateInText(clubId, text) {
 export function registerTemplateRoutes(app, { requireClubRole }) {
   const admin = [app.authenticate, requireClubRole(["owner", "admin"])];
   const fail = (reply, error) => { if (error instanceof DomainError) return reply.code(error.status).send({ error: error.message }); throw error; };
-  const body = { type: "object", properties: { name: { type: "string", maxLength: 100 }, title: { type: ["string", "null"], maxLength: 120 }, category: { type: ["string", "null"], maxLength: 20 }, meeting_point: { type: ["string", "null"], maxLength: 200 }, map_url: { type: ["string", "null"], maxLength: 500 }, meeting_point_2: { type: ["string", "null"], maxLength: 200 }, map_url_2: { type: ["string", "null"], maxLength: 500 }, midway_offset_min: { type: ["integer", "null"], minimum: 0, maximum: 720 }, distance_km: { type: ["number", "null"], minimum: 0, maximum: 1000 }, pace: { type: ["string", "null"], maxLength: 60 }, notes: { type: ["string", "null"], maxLength: 2000 }, capacity: { type: ["integer", "null"], minimum: 1, maximum: 10000 }, wa_group_jid: { type: ["string", "null"], maxLength: 100 } }, required: ["name"] };
+  const body = { type: "object", properties: { name: { type: "string", maxLength: 100 }, title: { type: ["string", "null"], maxLength: 120 }, category: { type: ["string", "null"], maxLength: 20 }, bike_type: { type: ["string", "null"], maxLength: 20 }, ride_style: { type: ["string", "null"], maxLength: 20 }, meeting_point: { type: ["string", "null"], maxLength: 200 }, map_url: { type: ["string", "null"], maxLength: 500 }, meeting_point_2: { type: ["string", "null"], maxLength: 200 }, map_url_2: { type: ["string", "null"], maxLength: 500 }, midway_offset_min: { type: ["integer", "null"], minimum: 0, maximum: 720 }, distance_km: { type: ["number", "null"], minimum: 0, maximum: 1000 }, pace: { type: ["string", "null"], maxLength: 60 }, notes: { type: ["string", "null"], maxLength: 2000 }, capacity: { type: ["integer", "null"], minimum: 1, maximum: 10000 }, wa_group_jid: { type: ["string", "null"], maxLength: 100 } }, required: ["name"] };
   app.get("/api/clubs/:clubId/templates", { preHandler: admin }, async (req) => ({ templates: listTemplates(req.params.clubId) }));
   app.post("/api/clubs/:clubId/templates", { preHandler: admin, schema: { body } }, async (req, reply) => {
     try { const r = saveTemplate(req.params.clubId, req.user.sub, req.body); return reply.code(r.updated ? 200 : 201).send(r); } catch (e) { return fail(reply, e); }

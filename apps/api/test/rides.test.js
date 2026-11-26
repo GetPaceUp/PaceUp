@@ -441,3 +441,22 @@ test("midway meeting point: place and time together, after the start; people say
   // Without a midway point, join_point 2 is ignored.
   assert.equal((await second.rsvp(ride.code, { status: "going", join_point: 2 })).json().ride.my_rsvp.join_point, 1);
 });
+
+test("bike type and ride style: cycling only, cleared when the type changes", async () => {
+  const created = await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "cycling", bike_type: "road", ride_style: "no_drop" } });
+  assert.equal(created.statusCode, 201);
+  const { id, code } = created.json().ride;
+  assert.equal(created.json().ride.bike_type, "road");
+  assert.equal(created.json().ride.ride_style, "no_drop");
+  const restyled = await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { ride_style: "racing", bike_type: null } });
+  assert.equal(restyled.json().ride.ride_style, "racing");
+  assert.equal(restyled.json().ride.bike_type, "mtb_hybrid", "a ride always has a bike type: MTB/Hybrid unless set");
+  const plain = await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "cycling", ride_style: "trails" } });
+  assert.deepEqual([plain.json().ride.bike_type, plain.json().ride.ride_style], ["mtb_hybrid", "trails"]);
+  const run = await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { category: "running" } });
+  assert.deepEqual([run.json().ride.bike_type, run.json().ride.ride_style], [null, null], "a run has no bike or ride style");
+  const ignored = await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "running", bike_type: "mtb" } });
+  assert.equal(ignored.json().ride.bike_type, null);
+  assert.equal((await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "cycling", bike_type: "unicycle" } })).statusCode, 400);
+  assert.ok(code);
+});

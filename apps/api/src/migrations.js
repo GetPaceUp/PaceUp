@@ -831,6 +831,18 @@ export const migrations = [
       `);
       db.prepare("UPDATE club_memberships SET guide_nudge_at = ?").run(new Date().toISOString());
     }
+  },
+  {
+    id: 35,
+    name: "ride_bike_type_style",
+    up(db) {
+      // Cycling activities only (null otherwise): which bikes suit it (road, mtb, hybrid, gravel, ebike, any)
+      // and how the group rides (no_drop, drafting, racing).
+      db.exec(`
+        ALTER TABLE rides ADD COLUMN bike_type TEXT;
+        ALTER TABLE rides ADD COLUMN ride_style TEXT;
+      `);
+    }
   }
 ];
 export function pendingMigrations(db) {
