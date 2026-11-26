@@ -16,6 +16,7 @@ Thanks for helping build PaceUp.
 4. Add or update tests when behaviour changes.
 5. Update documentation when product behaviour, configuration, or architecture changes.
 6. Open a pull request against `main`.
+7. Add a `Changelog:` line to the description: one plain-English sentence on what users will notice. It goes into [CHANGELOG.md](CHANGELOG.md) automatically when the PR is merged (the PR title is used if the line is missing; `Changelog: none` skips it).
 
 ## Pull request checklist
 

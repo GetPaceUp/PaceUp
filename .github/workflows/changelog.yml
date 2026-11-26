@@ -1,0 +1,40 @@
+name: Changelog
+
+# When a pull request is merged into main, add its one-line entry to CHANGELOG.md.
+# The entry is the PR body's "Changelog: ..." line, or the PR title if there is none.
+# "Changelog: none" skips it. This commit only touches a .md file, so it never triggers CI or a deploy.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: changelog
+  cancel-in-progress: false
+
+jobs:
+  add-entry:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Add the entry and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4; do
+            git fetch -q origin main && git reset -q --hard origin/main
+            node .github/scripts/changelog.cjs CHANGELOG.md "$GITHUB_EVENT_PATH"
+            git diff --quiet && exit 0
+            git commit -q -am "Changelog: PR ${{ github.event.pull_request.number }}"
+            git push origin HEAD:main && exit 0
+            sleep $((attempt * 5))
+          done
+          exit 1
