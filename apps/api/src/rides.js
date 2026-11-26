@@ -19,11 +19,12 @@ const isAdmin = (membership) => Boolean(membership && ADMIN_ROLES.includes(membe
 const newShareCode = () => randomBytes(9).toString("base64url"); // 12 chars, 72 bits
 export const CATEGORIES = ["cycling", "running", "hiking", "swimming", "triathlon", "other"];
 // Cycling only: which bikes suit it and how the group rides. Both optional; cleared for any other type.
-export const BIKE_TYPES = ["road", "mtb", "hybrid", "gravel", "ebike", "any"];
-export const RIDE_STYLES = ["no_drop", "drafting", "racing"];
+// A cycling activity always has a bike type (MTB/Hybrid unless set).
+export const BIKE_TYPES = ["mtb_hybrid", "mtb", "road", "any"];
+export const RIDE_STYLES = ["no_drop", "racing", "drafting", "trails"];
 const cyclingOnly = (ride) => {
   if (ride.category !== "cycling") { ride.bike_type = null; ride.ride_style = null; }
-  if (ride.bike_type && !BIKE_TYPES.includes(ride.bike_type)) ride.bike_type = null;
+  else if (!BIKE_TYPES.includes(ride.bike_type)) ride.bike_type = "mtb_hybrid";
   if (ride.ride_style && !RIDE_STYLES.includes(ride.ride_style)) ride.ride_style = null;
   return ride;
 };

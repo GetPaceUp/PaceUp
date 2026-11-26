@@ -36,8 +36,10 @@ export function paceText(pace, category) {
   return /^[\d.:–\s]+$/.test(p) && PACE_UNIT[category] ? `${p} ${PACE_UNIT[category]}` : p;
 }
 
-const BIKE = { road: "Road bike", mtb: "MTB", hybrid: "Hybrid", gravel: "Gravel bike", ebike: "E-bike", any: "Any bike" };
-const STYLE = { no_drop: "No-drop", drafting: "Drafting", racing: "Racing" };
+const BIKE = { mtb_hybrid: "MTB/Hybrid", mtb: "MTB only", road: "Road bike", any: "Any bike" };
+const STYLE = { no_drop: "No-drop", racing: "Racing", drafting: "Drafting", trails: "Trails" };
+/** The last lines of every cycling post. */
+export const CYCLING_NOTE = "*Note: Helmets, spare tube, front and back lights compulsory. Hydration, nutrition and some cash suggested.*";
 /** "🚲 Road bike · No-drop": cycling only, either part may be missing. */
 export function bikeLine(ride) {
   if (ride.category !== "cycling") return null;
@@ -102,7 +104,7 @@ function post(header, ride, riders, previous, cta) {
   const list = going(ride, riders, previous);
   // Join link before the list, so it stays near the top however long the list gets.
   return [header, ...body(ride), "", list.full ? "👇 *Full. Tap the link to grab a spot if someone drops out.*" : cta, rideLink(ride), ...list.lines,
-    "", "No need to copy/paste this list, it updates itself."].join("\n");
+    "", "No need to copy/paste this list, it updates itself.", ...(ride.category === "cycling" ? ["", CYCLING_NOTE] : [])].join("\n");
 }
 
 export function ridePublishedText(ride, riders = []) {

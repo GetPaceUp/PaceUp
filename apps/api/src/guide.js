@@ -18,7 +18,7 @@ export const NUDGE_AFTER_MS = 3 * DAY;
 /** ...unless it's been longer than this (e.g. the worker was down): then it's skipped for good. */
 const NUDGE_GIVE_UP_MS = 14 * DAY;
 const QUIET_START = 22, QUIET_END = 7;
-export const TIPS = ["dash", "form"];
+export const TIPS = ["dash", "form", "hints"];
 export const MEMBER_STEPS = ["m_opened", "m_tapped", "m_joined"];
 
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
@@ -49,12 +49,14 @@ export function leaderProgress(clubId, userId) {
 /** What the dashboard needs to show the guide. `membership` comes from clubAccess (platform = the PaceUp Admin acting as owner). */
 export function guideFor(clubId, userId, membership) {
   const leader = membership && ["owner", "admin"].includes(membership.role) && !membership.platform;
-  if (!leader) return { show: false };
-  const progress = leaderProgress(clubId, userId);
-  if (progress.first_join) return { show: false };
-  const user = db.prepare("SELECT name FROM users WHERE id = ?").get(userId);
+  if (!leader) return { show: false, hints_seen: true };
   const tips = db.prepare("SELECT tip FROM user_tips WHERE user_id = ?").all(userId).map((r) => r.tip);
-  return { show: true, first_name: firstName(user?.name), ...progress, tips_seen: tips };
+  // The activity form's ⓘ hints open by themselves until the person's first save, on any device.
+  const hints_seen = tips.includes("hints");
+  const progress = leaderProgress(clubId, userId);
+  if (progress.first_join) return { show: false, hints_seen };
+  const user = db.prepare("SELECT name FROM users WHERE id = ?").get(userId);
+  return { show: true, first_name: firstName(user?.name), ...progress, tips_seen: tips, hints_seen };
 }
 
 export function dismissTip(userId, tip) {

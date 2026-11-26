@@ -450,9 +450,11 @@ test("bike type and ride style: cycling only, cleared when the type changes", as
   assert.equal(created.json().ride.ride_style, "no_drop");
   const restyled = await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { ride_style: "racing", bike_type: null } });
   assert.equal(restyled.json().ride.ride_style, "racing");
-  assert.equal(restyled.json().ride.bike_type, null);
+  assert.equal(restyled.json().ride.bike_type, "mtb_hybrid", "a ride always has a bike type: MTB/Hybrid unless set");
+  const plain = await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "cycling", ride_style: "trails" } });
+  assert.deepEqual([plain.json().ride.bike_type, plain.json().ride.ride_style], ["mtb_hybrid", "trails"]);
   const run = await call("PATCH", `/api/clubs/${clubId}/rides/${id}`, { cookie: owner.cookie, payload: { category: "running" } });
-  assert.equal(run.json().ride.ride_style, null, "a run has no ride style");
+  assert.deepEqual([run.json().ride.bike_type, run.json().ride.ride_style], [null, null], "a run has no bike or ride style");
   const ignored = await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "running", bike_type: "mtb" } });
   assert.equal(ignored.json().ride.bike_type, null);
   assert.equal((await call("POST", `/api/clubs/${clubId}/rides`, { cookie: owner.cookie, payload: { ...rideBody, category: "cycling", bike_type: "unicycle" } })).statusCode, 400);

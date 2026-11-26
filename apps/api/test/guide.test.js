@@ -42,6 +42,9 @@ test("a new admin gets the guide until someone joins their first activity, then 
   assert.equal((await call("POST", "/api/guide/tips", { cookie: admin.cookie, payload: { tip: "dash" } })).statusCode, 200);
   assert.equal((await call("POST", "/api/guide/tips", { cookie: admin.cookie, payload: { tip: "nope" } })).statusCode, 400);
   assert.deepEqual((await guide(admin)).tips_seen, ["dash"], "a dismissed tip stays dismissed");
+  assert.equal((await guide(admin)).hints_seen, false, "form hints open by themselves until the first save");
+  await call("POST", "/api/guide/tips", { cookie: admin.cookie, payload: { tip: "hints" } });
+  assert.equal((await guide(admin)).hints_seen, true, "after that, only on tapping ⓘ, on every device");
 
   await call("POST", `/api/clubs/${clubId}/guide/step`, { cookie: admin.cookie, payload: { step: "form_opened" } });
   const ride = (await call("POST", `/api/clubs/${clubId}/rides`, { cookie: admin.cookie, payload: rideBody })).json().ride;
