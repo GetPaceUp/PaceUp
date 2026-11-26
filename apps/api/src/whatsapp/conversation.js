@@ -181,7 +181,7 @@ function publishDraft(clubId, userId, draft) {
     starts_at: startsAt(draft).toISOString(), meeting_point: draft.location,
     meeting_point_2: draft.midway || null, meeting_at_2: draft.midway ? midwayAt(draft).toISOString() : null, map_url_2: draft.midway ? draft.map_url_2 ?? null : null,
     distance_km: draft.distance_km ?? null, capacity: draft.capacity ?? null, notes: draft.notes ?? null,
-    map_url: draft.map_url ?? null, pace: draft.pace ?? null, wa_group_jid: groupStillThere(clubId, draft.wa_group_jid), status: "published"
+    map_url: draft.map_url ?? null, pace: draft.pace ?? null, bike_type: draft.bike_type ?? null, ride_style: draft.ride_style ?? null, wa_group_jid: groupStillThere(clubId, draft.wa_group_jid), status: "published"
   }, { actorType: "whatsapp" });
   dropDraft(clubId, userId);
   const conn = getConnection(clubId);
@@ -256,7 +256,7 @@ export function handleIncoming(clubId, msg) {
   // A saved template named in the message ("Pandala Sunday 6am") fills in everything but the date and time.
   if (template) {
     const from = { template: template.name, title: template.title, category: template.category, location: template.meeting_point, map_url: template.map_url,
-      distance_km: template.distance_km, pace: template.pace, notes: template.notes, capacity: template.capacity, wa_group_jid: template.wa_group_jid,
+      distance_km: template.distance_km, pace: template.pace, bike_type: template.bike_type, ride_style: template.ride_style, notes: template.notes, capacity: template.capacity, wa_group_jid: template.wa_group_jid,
       ...(template.meeting_point_2 && found.midway === undefined ? { midway: template.meeting_point_2, map_url_2: template.map_url_2, midway_offset_min: template.midway_offset_min } : {}) };
     for (const [k, v] of Object.entries(from)) if (v != null && v !== "" && found[k] == null) found[k] = v;
     if (draft?.category) draft.category = found.category || draft.category;

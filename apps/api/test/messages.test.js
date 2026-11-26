@@ -39,3 +39,12 @@ test("short names skip titles saved before the name", () => {
   assert.equal(shortName("Amit"), "Amit");
   assert.equal(shortName("Dr"), "Dr");
 });
+
+test("a cycling post shows bike and ride style on one line; other types never do", () => {
+  const plain = { ...ride, meeting_point_2: null, meeting_at_2: null, map_url_2: null, bike_type: "road", ride_style: "no_drop" };
+  const text = ridePublishedText(plain, []);
+  assert.match(text, /\n35 km\n🚲 Road bike · No-drop\nOrganiser: Sunrise Club\n/);
+  assert.match(ridePublishedText({ ...plain, bike_type: null, ride_style: "drafting" }, []), /\n🚲 Drafting\n/);
+  assert.doesNotMatch(ridePublishedText({ ...plain, category: "running" }, []), /🚲/);
+  assert.doesNotMatch(ridePublishedText({ ...plain, bike_type: null, ride_style: null }, []), /🚲/);
+});

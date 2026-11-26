@@ -122,7 +122,8 @@ test("the PaceUp Admin's funnel counts each step, and lists who's stuck", async 
   assert.ok(steps["1st activity"] >= 1);
   assert.ok(steps["1st join"] >= 1);
   const nandini = f.stuck.find((s) => s.name === "Nandini Rao");
-  assert.deepEqual([nandini.days, nandini.where, nandini.phone], [4, "no activity yet", "919811100000"]);
+  // Added at 12:00 IST four days ago: 3 full days before 12:00 IST today, 4 after.
+  assert.deepEqual([nandini.days, nandini.where, nandini.phone], [Math.floor((Date.now() - (noon() - 4 * 86400000)) / 86400000), "no activity yet", "919811100000"]);
   assert.ok(!f.stuck.some((s) => s.name === "Anurag Mehta"), "published, so not stuck");
 
   assert.equal((await call("GET", "/api/platform/getting-started", { cookie: owner.cookie })).statusCode, 403);

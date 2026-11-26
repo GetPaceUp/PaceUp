@@ -22,6 +22,11 @@ export const CATEGORIES = {
   other: { emoji: "📍", label: "Other", noun: "activity" }
 };
 const cat = (a) => CATEGORIES[a.category] || CATEGORIES.other;
+// Cycling only: which bikes suit it, and how the group rides.
+export const BIKE_TYPES = { road: "Road bike", mtb: "MTB", hybrid: "Hybrid", gravel: "Gravel bike", ebike: "E-bike", any: "Any bike" };
+export const RIDE_STYLES = { no_drop: "No-drop", drafting: "Drafting", racing: "Racing" };
+/** "Road bike · No-drop", or null. */
+export const bikeText = (a) => a.category !== "cycling" ? null : [BIKE_TYPES[a.bike_type], RIDE_STYLES[a.ride_style]].filter(Boolean).join(" · ") || null;
 // Always 12-hour with AM/PM: "5:30" alone is ambiguous for a dawn ride.
 const timeOnly = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 const PACE_UNIT = { cycling: "km/h", running: "min/km", hiking: "km/h", swimming: "min/100 m", triathlon: "", other: "" };
@@ -44,6 +49,7 @@ export function shareText(ride) {
   const details = [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
   const lines = [`${cat(ride).emoji} *${ride.title}*`, when(ride.starts_at), `📍 ${ride.meeting_point}`];
   if (details) lines.push(details);
+  if (bikeText(ride)) lines.push(`🚲 ${bikeText(ride)}`);
   lines.push("", "Tap to say you're in:", rideUrl(ride.code));
   return lines.join("\n");
 }
@@ -61,12 +67,12 @@ function ShareButtons({ ride }) {
 
 // ---------------------------------------------------------------- create / edit form
 
-const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", mid_point: "", mid_time: "", mid_map: "", distance_km: "", pace: "", capacity: "", notes: "", wa_group_jid: "" };
+const emptyForm = { title: "", category: "", date: "", time: "", meeting_point: "", map_url: "", mid_point: "", mid_time: "", mid_map: "", distance_km: "", pace: "", bike_type: "", ride_style: "", capacity: "", notes: "", wa_group_jid: "" };
 const minutesBetween = (a, b) => { const [ah, am] = a.split(":").map(Number), [bh, bm] = b.split(":").map(Number); return (bh * 60 + bm) - (ah * 60 + am); };
 const addMinutes = (time, min) => { const t = time.split(":").map(Number); const total = t[0] * 60 + t[1] + min; return `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`; };
 const formFrom = (r) => ({
   title: r.title, category: r.category || "other", date: localDate(r.starts_at), time: localTime(r.starts_at), meeting_point: r.meeting_point,
-  map_url: r.map_url || "", mid_point: r.meeting_point_2 || "", mid_time: r.meeting_at_2 ? localTime(r.meeting_at_2) : "", mid_map: r.map_url_2 || "", distance_km: r.distance_km ?? "", pace: r.pace || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
+  map_url: r.map_url || "", mid_point: r.meeting_point_2 || "", mid_time: r.meeting_at_2 ? localTime(r.meeting_at_2) : "", mid_map: r.map_url_2 || "", distance_km: r.distance_km ?? "", pace: r.pace || "", bike_type: r.bike_type || "", ride_style: r.ride_style || "", capacity: r.capacity ?? "", notes: r.notes || "", wa_group_jid: r.wa_group_jid || ""
 });
 
 /**
@@ -104,7 +110,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     setShowMid(Boolean(t.meeting_point_2));
     setForm((f) => ({ ...f, title: t.title ?? "", category: t.category || f.category, meeting_point: t.meeting_point ?? "", map_url: t.map_url ?? "",
       mid_point: t.meeting_point_2 ?? "", mid_map: t.map_url_2 ?? "", mid_time: t.meeting_point_2 && t.midway_offset_min != null && f.time ? addMinutes(f.time, t.midway_offset_min) : "",
-      distance_km: t.distance_km ?? "", pace: t.pace ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "", wa_group_jid: t.wa_group_jid || "" }));
+      distance_km: t.distance_km ?? "", pace: t.pace ?? "", bike_type: t.bike_type ?? "", ride_style: t.ride_style ?? "", notes: t.notes ?? "", capacity: t.capacity ?? "", wa_group_jid: t.wa_group_jid || "" }));
     setTemplateName(t.name);
   }
   async function renameTemplate() {
@@ -118,8 +124,10 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
     catch (err) { setError(err.message); }
   }
   const mid = showMid && form.mid_point.trim();
+  const cycling = form.category === "cycling";
+  const bike = { bike_type: cycling ? form.bike_type || null : null, ride_style: cycling ? form.ride_style || null : null };
   async function storeTemplate() {
-    const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null,
+    const body = { name: templateName, title: form.title, category: form.category, meeting_point: form.meeting_point, map_url: form.map_url || null, pace: form.pace || null, ...bike,
       notes: form.notes || null, distance_km: form.distance_km !== "" ? Number(form.distance_km) : null, capacity: form.capacity !== "" ? Number(form.capacity) : null,
       wa_group_jid: form.wa_group_jid || null,
       ...(mid ? { meeting_point_2: form.mid_point.trim(), map_url_2: form.mid_map || null, midway_offset_min: form.time && form.mid_time ? Math.max(0, minutesBetween(form.time, form.mid_time)) : null } : {}) };
@@ -139,7 +147,7 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
       if (saveTemplate) await storeTemplate();
       const body = {
         title: form.title, category: form.category, starts_at: startsAt.toISOString(), meeting_point: form.meeting_point,
-        map_url: form.map_url || null, pace: form.pace || null, notes: form.notes || null,
+        map_url: form.map_url || null, pace: form.pace || null, ...bike, notes: form.notes || null,
         meeting_point_2: mid ? form.mid_point.trim() : null, meeting_at_2: mid ? new Date(`${form.date}T${form.mid_time}`).toISOString() : null, map_url_2: mid ? form.mid_map || null : null,
         distance_km: form.distance_km !== "" ? Number(form.distance_km) : null,
         capacity: form.capacity !== "" ? Number(form.capacity) : null,
@@ -202,6 +210,18 @@ export function ActivityForm({ clubId, ride = null, defaultCategory = "other", o
         <div><label htmlFor="a-km">Distance (km)</label><input id="a-km" type="number" min="0" max="1000" step="0.1" inputMode="decimal" value={form.distance_km} onChange={set("distance_km")} /></div>
         <div><label htmlFor="a-pace">Pace</label><input id="a-pace" value={form.pace} onChange={set("pace")} placeholder="e.g. 25 km/h or 6:00/km" maxLength={60} /></div>
       </div>
+      {cycling && <div className="two-col">
+        <div><label htmlFor="a-bike">Bike</label>
+          <select id="a-bike" value={form.bike_type} onChange={set("bike_type")}>
+            <option value="">Pick one</option>
+            {Object.entries(BIKE_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></div>
+        <div><label htmlFor="a-style">Ride style</label>
+          <select id="a-style" value={form.ride_style} onChange={set("ride_style")}>
+            <option value="">Pick one</option>
+            {Object.entries(RIDE_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></div>
+      </div>}
       <label htmlFor="a-cap">Spots (optional)</label><input id="a-cap" type="number" min="1" max="10000" inputMode="numeric" value={form.capacity} onChange={set("capacity")} placeholder="No limit" />
       {groupChoices && <>
         <label htmlFor="a-group">Post in WhatsApp group</label>
@@ -519,6 +539,7 @@ export function RidePage({ code }) {
             </>
           : <div><dt>Meet</dt><dd>{ride.meeting_point}{ride.map_url && <><br /><a href={ride.map_url} target="_blank" rel="noreferrer">Open in Maps</a></>}</dd></div>}
         {(ride.distance_km || ride.pace) && <div><dt>Distance</dt><dd>{[ride.distance_km && `${ride.distance_km} km`, paceText(ride.pace, ride.category)].filter(Boolean).join(" · ")}</dd></div>}
+        {bikeText(ride) && <div><dt>Bike</dt><dd>{bikeText(ride)}</dd></div>}
         <div><dt>Organiser</dt><dd>{ride.club.name}</dd></div>
         {ride.organiser && <div><dt>Lead</dt><dd>{ride.organiser.name}</dd></div>}
         {ride.notes && <div><dt>Notes</dt><dd className="ride-notes">{ride.notes}</dd></div>}

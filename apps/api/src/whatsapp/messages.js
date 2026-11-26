@@ -36,6 +36,15 @@ export function paceText(pace, category) {
   return /^[\d.:–\s]+$/.test(p) && PACE_UNIT[category] ? `${p} ${PACE_UNIT[category]}` : p;
 }
 
+const BIKE = { road: "Road bike", mtb: "MTB", hybrid: "Hybrid", gravel: "Gravel bike", ebike: "E-bike", any: "Any bike" };
+const STYLE = { no_drop: "No-drop", drafting: "Drafting", racing: "Racing" };
+/** "🚲 Road bike · No-drop": cycling only, either part may be missing. */
+export function bikeLine(ride) {
+  if (ride.category !== "cycling") return null;
+  const parts = [BIKE[ride.bike_type], STYLE[ride.ride_style]].filter(Boolean);
+  return parts.length ? `🚲 ${parts.join(" · ")}` : null;
+}
+
 function details(ride) {
   return [ride.distance_km ? `${ride.distance_km} km` : null, paceText(ride.pace, ride.category), ride.capacity ? `${ride.capacity} spots` : null].filter(Boolean).join(" · ");
 }
@@ -52,6 +61,7 @@ function body(ride) {
     ? [dayText(ride.starts_at), `📍 ${pointLabel(ride, 1)}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : []), `📍 ${pointLabel(ride, 2)}`, ...(ride.map_url_2 ? [`🗺️ ${ride.map_url_2}`] : [])]
     : [whenText(ride.starts_at), `📍 ${ride.meeting_point}`, ...(ride.map_url ? [`🗺️ ${ride.map_url}`] : [])];
   if (details(ride)) lines.push(details(ride));
+  if (bikeLine(ride)) lines.push(bikeLine(ride));
   // The club organises; the admin who created it leads.
   if (ride.club_name) lines.push(`Organiser: ${ride.club_name}`);
   if (ride.organiser_name) lines.push(`Lead: ${shortName(ride.organiser_name)}`);

@@ -18,13 +18,22 @@ const ADMIN_ROLES = ["owner", "admin"];
 const isAdmin = (membership) => Boolean(membership && ADMIN_ROLES.includes(membership.role));
 const newShareCode = () => randomBytes(9).toString("base64url"); // 12 chars, 72 bits
 export const CATEGORIES = ["cycling", "running", "hiking", "swimming", "triathlon", "other"];
+// Cycling only: which bikes suit it and how the group rides. Both optional; cleared for any other type.
+export const BIKE_TYPES = ["road", "mtb", "hybrid", "gravel", "ebike", "any"];
+export const RIDE_STYLES = ["no_drop", "drafting", "racing"];
+const cyclingOnly = (ride) => {
+  if (ride.category !== "cycling") { ride.bike_type = null; ride.ride_style = null; }
+  if (ride.bike_type && !BIKE_TYPES.includes(ride.bike_type)) ride.bike_type = null;
+  if (ride.ride_style && !RIDE_STYLES.includes(ride.ride_style)) ride.ride_style = null;
+  return ride;
+};
 /** An activity counts as past (the "completed" state) this long after it starts. */
 const PAST_AFTER_MS = 12 * 60 * 60 * 1000;
 /** People can still join or drop out until an hour after the start (latecomers, last-minute changes). */
 export const JOIN_GRACE_MS = 60 * 60 * 1000;
 export const joiningOpen = (ride, now = Date.now()) => now < new Date(ride.starts_at).getTime() + JOIN_GRACE_MS;
 
-const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "meeting_point_2", "meeting_at_2", "map_url_2", "distance_km", "pace", "notes", "capacity", "category", "wa_group_jid"];
+const EDITABLE = ["title", "starts_at", "meeting_point", "map_url", "meeting_point_2", "meeting_at_2", "map_url_2", "distance_km", "pace", "notes", "capacity", "category", "bike_type", "ride_style", "wa_group_jid"];
 
 /**
  * The optional midway meeting point (people who join on the way): a place and a time, both or neither.
@@ -127,6 +136,7 @@ export function rideView(ride, { userId = null, deviceHash = null } = {}) {
     title: ride.title, category: ride.category || "other", starts_at: ride.starts_at, meeting_point: ride.meeting_point,
     map_url: ride.map_url, meeting_point_2: ride.meeting_point_2 || null, meeting_at_2: ride.meeting_point_2 ? ride.meeting_at_2 : null,
     map_url_2: ride.meeting_point_2 ? ride.map_url_2 : null, distance_km: ride.distance_km, pace: ride.pace, notes: ride.notes,
+    bike_type: ride.bike_type || null, ride_style: ride.ride_style || null,
     status: ride.status, capacity: ride.capacity, going_count: list.length,
     is_full: ride.capacity != null && list.length >= ride.capacity,
     started, joining_open: ride.status === "published" && joiningOpen(ride), past: new Date(ride.starts_at).getTime() < Date.now() - PAST_AFTER_MS,
@@ -179,10 +189,11 @@ export function createRide(clubId, userId, input, { actorType = "user" } = {}) {
     for (const key of EDITABLE) ride[key] = input[key] ?? null;
     ride.wa_group_jid = checkGroup(clubId, input.wa_group_jid);
     ride.category = CATEGORIES.includes(input.category) ? input.category : "other";
+    cyclingOnly(ride);
     checkMidway(ride);
     db.prepare(`
-      INSERT INTO rides (id, club_id, share_code, title, category, starts_at, meeting_point, map_url, meeting_point_2, meeting_at_2, map_url_2, distance_km, pace, notes, capacity, wa_group_jid, status, organiser_id, created_by, created_at, updated_at)
-      VALUES (@id, @club_id, @share_code, @title, @category, @starts_at, @meeting_point, @map_url, @meeting_point_2, @meeting_at_2, @map_url_2, @distance_km, @pace, @notes, @capacity, @wa_group_jid, @status, @organiser_id, @created_by, @created_at, @updated_at)
+      INSERT INTO rides (id, club_id, share_code, title, category, bike_type, ride_style, starts_at, meeting_point, map_url, meeting_point_2, meeting_at_2, map_url_2, distance_km, pace, notes, capacity, wa_group_jid, status, organiser_id, created_by, created_at, updated_at)
+      VALUES (@id, @club_id, @share_code, @title, @category, @bike_type, @ride_style, @starts_at, @meeting_point, @map_url, @meeting_point_2, @meeting_at_2, @map_url_2, @distance_km, @pace, @notes, @capacity, @wa_group_jid, @status, @organiser_id, @created_by, @created_at, @updated_at)
     `).run(ride);
     logActivity({ clubId, rideId: ride.id, actorType, actorId: userId, action: ride.status === "published" ? "created_published" : "created_draft" });
     if (ride.status === "published") { addLead(ride); enqueueRideEvent(ride, "ride_published"); }
@@ -201,6 +212,11 @@ export function updateRide(clubId, rideId, input, actorId = null) {
     const changes = {};
     if ("wa_group_jid" in input) input = { ...input, wa_group_jid: checkGroup(clubId, input.wa_group_jid) };
     for (const key of EDITABLE) if (key in input && input[key] !== ride[key]) changes[key] = input[key];
+    // Bike and style only belong to a cycling activity.
+    if (["category", "bike_type", "ride_style"].some((k) => k in changes)) {
+      const merged = cyclingOnly({ ...ride, ...changes });
+      for (const k of ["bike_type", "ride_style"]) { if (merged[k] !== ride[k]) changes[k] = merged[k]; else delete changes[k]; }
+    }
     if (["starts_at", "meeting_point_2", "meeting_at_2", "map_url_2"].some((k) => k in changes)) {
       const merged = checkMidway({ ...ride, ...changes });
       for (const k of ["meeting_point_2", "meeting_at_2", "map_url_2"]) { if (merged[k] !== ride[k]) changes[k] = merged[k]; else delete changes[k]; }
@@ -351,6 +367,8 @@ export function setRsvp(code, { userId = null, deviceHash = null, status, name =
 const rideFields = {
   title: { type: "string", minLength: 2, maxLength: 120 },
   category: { type: "string", enum: CATEGORIES },
+  bike_type: { type: ["string", "null"], enum: [...BIKE_TYPES, null] },
+  ride_style: { type: ["string", "null"], enum: [...RIDE_STYLES, null] },
   starts_at: { type: "string", format: "date-time" },
   meeting_point: { type: "string", minLength: 2, maxLength: 200 },
   map_url: { type: ["string", "null"], maxLength: 500, pattern: "^(https://.*)?$" },
